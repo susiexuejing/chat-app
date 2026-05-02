@@ -30,7 +30,7 @@ export function RoleHeader({
       className="px-4 py-3 border-b border-gray-200 dark:border-gray-700"
       style={{
         paddingTop: insets.top + 8,
-        backgroundColor: currentRole.accentColor + '08',
+        backgroundColor: currentRole.themeColor + '08',
       }}
     >
       <View className="flex-row items-center">
@@ -39,11 +39,11 @@ export function RoleHeader({
           <Image
             source={{ uri: currentRole.avatar }}
             className="w-12 h-12 rounded-full border-2"
-            style={{ borderColor: currentRole.accentColor }}
+            style={{ borderColor: currentRole.themeColor }}
           />
           <View
             className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full items-center justify-center"
-            style={{ backgroundColor: currentRole.accentColor }}
+            style={{ backgroundColor: currentRole.themeColor }}
           >
             <FontAwesome6 name="heart" size={10} color="white" />
           </View>
@@ -76,17 +76,17 @@ export function RoleHeader({
         <TouchableOpacity
           onPress={onSelectRole}
           className="px-3 py-2 rounded-full"
-          style={{ backgroundColor: currentRole.accentColor + '15' }}
+          style={{ backgroundColor: currentRole.themeColor + '15' }}
         >
           <View className="flex-row items-center">
             <FontAwesome6
               name="right-left"
               size={14}
-              color={currentRole.accentColor}
+              color={currentRole.themeColor}
             />
             <Text
               className="ml-1.5 text-sm font-medium"
-              style={{ color: currentRole.accentColor }}
+              style={{ color: currentRole.themeColor }}
             >
               切换
             </Text>

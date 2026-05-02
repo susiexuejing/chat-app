@@ -55,7 +55,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
 
   const getRoleColor = (roleId: string) => {
     const role = THERAPIST_ROLES.find(r => r.id === roleId);
-    return role?.accentColor || '#10B981';
+    return role?.themeColor || '#10B981';
   };
 
   const handleDelete = (session: ChatSession) => {

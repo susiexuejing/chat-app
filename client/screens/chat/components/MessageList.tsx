@@ -42,11 +42,11 @@ export function MessageList({ onSelectRole }: MessageListProps) {
         </Text>
         <View
           className="px-3 py-1 rounded-full mb-6"
-          style={{ backgroundColor: currentRole.accentColor + '15' }}
+          style={{ backgroundColor: currentRole.themeColor + '15' }}
         >
           <Text
             className="text-sm font-medium"
-            style={{ color: currentRole.accentColor }}
+            style={{ color: currentRole.themeColor }}
           >
             {currentRole.shortDesc}
           </Text>
@@ -60,12 +60,12 @@ export function MessageList({ onSelectRole }: MessageListProps) {
           <View className="flex-row items-center">
             <View
               className="w-10 h-10 rounded-full items-center justify-center mr-3"
-              style={{ backgroundColor: currentRole.accentColor + '15' }}
+              style={{ backgroundColor: currentRole.themeColor + '15' }}
             >
               <FontAwesome6
                 name="circle-info"
                 size={18}
-                color={currentRole.accentColor}
+                color={currentRole.themeColor}
               />
             </View>
             <View className="flex-1">

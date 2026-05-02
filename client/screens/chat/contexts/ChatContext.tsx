@@ -7,7 +7,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import { ChatRole, THERAPIST_ROLES, DEFAULT_ROLE } from '../constants/roles';
+import { ChatRole, THERAPIST_ROLES, DEFAULT_ROLE, getDefaultRoles, buildSystemPrompt } from '../constants/roles';
 import { ChatMessage, ChatSession, createMessage } from '../types';
 import {
   getChatSessions,
@@ -106,25 +106,40 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             name: string;
             title?: string;
             description?: string;
-            systemPrompt: string;
+            systemPrompt?: string;
             themeColor?: string;
             avatar?: string;
+            growthBackground?: string;
+            educationBackground?: string;
+            workBackground?: string;
+            counselingStyle?: {
+              approach: string;
+              techniques: string[];
+              personalityTraits: string[];
+              languageStyle: string;
+            };
+            classicQuotes?: string[];
           }) => ({
             id: role.id,
             name: role.name,
             avatar: role.avatar || 'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=200&h=200&fit=crop',
-            shortDesc: role.title || '',
+            shortDesc: role.title || role.name,
             fullDesc: role.description || '',
+            themeColor: role.themeColor || '#10B981',
             systemPrompt: role.systemPrompt,
-            accentColor: role.themeColor || '#10B981',
+            growthBackground: role.growthBackground,
+            educationBackground: role.educationBackground,
+            workBackground: role.workBackground,
+            counselingStyle: role.counselingStyle,
+            classicQuotes: role.classicQuotes,
           }));
           setRoles(convertedRoles);
         }
       }
     } catch (error) {
       console.error('Failed to load roles from server:', error);
-      // 使用默认角色列表
-      setRoles(THERAPIST_ROLES);
+      // 使用本地默认角色（需要导入）
+      setRoles(getDefaultRoles());
     }
   }, []);
   
@@ -239,7 +254,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        systemPrompt: currentRole.systemPrompt,
+        systemPrompt: buildSystemPrompt(currentRole),
         messages: chatHistory,
         model: 'qwen-plus',
       }),

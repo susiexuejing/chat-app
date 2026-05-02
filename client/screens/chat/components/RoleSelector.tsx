@@ -68,7 +68,7 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                     : 'bg-gray-50 dark:bg-gray-800/50'
                 }`}
                 style={{
-                  borderColor: currentRole.id === role.id ? role.accentColor : 'transparent',
+                  borderColor: currentRole.id === role.id ? role.themeColor : 'transparent',
                 }}
               >
                 <Image
@@ -83,11 +83,11 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                     {currentRole.id === role.id && (
                       <View
                         className="ml-2 px-2 py-0.5 rounded-full"
-                        style={{ backgroundColor: role.accentColor + '20' }}
+                        style={{ backgroundColor: role.themeColor + '20' }}
                       >
                         <Text
                           className="text-xs font-medium"
-                          style={{ color: role.accentColor }}
+                          style={{ color: role.themeColor }}
                         >
                           当前
                         </Text>

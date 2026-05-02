@@ -130,7 +130,7 @@ function ChatContent() {
         {isLoading && (
           <View className="absolute bottom-24 left-0 right-0 items-center">
             <View className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-full flex-row items-center">
-              <ActivityIndicator size="small" color={currentRole.accentColor} />
+              <ActivityIndicator size="small" color={currentRole.themeColor} />
               <Text className="ml-2 text-sm text-gray-500 dark:text-gray-400">
                 {currentRole.name} 正在思考...
               </Text>
