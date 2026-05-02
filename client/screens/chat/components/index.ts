@@ -8,3 +8,4 @@ export { RoleHeader } from './RoleHeader';
 export { MessageBubble } from './MessageBubble';
 export { MessageList } from './MessageList';
 export { MultimodalInput } from './MultimodalInput';
+export { HistoryList } from './HistoryList';

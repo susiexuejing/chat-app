@@ -16,6 +16,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string;
   roleId: string;
+  title?: string; // 对话标题，基于第一条用户消息
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;

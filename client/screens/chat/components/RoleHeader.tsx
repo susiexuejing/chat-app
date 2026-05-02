@@ -1,6 +1,6 @@
 /**
  * 角色头部组件
- * 显示当前选择的咨询师信息
+ * 显示当前选择的咨询师信息和操作按钮
  */
 
 import React from 'react';
@@ -12,9 +12,16 @@ import { useChat } from '../contexts/ChatContext';
 interface RoleHeaderProps {
   onSelectRole: () => void;
   onShowIntro: () => void;
+  onShowHistory: () => void;
+  hasHistory?: boolean;
 }
 
-export function RoleHeader({ onSelectRole, onShowIntro }: RoleHeaderProps) {
+export function RoleHeader({ 
+  onSelectRole, 
+  onShowIntro, 
+  onShowHistory,
+  hasHistory = false,
+}: RoleHeaderProps) {
   const { currentRole } = useChat();
   const insets = useSafeAreaInsets();
 
@@ -54,6 +61,16 @@ export function RoleHeader({ onSelectRole, onShowIntro }: RoleHeaderProps) {
             {currentRole.shortDesc}
           </Text>
         </TouchableOpacity>
+
+        {/* 历史按钮 */}
+        {hasHistory && (
+          <TouchableOpacity
+            onPress={onShowHistory}
+            className="w-10 h-10 items-center justify-center mr-2"
+          >
+            <FontAwesome6 name="clock-rotate-left" size={20} color="#6B7280" />
+          </TouchableOpacity>
+        )}
 
         {/* 切换按钮 */}
         <TouchableOpacity

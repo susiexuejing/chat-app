@@ -1,6 +1,6 @@
 /**
  * 多角色心理咨询对话主页
- * 支持角色切换、文本/语音/图片多模态输入
+ * 支持角色切换、文本/语音/图片多模态输入、历史对话管理
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -8,6 +8,7 @@ import {
   View,
   ActivityIndicator,
   Text,
+  Modal,
 } from 'react-native';
 import { Screen } from '@/components/Screen';
 import {
@@ -16,6 +17,7 @@ import {
   RoleHeader,
   MessageList,
   MultimodalInput,
+  HistoryList,
 } from './components';
 import { ChatProvider, useChat } from './contexts/ChatContext';
 
@@ -27,6 +29,11 @@ function ChatContent() {
     addAssistantMessage,
     isLoading,
     setIsLoading,
+    showHistory,
+    setShowHistory,
+    createNewChat,
+    currentSession,
+    sessions,
   } = useChat();
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
@@ -86,9 +93,9 @@ function ChatContent() {
     [messages, sendMessage, currentRole, addAssistantMessage, setIsLoading]
   );
 
-  // 显示角色简介（首次进入时）
+  // 显示角色简介（首次进入或无历史时）
   useEffect(() => {
-    if (messages.length === 0) {
+    if (messages.length === 0 && sessions.length === 0) {
       const timer = setTimeout(() => {
         setIntroModalVisible(true);
       }, 500);
@@ -98,10 +105,21 @@ function ChatContent() {
 
   return (
     <Screen className="bg-white dark:bg-gray-900">
+      {/* 历史对话列表（Modal 形式） */}
+      <Modal
+        visible={showHistory}
+        animationType="slide"
+        presentationStyle="fullScreen"
+      >
+        <HistoryList onClose={() => setShowHistory(false)} />
+      </Modal>
+
       {/* 角色头部 */}
       <RoleHeader
         onSelectRole={() => setRoleSelectorVisible(true)}
         onShowIntro={() => setIntroModalVisible(true)}
+        onShowHistory={() => setShowHistory(true)}
+        hasHistory={sessions.length > 0}
       />
 
       {/* 消息列表 */}
@@ -138,7 +156,13 @@ function ChatContent() {
         visible={introModalVisible}
         role={currentRole}
         onClose={() => setIntroModalVisible(false)}
-        onStartChat={() => setIntroModalVisible(false)}
+        onStartChat={() => {
+          setIntroModalVisible(false);
+          // 如果是首次进入且没有会话，创建新会话
+          if (!currentSession) {
+            createNewChat();
+          }
+        }}
       />
     </Screen>
   );
