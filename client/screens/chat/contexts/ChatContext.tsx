@@ -7,6 +7,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import Constants from 'expo-constants';
 import { ChatRole, THERAPIST_ROLES, DEFAULT_ROLE, getDefaultRoles, buildSystemPrompt } from '../constants/roles';
 import { ChatMessage, ChatSession, createMessage } from '../types';
 import {
@@ -18,7 +19,19 @@ import {
 } from '../stores/sessionStore';
 import RNSSE, { MessageEvent, ErrorEvent, EventSource } from 'react-native-sse';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
+// 使用 Expo Constants 读取环境变量
+const getApiBaseUrl = (): string => {
+  try {
+    // @ts-ignore - Expo 配置的环境变量
+    return Constants.expoConfig?.extra?.backendBaseUrl || 
+           process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 
+           'http://localhost:9091';
+  } catch {
+    return process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
+  }
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 interface ChatContextValue {
   // 当前角色

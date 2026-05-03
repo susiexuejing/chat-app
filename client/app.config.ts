@@ -71,6 +71,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091'
     }
   }
 }
