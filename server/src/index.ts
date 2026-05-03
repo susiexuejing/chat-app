@@ -197,7 +197,7 @@ app.post('/api/v1/chat/stream', async (req, res) => {
  * GET /api/v1/roles
  * 返回所有可用的心理咨询师角色配置
  */
-import { PSYCHOLOGIST_ROLES, buildSystemPrompt } from './roles/psychologistRoles';
+import { PSYCHOLOGIST_ROLES } from './roles/psychologistRoles';
 
 app.get('/api/v1/roles', (req, res) => {
   // 返回角色列表（不含 systemPrompt，让前端自己处理）

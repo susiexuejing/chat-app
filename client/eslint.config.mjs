@@ -134,4 +134,12 @@ export default [
       'no-undef': 'off',
     },
   },
+
+  // 角色配置文件允许使用 emoji（用于动物头像）
+  {
+    files: ["screens/chat/constants/roles.ts"],
+    rules: {
+      'forbidEmoji/no-emoji': 'off',
+    },
+  },
 ];
