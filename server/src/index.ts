@@ -205,6 +205,169 @@ app.get('/api/v1/roles', (req, res) => {
   res.json({ roles });
 });
 
+/**
+ * Coze API 代理接口（SSE 流式）
+ * POST /api/v1/coze/chat
+ * Body: {
+ *   botId: string,
+ *   userId: string,
+ *   query: string,
+ *   conversationId?: string
+ * }
+ */
+const COZE_API_BASE = 'https://api.coze.cn';
+const COZE_API_TOKEN = process.env.COZE_API_TOKEN || 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
+
+app.post('/api/v1/coze/chat', async (req, res) => {
+  const { botId, userId, query } = req.body;
+
+  if (!botId || !userId || !query) {
+    return res.status(400).json({ error: 'Missing required parameters: botId, userId, query' });
+  }
+
+  // 设置 SSE 响应头
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  try {
+    // 调用 Coze API 创建对话（流式）
+    const createResponse = await fetch(`${COZE_API_BASE}/v3/chat`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${COZE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bot_id: botId,
+        user_id: userId,
+        stream: true,
+        auto_save_history: true,
+        additional_messages: [
+          {
+            role: 'user',
+            content: query,
+            content_type: 'text',
+          },
+        ],
+      }),
+    });
+
+    if (!createResponse.ok) {
+      const errorText = await createResponse.text();
+      console.error('Coze API error:', createResponse.status, errorText);
+      res.write(`data: ${JSON.stringify({ error: 'Coze API error', details: errorText })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // 直接将 Coze 的流式响应转发给客户端
+    const reader = createResponse.body?.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    if (!reader) {
+      res.write(`data: ${JSON.stringify({ error: 'No response body' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // 持续读取并转发流
+    const processStream = async () => {
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          
+          if (done) {
+            res.write('data: [DONE]\n\n');
+            res.end();
+            break;
+          }
+
+          // 解码数据
+          const chunk = decoder.decode(value, { stream: true });
+          buffer += chunk;
+
+          // 处理 SSE 事件（Coze 格式: event:xxx\ndata:{...}\n\n）
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            // 解析 event: 头
+            if (line.startsWith('event:')) {
+              // 跳过 event 行
+              continue;
+            }
+            
+            // 解析 data: 内容
+            if (line.startsWith('data:')) {
+              const dataStr = line.slice(5).trim();
+              
+              // 跳过空数据
+              if (!dataStr) continue;
+
+              // 检查是否是结束标记
+              if (dataStr === '[DONE]') {
+                res.write('data: [DONE]\n\n');
+                res.end();
+                return;
+              }
+
+              // 尝试解析 Coze 的响应数据
+              try {
+                const cozeData = JSON.parse(dataStr);
+                
+                // Coze 流式响应的数据结构
+                // { type: "message", role: "assistant", content: "...", ... }
+                // { type: "message", role: "assistant", content_type: "text", content: "...", reasoning_content: "..." }
+                
+                if (cozeData.type === 'message' || cozeData.type === 'answer') {
+                  // 提取内容（优先使用 reasoning_content，其次使用 content）
+                  let content = cozeData.reasoning_content || cozeData.content || '';
+                  
+                  if (content) {
+                    // 发送到客户端
+                    res.write(`data: ${JSON.stringify({ type: 'message', content })}\n\n`);
+                  }
+                } else if (cozeData.type === 'conversation.message.delta') {
+                  // 另一种可能的格式
+                  let content = cozeData.content || cozeData.delta || '';
+                  if (content) {
+                    res.write(`data: ${JSON.stringify({ type: 'message', content })}\n\n`);
+                  }
+                }
+              } catch (parseErr) {
+                // 如果解析失败，尝试直接发送原数据
+                if (dataStr && dataStr !== '[DONE]') {
+                  console.log('Failed to parse Coze data:', dataStr.substring(0, 100));
+                }
+              }
+            }
+          }
+        }
+      } catch (streamErr) {
+        console.error('Stream processing error:', streamErr);
+        res.write(`data: ${JSON.stringify({ error: 'Stream error', message: String(streamErr) })}\n\n`);
+        res.end();
+      }
+    };
+
+    processStream();
+
+    // 处理客户端断开连接
+    req.on('close', () => {
+      reader.cancel();
+      res.end();
+    });
+
+  } catch (error) {
+    console.error('Coze proxy error:', error);
+    res.write(`data: ${JSON.stringify({ error: 'Proxy error', message: String(error) })}\n\n`);
+    res.end();
+  }
+});
+
 app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}/`);
   console.log(`DashScope API configured with model: ${DEFAULT_MODEL}`);

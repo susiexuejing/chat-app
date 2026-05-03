@@ -1,16 +1,16 @@
 /**
- * Coze API Client
- * 用于对接 Coze 平台的 Bot API
+ * Coze API Client (通过后端代理)
  * 
- * Coze SSE 事件格式：
- * event:conversation.message.delta
- * data:{"type":"answer","content":"","reasoning_content":"我",...}
+ * 由于浏览器 CORS 限制，前端不能直接调用 Coze API
+ * 所以通过我们自己的 Express 后端进行代理转发
  */
 
 import RNSSE from 'react-native-sse';
+import Constants from 'expo-constants';
 
-const COZE_API_BASE = 'https://api.coze.cn';
-const COZE_API_TOKEN = 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
+// 后端代理地址
+const BACKEND_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
+const COZE_PROXY_URL = `${BACKEND_BASE_URL}/api/v1/coze/chat`;
 
 export interface CozeResponse {
   conversation_id: string;
@@ -19,7 +19,7 @@ export interface CozeResponse {
 }
 
 /**
- * React Native 环境下的流式处理
+ * 通过后端代理调用 Coze API
  */
 export async function chatWithCoze(
   botId: string,
@@ -27,219 +27,151 @@ export async function chatWithCoze(
   conversationId?: string,
   onChunk?: (text: string) => void,
 ): Promise<CozeResponse> {
-  const userId = 'user_psychology_app';
-
-  const requestBody: Record<string, any> = {
-    bot_id: botId,
-    user_id: userId,
-    stream: true,
-    auto_save_history: true,
-    additional_messages: [
-      {
-        role: 'user',
-        content: message,
-        content_type: 'text',
-      },
-    ],
-  };
-
-  if (conversationId) {
-    requestBody.conversation_id = conversationId;
-  }
+  const userId = `user_${Date.now()}`;
 
   return new Promise((resolve, reject) => {
-    let conversationIdResult = '';
-    let chatCompleted = false;
+    let conversationIdResult = conversationId || '';
+    let resolved = false;
 
-    const sse = new RNSSE(`${COZE_API_BASE}/v3/chat`, {
+    const sse = new RNSSE(COZE_PROXY_URL, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${COZE_API_TOKEN}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody),
+      body: JSON.stringify({
+        botId,
+        userId,
+        query: message,
+        conversationId,
+      }),
     });
 
-    // Coze API 使用标准的 message 事件
     sse.addEventListener('message', (event: any) => {
       try {
         const rawData = event.data;
-        
+
         // 检查是否是结束标记
         if (rawData === '[DONE]') {
-          chatCompleted = true;
-          resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
+          if (!resolved) {
+            resolved = true;
+            resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
+          }
+          sse.close();
           return;
         }
 
-        // 解析 Coze 的 SSE 数据格式
-        // Coze 发送的格式是：event:xxx\ndata:{...}\n
-        // react-native-sse 会把整个消息作为 data 发送
-        
-        let eventType = '';
-        let jsonData = rawData;
+        // 解析代理返回的数据
+        const data = JSON.parse(rawData);
 
-        // 检查是否包含 event: 前缀（有些 SSE 实现会包含）
-        if (rawData.startsWith('event:')) {
-          const parts = rawData.split('\n');
-          for (const part of parts) {
-            if (part.startsWith('event:')) {
-              eventType = part.slice(6).trim();
-            } else if (part.startsWith('data:')) {
-              jsonData = part.slice(5).trim();
-            }
+        if (data.type === 'chat_created') {
+          // 保存 conversation ID
+          conversationIdResult = data.conversationId;
+        } else if (data.type === 'message' && data.content) {
+          // 收到消息内容块
+          onChunk?.(data.content);
+        } else if (data.error) {
+          // 错误处理
+          console.error('Coze proxy error:', data);
+          if (!resolved) {
+            resolved = true;
+            reject(new Error(data.error || 'Unknown error'));
           }
-        }
-
-        const data = JSON.parse(jsonData);
-        
-        // 从数据中提取 conversation_id
-        if (data.conversation_id) {
-          conversationIdResult = data.conversation_id;
-        }
-
-        // 检查是否是消息 delta 事件
-        // Coze 使用 type 字段来区分消息类型
-        if (data.type === 'answer' || data.type === 'follow_up' || eventType.includes('message.delta')) {
-          // 优先使用 reasoning_content（思维链），否则使用 content
-          const text = data.reasoning_content || data.content || '';
-          
-          if (text && onChunk) {
-            onChunk(text);
-          }
-        }
-
-        // 检查对话是否完成
-        if (data.status === 'completed' || eventType.includes('chat.completed')) {
-          chatCompleted = true;
-          resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
+          sse.close();
         }
       } catch (e) {
-        // 忽略解析错误
+        console.error('Parse error:', e);
       }
     });
 
-    sse.addEventListener('error', (error: any) => {
-      console.error('SSE error:', error);
-      if (!chatCompleted) {
+    sse.addEventListener('error', (event: any) => {
+      console.error('SSE error:', event);
+      if (!resolved) {
+        resolved = true;
         reject(new Error('SSE connection error'));
       }
     });
 
     sse.addEventListener('close', () => {
-      console.log('SSE connection closed');
+      if (!resolved) {
+        resolved = true;
+        resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
+      }
     });
 
-    // 超时处理（3分钟）
+    // 超时保护：3分钟
     setTimeout(() => {
-      if (!chatCompleted) {
+      if (!resolved) {
+        resolved = true;
         sse.close();
-        resolve({ conversation_id: conversationIdResult, code: 0, msg: 'timeout' });
+        reject(new Error('Request timeout'));
       }
     }, 180000);
   });
 }
 
 /**
- * 非流式对话接口（备用方案）
+ * 非流式版本（备用）
  */
 export async function chatWithCozeSync(
   botId: string,
   message: string,
   conversationId?: string,
 ): Promise<{ content: string; conversationId: string }> {
-  const userId = 'user_psychology_app';
+  const userId = `user_${Date.now()}`;
 
-  const requestBody: Record<string, any> = {
-    bot_id: botId,
-    user_id: userId,
-    stream: false,
-    auto_save_history: true,
-    additional_messages: [
-      {
-        role: 'user',
-        content: message,
-        content_type: 'text',
-      },
-    ],
-  };
-
-  if (conversationId) {
-    requestBody.conversation_id = conversationId;
-  }
-
-  // 创建对话
-  const createResponse = await fetch(`${COZE_API_BASE}/v3/chat`, {
+  const response = await fetch(COZE_PROXY_URL.replace('/chat', '/chat'), {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${COZE_API_TOKEN}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(requestBody),
+    body: JSON.stringify({
+      botId,
+      userId,
+      query: message,
+      conversationId,
+    }),
   });
 
-  if (!createResponse.ok) {
-    throw new Error(`HTTP error: ${createResponse.status}`);
+  if (!response.ok) {
+    throw new Error(`HTTP error: ${response.status}`);
   }
 
-  const createData = await createResponse.json();
-  
-  if (createData.code !== 0) {
-    throw new Error(createData.msg || 'API error');
-  }
+  let fullContent = '';
+  let convId = conversationId || '';
 
-  const chatId = createData.data.id;
-  const newConversationId = createData.data.conversation_id;
+  // 解析 SSE 流
+  const reader = response.body?.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
 
-  // 轮询获取结果（最多等待 60 秒）
-  const maxAttempts = 60;
-  let attempts = 0;
-  
-  while (attempts < maxAttempts) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const statusResponse = await fetch(
-      `${COZE_API_BASE}/v3/chat/retrieve?chat_id=${chatId}&conversation_id=${newConversationId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${COZE_API_TOKEN}`,
-        },
-      }
-    );
-    
-    const statusData = await statusResponse.json();
-    
-    if (statusData.data?.status === 'completed') {
-      // 获取消息列表
-      const messagesResponse = await fetch(
-        `${COZE_API_BASE}/v3/chat/message/list?chat_id=${chatId}&conversation_id=${newConversationId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${COZE_API_TOKEN}`,
-          },
+  while (reader) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        if (data === '[DONE]') {
+          return { content: fullContent, conversationId: convId };
         }
-      );
-      
-      const messagesData = await messagesResponse.json();
-      
-      // 找到 assistant 的最终回复
-      const assistantMessages = messagesData.data?.filter(
-        (m: any) => m.role === 'assistant' && m.type === 'answer'
-      );
-      
-      if (assistantMessages && assistantMessages.length > 0) {
-        const lastMessage = assistantMessages[assistantMessages.length - 1];
-        return {
-          content: lastMessage.content || '',
-          conversationId: newConversationId,
-        };
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.conversationId) {
+            convId = parsed.conversationId;
+          }
+          if (parsed.content) {
+            fullContent += parsed.content;
+          }
+        } catch (e) {
+          // ignore
+        }
       }
-      
-      return { content: '', conversationId: newConversationId };
     }
-    
-    attempts++;
   }
 
-  throw new Error('Timeout waiting for response');
+  return { content: fullContent, conversationId: convId };
 }
