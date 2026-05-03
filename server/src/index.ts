@@ -219,11 +219,24 @@ const COZE_API_BASE = 'https://api.coze.cn';
 const COZE_API_TOKEN = process.env.COZE_API_TOKEN || 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
 
 app.post('/api/v1/coze/chat', async (req, res) => {
-  const { botId, userId, query } = req.body;
+  const { botId, userId, query, roleName } = req.body;
 
   if (!botId || !userId || !query) {
     return res.status(400).json({ error: 'Missing required parameters: botId, userId, query' });
   }
+
+  // 百炼 API 配置
+  const apiKey = process.env.DASHSCOPE_API_KEY || 'sk-dcdaf744a6644e2890ac7d4f9ecb2d9f';
+  const modelName = 'qwen3-omni-flash';
+
+  // 构造包含百炼 API 调用参数的消息
+  const formattedQuery = `我需要调用百炼 API，参数为：
+- 任务标题（title）：${roleName || '心理咨询对话'}
+- 待处理内容（input_content）：${query}
+- 目标模型名称（model_name）：${modelName}
+- API 密钥（api_key）：${apiKey}
+
+请帮我调用百炼 API 处理这段对话内容。`;
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -247,7 +260,7 @@ app.post('/api/v1/coze/chat', async (req, res) => {
         additional_messages: [
           {
             role: 'user',
-            content: query,
+            content: formattedQuery,
             content_type: 'text',
           },
         ],
