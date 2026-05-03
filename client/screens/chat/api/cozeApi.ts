@@ -1,14 +1,16 @@
 /**
  * Coze API Client
  * 用于对接 Coze 平台的 Bot API
- * 使用 react-native-sse 处理流式响应
+ * 
+ * Coze SSE 事件格式：
+ * event:conversation.message.delta
+ * data:{"type":"answer","content":"","reasoning_content":"我",...}
  */
 
 import RNSSE from 'react-native-sse';
 
 const COZE_API_BASE = 'https://api.coze.cn';
 const COZE_API_TOKEN = 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
-const BOT_ID = '7635592039983644682';
 
 export interface CozeResponse {
   conversation_id: string;
@@ -16,7 +18,9 @@ export interface CozeResponse {
   msg: string;
 }
 
-// 流式对话接口
+/**
+ * React Native 环境下的流式处理
+ */
 export async function chatWithCoze(
   botId: string,
   message: string,
@@ -25,22 +29,27 @@ export async function chatWithCoze(
 ): Promise<CozeResponse> {
   const userId = 'user_psychology_app';
 
+  const requestBody: Record<string, any> = {
+    bot_id: botId,
+    user_id: userId,
+    stream: true,
+    auto_save_history: true,
+    additional_messages: [
+      {
+        role: 'user',
+        content: message,
+        content_type: 'text',
+      },
+    ],
+  };
+
+  if (conversationId) {
+    requestBody.conversation_id = conversationId;
+  }
+
   return new Promise((resolve, reject) => {
-    let fullContent = '';
-    let responseConversationId: string | null = null;
-
-    const requestBody: Record<string, any> = {
-      bot_id: botId,
-      user_id: userId,
-      query: message,
-      stream: true,
-      auto_save_history: true,
-    };
-
-    // 如果有 conversationId，添加到请求中
-    if (conversationId) {
-      requestBody.conversation_id = conversationId;
-    }
+    let conversationIdResult = '';
+    let chatCompleted = false;
 
     const sse = new RNSSE(`${COZE_API_BASE}/v3/chat`, {
       method: 'POST',
@@ -51,73 +60,89 @@ export async function chatWithCoze(
       body: JSON.stringify(requestBody),
     });
 
-    sse.addEventListener('open', () => {
-      console.log('SSE connection opened');
-    });
-
-    sse.addEventListener('message', (event) => {
+    // Coze API 使用标准的 message 事件
+    sse.addEventListener('message', (event: any) => {
       try {
-        if (event.data === '[DONE]') {
-          sse.close();
-          resolve({
-            conversation_id: responseConversationId || '',
-            code: 0,
-            msg: 'success',
-          });
+        const rawData = event.data;
+        
+        // 检查是否是结束标记
+        if (rawData === '[DONE]') {
+          chatCompleted = true;
+          resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
           return;
         }
 
-        const data = JSON.parse(event.data);
+        // 解析 Coze 的 SSE 数据格式
+        // Coze 发送的格式是：event:xxx\ndata:{...}\n
+        // react-native-sse 会把整个消息作为 data 发送
         
-        // 保存 conversation_id
-        if (data.data?.conversation_id) {
-          responseConversationId = data.data.conversation_id;
-        }
-        
-        // 跳过状态消息
-        if (data.event === 'conversation.chat.created' || 
-            data.event === 'conversation.chat.in_progress' ||
-            data.event === 'conversation.chat.completed') {
-          return;
-        }
-        
-        // 消息内容
-        if (data.event === 'conversation.message.delta') {
-          const content = data.data?.content || '';
-          const reasoning = data.data?.reasoning_content || '';
-          
-          // 优先使用思考内容
-          const text = reasoning || content;
-          if (text) {
-            fullContent += text;
-            onChunk?.(text);
+        let eventType = '';
+        let jsonData = rawData;
+
+        // 检查是否包含 event: 前缀（有些 SSE 实现会包含）
+        if (rawData.startsWith('event:')) {
+          const parts = rawData.split('\n');
+          for (const part of parts) {
+            if (part.startsWith('event:')) {
+              eventType = part.slice(6).trim();
+            } else if (part.startsWith('data:')) {
+              jsonData = part.slice(5).trim();
+            }
           }
+        }
+
+        const data = JSON.parse(jsonData);
+        
+        // 从数据中提取 conversation_id
+        if (data.conversation_id) {
+          conversationIdResult = data.conversation_id;
+        }
+
+        // 检查是否是消息 delta 事件
+        // Coze 使用 type 字段来区分消息类型
+        if (data.type === 'answer' || data.type === 'follow_up' || eventType.includes('message.delta')) {
+          // 优先使用 reasoning_content（思维链），否则使用 content
+          const text = data.reasoning_content || data.content || '';
+          
+          if (text && onChunk) {
+            onChunk(text);
+          }
+        }
+
+        // 检查对话是否完成
+        if (data.status === 'completed' || eventType.includes('chat.completed')) {
+          chatCompleted = true;
+          resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
         }
       } catch (e) {
         // 忽略解析错误
       }
     });
 
-    sse.addEventListener('error', (error) => {
+    sse.addEventListener('error', (error: any) => {
       console.error('SSE error:', error);
-      reject(new Error('SSE connection error'));
+      if (!chatCompleted) {
+        reject(new Error('SSE connection error'));
+      }
     });
 
     sse.addEventListener('close', () => {
       console.log('SSE connection closed');
     });
 
-    // 超时处理
+    // 超时处理（3分钟）
     setTimeout(() => {
-      if (fullContent === '' && !responseConversationId) {
+      if (!chatCompleted) {
         sse.close();
-        reject(new Error('Request timeout'));
+        resolve({ conversation_id: conversationIdResult, code: 0, msg: 'timeout' });
       }
-    }, 60000);
+    }, 180000);
   });
 }
 
-// 非流式对话接口（备用）
+/**
+ * 非流式对话接口（备用方案）
+ */
 export async function chatWithCozeSync(
   botId: string,
   message: string,
@@ -164,60 +189,55 @@ export async function chatWithCozeSync(
   }
 
   const chatId = createData.data.id;
-  const convId = createData.data.conversation_id;
+  const newConversationId = createData.data.conversation_id;
 
-  // 轮询获取结果
+  // 轮询获取结果（最多等待 60 秒）
   const maxAttempts = 60;
   let attempts = 0;
-
+  
   while (attempts < maxAttempts) {
     await new Promise(resolve => setTimeout(resolve, 1000));
-
-    const retrieveResponse = await fetch(
-      `${COZE_API_BASE}/v3/chat/retrieve?chat_id=${chatId}&conversation_id=${convId}`,
+    
+    const statusResponse = await fetch(
+      `${COZE_API_BASE}/v3/chat/retrieve?chat_id=${chatId}&conversation_id=${newConversationId}`,
       {
         headers: {
           'Authorization': `Bearer ${COZE_API_TOKEN}`,
-          'Content-Type': 'application/json',
         },
       }
     );
-
-    if (!retrieveResponse.ok) {
-      throw new Error(`HTTP error: ${retrieveResponse.status}`);
-    }
-
-    const retrieveData = await retrieveResponse.json();
-
-    if (retrieveData.data?.status === 'completed') {
-      // 获取消息
+    
+    const statusData = await statusResponse.json();
+    
+    if (statusData.data?.status === 'completed') {
+      // 获取消息列表
       const messagesResponse = await fetch(
-        `${COZE_API_BASE}/v3/chat/message/list?chat_id=${chatId}&conversation_id=${convId}`,
+        `${COZE_API_BASE}/v3/chat/message/list?chat_id=${chatId}&conversation_id=${newConversationId}`,
         {
           headers: {
             'Authorization': `Bearer ${COZE_API_TOKEN}`,
-            'Content-Type': 'application/json',
           },
         }
       );
-
-      if (!messagesResponse.ok) {
-        throw new Error(`HTTP error: ${messagesResponse.status}`);
-      }
-
+      
       const messagesData = await messagesResponse.json();
-      const assistantMessage = messagesData.data?.find(
+      
+      // 找到 assistant 的最终回复
+      const assistantMessages = messagesData.data?.filter(
         (m: any) => m.role === 'assistant' && m.type === 'answer'
       );
-
-      return {
-        content: assistantMessage?.content || '',
-        conversationId: convId,
-      };
-    } else if (retrieveData.data?.status === 'failed') {
-      throw new Error('Chat failed');
+      
+      if (assistantMessages && assistantMessages.length > 0) {
+        const lastMessage = assistantMessages[assistantMessages.length - 1];
+        return {
+          content: lastMessage.content || '',
+          conversationId: newConversationId,
+        };
+      }
+      
+      return { content: '', conversationId: newConversationId };
     }
-
+    
     attempts++;
   }
 
