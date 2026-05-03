@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import dotenv from 'dotenv';
+dotenv.config(); // 加载 .env 环境变量
 
 const app = express();
 const port = process.env.PORT || 9091;
