@@ -7,6 +7,7 @@ import React, { useRef, useEffect } from 'react';
 import { View, ScrollView, Text, Image } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { useChat } from '../contexts/ChatContext';
+import { ChatMessage } from '../types';
 import { FontAwesome6 } from '@expo/vector-icons';
 
 interface MessageListProps {
@@ -102,7 +103,7 @@ export function MessageList({ onSelectRole }: MessageListProps) {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }}
     >
-      {messages.map((message) => (
+      {messages.map((message: ChatMessage) => (
         <MessageBubble key={message.id} message={message} />
       ))}
     </ScrollView>

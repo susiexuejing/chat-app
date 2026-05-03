@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
-import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { chatWithCoze } from '../api/cozeApi';
+import { chatWithDashScope } from '../api/cozeApi';
 import { getDefaultRoles, PsychologistRole } from '../constants/roles';
 import { ChatMessage, ChatSession } from '../types';
 
@@ -21,18 +20,6 @@ export interface ChatContextType {
   sendMessage: (content: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<void>;
 }
-
-// Coze Bot 配置
-const COZE_BOT_ID = '7635592039983644682';
-
-// 获取 Coze API Token
-function getCozeToken(): string {
-  const configToken = Constants.expoConfig?.extra?.cozeToken;
-  if (configToken) return configToken;
-  return 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
-}
-
-const COZE_TOKEN = getCozeToken();
 
 // 获取会话列表（从 AsyncStorage）
 async function getChatSessions(): Promise<ChatSession[]> {
@@ -108,6 +95,11 @@ const emptyContext: ChatContextType = {
 
 export const ChatContext = createContext<ChatContextType>(emptyContext);
 
+// 导出 useChat hook
+export function useChat() {
+  return useContext(ChatContext);
+}
+
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -118,8 +110,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Coze 会话 ID
-  const conversationIdRef = useRef<string | null>(null);
   // 保存定时器
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -153,7 +143,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const newSession = await createNewSession(currentRole);
     setCurrentSession(newSession);
     setMessages([]);
-    conversationIdRef.current = null;
     
     const loadedSessions = await getChatSessions();
     setSessions(loadedSessions);
@@ -163,7 +152,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const loadSession = useCallback((session: ChatSession) => {
     setCurrentSession(session);
     setMessages(session.messages || []);
-    conversationIdRef.current = null;
     
     // 设置对应的角色
     const role = roles.find(r => r.id === session.roleId);
@@ -226,11 +214,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setMessages(prev => [...prev, assistantMessage]);
     
     try {
-      // 调用 Coze API
-      const response = await chatWithCoze(
-        COZE_BOT_ID,
-        content,
-        conversationIdRef.current || undefined,
+      // 调用百炼 API（直接通过后端）
+      await chatWithDashScope(
+        currentRole.systemPrompt,
+        messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        currentRole.name,
         (chunk: string) => {
           setMessages(prev => {
             const lastMsg = prev[prev.length - 1];
@@ -246,63 +234,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
       );
       
-      // 保存会话 ID
-      if (response && response.conversation_id) {
-        conversationIdRef.current = response.conversation_id;
-      }
-      
       // 保存消息到本地
       debouncedSaveMessages(session.id, newMessages);
       
     } catch (error: any) {
       console.error('Failed to send message:', error);
       setError(error.message || '发送失败，请稍后再试');
-      
-      // 替换最后的空消息为错误消息
-      setMessages(prev => {
-        const lastMsg = prev[prev.length - 1];
-        if (lastMsg && lastMsg.role === 'assistant') {
-          return prev.map((m, i) => 
-            i === prev.length - 1 
-              ? { ...m, content: `抱歉，发生了错误：${error.message || '请稍后再试'}` }
-              : m
-          );
-        }
-        return prev;
-      });
     } finally {
       setIsLoading(false);
     }
-    
-  }, [currentRole, currentSession, messages, debouncedSaveMessages]);
-
-  const value: ChatContextType = {
-    messages,
-    inputText,
-    setInputText,
-    roles,
-    currentRole,
-    currentSession,
-    sessions,
-    isLoading,
-    error,
-    createNewChat,
-    loadSession,
-    sendMessage,
-    deleteSession: deleteSessionFn,
-  };
+  }, [messages, currentRole, currentSession, debouncedSaveMessages]);
 
   return (
-    <ChatContext.Provider value={value}>
+    <ChatContext.Provider
+      value={{
+        messages,
+        inputText,
+        setInputText,
+        currentRole,
+        roles,
+        currentSession,
+        sessions,
+        isLoading,
+        error,
+        createNewChat,
+        loadSession,
+        sendMessage,
+        deleteSession: deleteSessionFn,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );
-}
-
-export function useChat() {
-  const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
-  return context;
 }

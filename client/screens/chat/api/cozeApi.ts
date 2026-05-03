@@ -1,23 +1,22 @@
 /**
- * Coze API Client (通过后端代理)
+ * 百炼 API 客户端（通过后端代理）
  * 
- * 由于浏览器 CORS 限制，前端不能直接调用 Coze API
- * 所以通过我们自己的 Express 后端进行代理转发
- * 
+ * 后端直接调用百炼 API，前端通过 SSE 流式获取响应
  * 自动适配 Web 和 React Native 环境
  */
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-// 后端代理地址
+// 后端地址
 const BACKEND_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
-const COZE_PROXY_URL = `${BACKEND_BASE_URL}/api/v1/coze/chat`;
+const STREAM_API_URL = `${BACKEND_BASE_URL}/api/v1/chat/stream`;
 
-export interface CozeResponse {
-  conversation_id: string;
-  code: number;
-  msg: string;
+export interface ChatRequest {
+  role: string;
+  systemPrompt: string;
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  model?: string;
 }
 
 // 动态导入 react-native-sse（仅在原生环境使用）
@@ -31,54 +30,47 @@ if (Platform.OS !== 'web') {
 }
 
 /**
- * 通过后端代理调用 Coze API
- * Web 环境使用 fetch + ReadableStream
- * React Native 环境使用 react-native-sse
+ * 通过后端调用百炼 API（流式）
  */
-export async function chatWithCoze(
-  botId: string,
-  message: string,
-  conversationId?: string,
+export async function chatWithDashScope(
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  roleName: string,
   onChunk?: (text: string) => void,
-): Promise<CozeResponse> {
-  const userId = `user_${Date.now()}`;
-
+): Promise<void> {
   if (Platform.OS === 'web') {
-    // Web 环境：使用 fetch API
-    return chatWithCozeWeb(botId, message, conversationId, onChunk);
+    await chatWeb(systemPrompt, messages, roleName, onChunk);
   } else {
-    // React Native 环境：使用 react-native-sse
-    return chatWithCozeNative(botId, message, conversationId, onChunk);
+    await chatNative(systemPrompt, messages, roleName, onChunk);
   }
 }
 
 /**
- * Web 环境实现
+ * Web 环境实现：使用 fetch + ReadableStream
  */
-async function chatWithCozeWeb(
-  botId: string,
-  message: string,
-  conversationId?: string,
+async function chatWeb(
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  roleName: string,
   onChunk?: (text: string) => void,
-): Promise<CozeResponse> {
-  const userId = `user_${Date.now()}`;
-  
+): Promise<void> {
   try {
-    const response = await fetch(COZE_PROXY_URL, {
+    const response = await fetch(STREAM_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        botId,
-        userId,
-        query: message,
-        conversationId,
+        role: roleName,
+        systemPrompt,
+        messages,
+        model: 'qwen-plus',
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
     }
 
     const reader = response.body?.getReader();
@@ -86,42 +78,27 @@ async function chatWithCozeWeb(
       throw new Error('No response body');
     }
 
-    let conversationIdResult = conversationId || '';
     const decoder = new TextDecoder();
     let buffer = '';
 
     while (true) {
       const { done, value } = await reader.read();
-      
-      if (done) {
-        break;
-      }
+      if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      
-      // 按行分割处理 SSE 事件
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
       for (const line of lines) {
-        const trimmed = line.trim();
-        
-        if (trimmed === 'data: [DONE]') {
-          return { conversation_id: conversationIdResult, code: 0, msg: 'success' };
-        }
-        
-        if (trimmed.startsWith('data: ')) {
-          const dataStr = trimmed.slice(6);
-          
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            return;
+          }
           try {
-            const data = JSON.parse(dataStr);
-            
-            if (data.type === 'chat_created') {
-              conversationIdResult = data.conversationId;
-            } else if (data.type === 'message' && data.content) {
-              onChunk?.(data.content);
-            } else if (data.error) {
-              throw new Error(data.error);
+            const parsed = JSON.parse(data);
+            if (parsed.content) {
+              onChunk?.(parsed.content);
             }
           } catch (e) {
             // 忽略解析错误
@@ -129,184 +106,101 @@ async function chatWithCozeWeb(
         }
       }
     }
-
-    return { conversation_id: conversationIdResult, code: 0, msg: 'success' };
-  } catch (error: any) {
-    console.error('SSE error:', error);
-    throw new Error(error.message || 'SSE connection error');
+  } catch (error) {
+    console.error('Chat error:', error);
+    throw error;
   }
 }
 
 /**
- * React Native 环境实现
+ * React Native 环境实现：使用 react-native-sse
  */
-function chatWithCozeNative(
-  botId: string,
-  message: string,
-  conversationId?: string,
+async function chatNative(
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  roleName: string,
   onChunk?: (text: string) => void,
-): Promise<CozeResponse> {
-  const userId = `user_${Date.now()}`;
-  
+): Promise<void> {
   return new Promise((resolve, reject) => {
-    let conversationIdResult = conversationId || '';
-    let resolved = false;
-
     if (!RNSSE) {
       reject(new Error('react-native-sse not available'));
       return;
     }
 
-    const sse = new RNSSE(COZE_PROXY_URL, {
+    const sse = new RNSSE(STREAM_API_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        botId,
-        userId,
-        query: message,
-        conversationId,
+        role: roleName,
+        systemPrompt,
+        messages,
+        model: 'qwen-plus',
       }),
     });
 
     sse.addEventListener('message', (event: any) => {
+      if (event.data === '[DONE]') {
+        sse.close();
+        resolve();
+        return;
+      }
+
       try {
-        const rawData = event.data;
-
-        if (rawData === '[DONE]') {
-          if (!resolved) {
-            resolved = true;
-            resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
-          }
-          sse.close();
-          return;
-        }
-
-        const data = JSON.parse(rawData);
-
-        if (data.type === 'chat_created') {
-          conversationIdResult = data.conversationId;
-        } else if (data.type === 'message' && data.content) {
-          onChunk?.(data.content);
-        } else if (data.error) {
-          if (!resolved) {
-            resolved = true;
-            reject(new Error(data.error || 'Unknown error'));
-          }
-          sse.close();
+        const parsed = JSON.parse(event.data);
+        if (parsed.content) {
+          onChunk?.(parsed.content);
         }
       } catch (e) {
         // 忽略解析错误
       }
     });
 
-    sse.addEventListener('error', (event: any) => {
-      console.error('SSE error:', event);
-      if (!resolved) {
-        resolved = true;
-        reject(new Error('SSE connection error'));
-      }
+    sse.addEventListener('error', (error: any) => {
+      console.error('SSE error:', error);
+      sse.close();
+      reject(new Error('SSE connection error'));
     });
 
     sse.addEventListener('close', () => {
-      if (!resolved) {
-        resolved = true;
-        resolve({ conversation_id: conversationIdResult, code: 0, msg: 'success' });
-      }
+      resolve();
     });
 
-    // 超时保护：3分钟
+    // 超时保护
     setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        sse.close();
-        reject(new Error('Request timeout'));
-      }
-    }, 180000);
+      sse.close();
+      resolve();
+    }, 180000); // 3分钟超时
   });
 }
 
 /**
  * 非流式版本（备用）
  */
-export async function chatWithCozeSync(
-  botId: string,
-  message: string,
-  conversationId?: string,
-): Promise<{ content: string; conversationId: string }> {
-  const userId = `user_${Date.now()}`;
+export async function chatWithDashScopeSync(
+  systemPrompt: string,
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  roleName: string,
+): Promise<string> {
+  const response = await fetch(`${BACKEND_BASE_URL}/api/v1/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      role: roleName,
+      systemPrompt,
+      messages,
+      model: 'qwen-plus',
+    }),
+  });
 
-  try {
-    const response = await fetch(COZE_PROXY_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        botId,
-        userId,
-        query: message,
-        conversationId,
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`);
-    }
-
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response body');
-    }
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let conversationIdResult = conversationId || '';
-    let fullContent = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true });
-      
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        const trimmed = line.trim();
-        
-        if (trimmed === 'data: [DONE]') {
-          return { content: fullContent, conversationId: conversationIdResult };
-        }
-        
-        if (trimmed.startsWith('data: ')) {
-          const dataStr = trimmed.slice(6);
-          
-          try {
-            const data = JSON.parse(dataStr);
-            
-            if (data.type === 'chat_created') {
-              conversationIdResult = data.conversationId;
-            } else if (data.type === 'message' && data.content) {
-              fullContent += data.content;
-            } else if (data.error) {
-              throw new Error(data.error);
-            }
-          } catch (e) {
-            // 忽略解析错误
-          }
-        }
-      }
-    }
-
-    return { content: fullContent, conversationId: conversationIdResult };
-  } catch (error: any) {
-    console.error('SSE error:', error);
-    throw new Error(error.message || 'SSE connection error');
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `HTTP ${response.status}`);
   }
+
+  const data = await response.json();
+  return data.content || '';
 }

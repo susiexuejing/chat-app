@@ -12,7 +12,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { ChatRole } from '../constants/roles';
+import { ChatRole, PsychologistRole } from '../constants/roles';
 import { useChat } from '../contexts/ChatContext';
 import { FontAwesome6 } from '@expo/vector-icons';
 
@@ -58,7 +58,7 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
           
           {/* 角色列表 */}
           <ScrollView showsVerticalScrollIndicator={false}>
-            {roles.map((role) => (
+            {roles.map((role: PsychologistRole) => (
               <TouchableOpacity
                 key={role.id}
                 onPress={() => handleSelectRole(role)}
