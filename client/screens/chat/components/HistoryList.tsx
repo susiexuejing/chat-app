@@ -26,7 +26,7 @@ interface HistoryListProps {
 }
 
 export function HistoryList({ onClose }: HistoryListProps) {
-  const { sessions, currentSession, switchSession, deleteSession, createNewChat } = useChat();
+  const { sessions, currentSession, loadSession, deleteSession, createNewChat } = useChat();
   const insets = useSafeAreaInsets();
 
   const formatTime = (timestamp: number) => {
@@ -78,7 +78,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
     
     return (
       <TouchableOpacity
-        onPress={() => switchSession(item)}
+        onPress={() => loadSession(item)}
         onLongPress={() => handleDelete(item)}
         className={`flex-row items-center p-4 rounded-xl mb-2 ${
           isActive

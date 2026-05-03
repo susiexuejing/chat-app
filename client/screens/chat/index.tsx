@@ -26,11 +26,7 @@ function ChatContent() {
     currentRole,
     messages,
     sendMessage,
-    addAssistantMessage,
     isLoading,
-    setIsLoading,
-    showHistory,
-    setShowHistory,
     createNewChat,
     currentSession,
     sessions,
@@ -38,59 +34,14 @@ function ChatContent() {
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
   const [introModalVisible, setIntroModalVisible] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
-  // 处理发送消息
+  // 处理发送消息（由 ChatContext 统一处理 API 调用）
   const handleSendMessage = useCallback(
     async (text: string, options?: { imageUri?: string; audioUri?: string }) => {
-      // 发送用户消息
-      sendMessage(text, options);
-      
-      // 构建消息历史用于API调用
-      const historyMessages = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-      
-      // 添加当前用户消息
-      historyMessages.push({
-        role: 'user',
-        content: text,
-      });
-
-      // 调用后端API
-      setIsLoading(true);
-
-      try {
-        const response = await fetch(
-          `${process.env.EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/chat`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              role: currentRole.id,
-              systemPrompt: currentRole.systemPrompt,
-              messages: historyMessages,
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error('API request failed');
-        }
-
-        const data = await response.json();
-        addAssistantMessage(data.content);
-      } catch (error) {
-        console.error('发送消息失败:', error);
-        // 如果API调用失败，发送错误消息
-        addAssistantMessage('抱歉，服务器暂时无法回应。请稍后再试。');
-      } finally {
-        setIsLoading(false);
-      }
+      await sendMessage(text, options);
     },
-    [messages, sendMessage, currentRole, addAssistantMessage, setIsLoading]
+    [sendMessage]
   );
 
   // 显示角色简介（首次进入或无历史时）
@@ -156,19 +107,12 @@ function ChatContent() {
         visible={introModalVisible}
         role={currentRole}
         onClose={() => setIntroModalVisible(false)}
-        onStartChat={() => {
-          setIntroModalVisible(false);
-          // 如果是首次进入且没有会话，创建新会话
-          if (!currentSession) {
-            createNewChat();
-          }
-        }}
       />
     </Screen>
   );
 }
 
-export default function ChatPage() {
+export default function ChatScreen() {
   return (
     <ChatProvider>
       <ChatContent />
