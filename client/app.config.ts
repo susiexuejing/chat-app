@@ -73,7 +73,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       "typedRoutes": true
     },
     "extra": {
-      "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091'
+      "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091',
+      "cozeToken": process.env.EXPO_PUBLIC_COZE_TOKEN || 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq',
+      "cozeBotId": process.env.EXPO_PUBLIC_COZE_BOT_ID || '7635592039983644682'
     }
   }
 }

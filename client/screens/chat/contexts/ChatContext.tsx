@@ -1,144 +1,137 @@
-/**
- * 聊天上下文 Provider
- * 管理聊天状态：当前角色、消息列表、会话管理、输入状态等
- * 
- * 对接百炼 API：POST /api/v1/chat（非流式）
- * 文档：https://help.aliyun.com/zh/model-studio/qwen-omni
- */
-
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import Constants from 'expo-constants';
-import { ChatRole, THERAPIST_ROLES, DEFAULT_ROLE, getDefaultRoles, buildSystemPrompt } from '../constants/roles';
-import { ChatMessage, ChatSession, createMessage } from '../types';
-import {
-  getChatSessions,
-  createNewSession,
-  updateSessionMessages,
-  deleteSession as deleteSessionFromStore,
-  updateSessionTitle,
-} from '../stores/sessionStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { chatWithCoze } from '../api/cozeApi';
+import { getDefaultRoles, PsychologistRole } from '../constants/roles';
+import { ChatMessage, ChatSession } from '../types';
 
-interface ChatContextType {
+// Context 类型
+export interface ChatContextType {
   messages: ChatMessage[];
   inputText: string;
   setInputText: (text: string) => void;
-  roles: ChatRole[];
-  currentRole: ChatRole;
-  setCurrentRole: (role: ChatRole) => void;
-  sessions: ChatSession[];
+  currentRole: PsychologistRole;
+  roles: PsychologistRole[];
   currentSession: ChatSession | null;
-  setCurrentSession: (session: ChatSession | null) => void;
+  sessions: ChatSession[];
   isLoading: boolean;
-  isInitialized: boolean;
-  sendMessage: (content: string, options?: { imageUri?: string; audioUri?: string }) => Promise<void>;
-  clearMessages: () => void;
+  error: string | null;
   createNewChat: () => Promise<void>;
-  deleteSession: (sessionId: string) => Promise<void>;
   loadSession: (session: ChatSession) => void;
+  sendMessage: (content: string) => Promise<void>;
+  deleteSession: (sessionId: string) => Promise<void>;
 }
 
-const ChatContext = createContext<ChatContextType | null>(null);
+// Coze Bot 配置
+const COZE_BOT_ID = '7635592039983644682';
 
-export function useChat() {
-  const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within ChatProvider');
+// 获取 Coze API Token
+function getCozeToken(): string {
+  const configToken = Constants.expoConfig?.extra?.cozeToken;
+  if (configToken) return configToken;
+  return 'pat_PQ6QGqmJ6cqlxSJKRTgzI883P7unwnOn0bApEBzm4DA1wyXy2ibq6adYc6ntqyLq';
+}
+
+const COZE_TOKEN = getCozeToken();
+
+// 获取会话列表（从 AsyncStorage）
+async function getChatSessions(): Promise<ChatSession[]> {
+  try {
+    const data = await AsyncStorage.getItem('chat_sessions');
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
   }
-  return context;
 }
 
-// 获取后端基础URL
-function getBackendBaseUrl(): string {
-  // 优先使用环境变量
-  const configUrl = Constants.expoConfig?.extra?.backendBaseUrl;
-  if (configUrl) return configUrl;
-  
-  // 开发环境默认地址
-  if (process.env.NODE_ENV === 'development') {
-    return 'http://localhost:9091';
+// 保存会话列表
+async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem('chat_sessions', JSON.stringify(sessions));
+  } catch (error) {
+    console.error('Failed to save sessions:', error);
   }
-  
-  return 'http://localhost:9091';
 }
 
-const API_BASE_URL = getBackendBaseUrl();
+// 创建新会话
+async function createNewSession(role: PsychologistRole): Promise<ChatSession> {
+  const sessions = await getChatSessions();
+  const newSession: ChatSession = {
+    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    roleId: role.id,
+    roleName: role.name,
+    messages: [],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  sessions.unshift(newSession);
+  await saveChatSessions(sessions);
+  return newSession;
+}
+
+// 更新会话消息
+async function updateSessionMessages(sessionId: string, messages: ChatMessage[]): Promise<void> {
+  const sessions = await getChatSessions();
+  const index = sessions.findIndex(s => s.id === sessionId);
+  if (index !== -1) {
+    sessions[index].messages = messages;
+    sessions[index].updatedAt = Date.now();
+    await saveChatSessions(sessions);
+  }
+}
+
+// 删除会话
+async function deleteSessionFromStore(sessionId: string): Promise<void> {
+  const sessions = await getChatSessions();
+  const filtered = sessions.filter(s => s.id !== sessionId);
+  await saveChatSessions(filtered);
+}
+
+// 空的 Context（eslint-disable 忽略空方法，因为只是默认值）
+/* eslint-disable @typescript-eslint/no-empty-function */
+const emptyContext: ChatContextType = {
+  messages: [],
+  inputText: '',
+  setInputText: () => {},
+  currentRole: getDefaultRoles()[0],
+  roles: [],
+  currentSession: null,
+  sessions: [],
+  isLoading: false,
+  error: null,
+  createNewChat: async () => {},
+  loadSession: () => {},
+  sendMessage: async () => {},
+  deleteSession: async () => {},
+};
+/* eslint-enable @typescript-eslint/no-empty-function */
+
+export const ChatContext = createContext<ChatContextType>(emptyContext);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [roles, setRoles] = useState<ChatRole[]>([]);
-  const [currentRole, setCurrentRoleState] = useState<ChatRole>(DEFAULT_ROLE);
+  const [roles] = useState<PsychologistRole[]>(getDefaultRoles());
+  const [currentRole, setCurrentRole] = useState<PsychologistRole>(getDefaultRoles()[0]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // 设置当前角色
-  const setCurrentRole = useCallback((role: ChatRole) => {
-    setCurrentRoleState(role);
-  }, []);
+  // Coze 会话 ID
+  const conversationIdRef = useRef<string | null>(null);
+  // 保存定时器
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 加载角色列表
-  const loadRoles = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/roles`);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.roles && Array.isArray(data.roles)) {
-          const convertedRoles = data.roles.map((role: any) => ({
-            id: role.id,
-            name: role.name,
-            title: role.title,
-            avatar: role.avatar,
-            themeColor: role.themeColor,
-            description: role.description,
-            shortDesc: role.shortDesc || '',
-            fullDesc: role.description || '',
-            systemPrompt: role.systemPrompt,
-            growthBackground: role.growthBackground,
-            educationBackground: role.educationBackground,
-            workBackground: role.workBackground,
-            counselingStyle: role.counselingStyle,
-            classicQuotes: role.classicQuotes,
-          }));
-          setRoles(convertedRoles);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load roles from server:', error);
-      // 使用本地默认角色
-      setRoles(getDefaultRoles());
-    }
-  }, []);
-  
-  // 加载会话列表
-  const loadSessions = useCallback(async () => {
-    const loadedSessions = await getChatSessions();
-    setSessions(loadedSessions);
-  }, []);
-  
   // 初始化加载
   useEffect(() => {
-    let mounted = true;
-    
-    const init = async () => {
-      await loadRoles();
+    const loadInitialData = async () => {
       const loadedSessions = await getChatSessions();
-      if (mounted) {
-        setSessions(loadedSessions);
-        setIsInitialized(true);
-      }
+      setSessions(loadedSessions);
     };
-    
-    init();
-    return () => { mounted = false; };
-  }, [loadRoles]);
-  
-  // 切换角色
-  const setCurrentRoleHandler = useCallback((role: ChatRole) => {
-    setCurrentRoleState(role);
+    loadInitialData();
   }, []);
-  
+
   // 防抖保存消息
   const debouncedSaveMessages = useCallback((sessionId: string, newMessages: ChatMessage[]) => {
     if (saveTimeoutRef.current) {
@@ -148,103 +141,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       updateSessionMessages(sessionId, newMessages);
     }, 500);
   }, []);
-  
-  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 添加消息并保存
-  const addMessage = useCallback((message: ChatMessage) => {
-    setMessages(prev => {
-      const newMessages = [...prev, message];
-      
-      if (currentSession) {
-        debouncedSaveMessages(currentSession.id, newMessages);
-        
-        // 如果是第一条用户消息，更新标题
-        if (message.role === 'user' && newMessages.length === 1) {
-          const title = message.content.substring(0, 30) + (message.content.length > 30 ? '...' : '');
-          updateSessionTitle(currentSession.id, title);
-        }
-      }
-      
-      return newMessages;
-    });
-  }, [currentSession, debouncedSaveMessages]);
-  
-  /**
-   * 发送用户消息并获取 AI 回复（非流式）
-   * 服务端接口：POST /api/v1/chat
-   * Body 参数：systemPrompt: string, messages: Array<{role: string, content: string}>
-   */
-  const sendMessage = useCallback(async (content: string, options?: { imageUri?: string; audioUri?: string }) => {
-    // 创建用户消息
-    const userMessage = createMessage('user', content, options);
-    addMessage(userMessage);
-    setInputText('');
-    setIsLoading(true);
-    
-    // 确保有会话
-    let session = currentSession;
-    if (!session) {
-      session = await createNewSession(currentRole);
-      setCurrentSession(session);
-    }
-    
-    // 构建消息历史
-    const allMessages = [...messages, userMessage];
-    const chatHistory = allMessages.map(m => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    }));
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/v1/chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          systemPrompt: buildSystemPrompt(currentRole),
-          messages: chatHistory,
-          model: 'qwen-plus',
-        }),
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.error) {
-        throw new Error(data.error);
-      }
-      
-      // 添加 AI 回复
-      const assistantMessage = createMessage('assistant', data.content || '抱歉，我没有收到回复。');
-      addMessage(assistantMessage);
-      
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      // 添加错误消息
-      const errorMessage = createMessage('assistant', '抱歉，发生了错误，请稍后再试。');
-      addMessage(errorMessage);
-    } finally {
-      setIsLoading(false);
-    }
-    
-  }, [currentRole, currentSession, messages, addMessage]);
-  
-  // 清除当前对话（但不删除会话）
-  const clearMessages = useCallback(() => {
-    setMessages([]);
-    if (currentSession) {
-      updateSessionMessages(currentSession.id, []);
-    }
-  }, [currentSession]);
-  
   // 新建对话
   const createNewChat = useCallback(async () => {
-    // 保存当前会话（如果有消息）
+    // 保存当前会话
     if (currentSession && messages.length > 0) {
       await updateSessionMessages(currentSession.id, messages);
     }
@@ -253,17 +153,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const newSession = await createNewSession(currentRole);
     setCurrentSession(newSession);
     setMessages([]);
+    conversationIdRef.current = null;
     
-    // 更新会话列表
     const loadedSessions = await getChatSessions();
     setSessions(loadedSessions);
   }, [currentRole, currentSession, messages]);
-  
+
+  // 加载会话
+  const loadSession = useCallback((session: ChatSession) => {
+    setCurrentSession(session);
+    setMessages(session.messages || []);
+    conversationIdRef.current = null;
+    
+    // 设置对应的角色
+    const role = roles.find(r => r.id === session.roleId);
+    if (role) {
+      setCurrentRole(role);
+    }
+  }, [roles]);
+
   // 删除会话
-  const deleteSession = useCallback(async (sessionId: string) => {
+  const deleteSessionFn = useCallback(async (sessionId: string) => {
     await deleteSessionFromStore(sessionId);
     
-    // 如果删除的是当前会话，切换到其他会话或创建新会话
     if (currentSession?.id === sessionId) {
       const loadedSessions = await getChatSessions();
       if (loadedSessions.length > 0) {
@@ -275,36 +187,122 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } else {
       setSessions(await getChatSessions());
     }
-  }, [currentSession, createNewChat]);
-  
-  // 加载会话
-  const loadSession = useCallback((session: ChatSession) => {
-    setCurrentSession(session);
-    setMessages(session.messages || []);
-  }, []);
-  
+  }, [currentSession, loadSession, createNewChat]);
+
+  // 发送消息
+  const sendMessage = useCallback(async (content: string) => {
+    if (!content.trim()) return;
+    
+    // 创建用户消息
+    const userMessage: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      role: 'user',
+      content,
+      timestamp: Date.now(),
+    };
+    
+    const newMessages = [...messages, userMessage];
+    setMessages(newMessages);
+    setInputText('');
+    setIsLoading(true);
+    setError(null);
+    
+    // 确保有会话
+    let session = currentSession;
+    if (!session) {
+      session = await createNewSession(currentRole);
+      setCurrentSession(session);
+      const loadedSessions = await getChatSessions();
+      setSessions(loadedSessions);
+    }
+    
+    // 创建占位 AI 消息
+    const assistantMessage: ChatMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 10)}`,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+    };
+    setMessages(prev => [...prev, assistantMessage]);
+    
+    try {
+      // 调用 Coze API
+      const response = await chatWithCoze(
+        COZE_BOT_ID,
+        content,
+        conversationIdRef.current || undefined,
+        (chunk: string) => {
+          setMessages(prev => {
+            const lastMsg = prev[prev.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              return prev.map((m, i) => 
+                i === prev.length - 1 
+                  ? { ...m, content: m.content + chunk }
+                  : m
+              );
+            }
+            return prev;
+          });
+        }
+      );
+      
+      // 保存会话 ID
+      if (response && response.conversation_id) {
+        conversationIdRef.current = response.conversation_id;
+      }
+      
+      // 保存消息到本地
+      debouncedSaveMessages(session.id, newMessages);
+      
+    } catch (error: any) {
+      console.error('Failed to send message:', error);
+      setError(error.message || '发送失败，请稍后再试');
+      
+      // 替换最后的空消息为错误消息
+      setMessages(prev => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.role === 'assistant') {
+          return prev.map((m, i) => 
+            i === prev.length - 1 
+              ? { ...m, content: `抱歉，发生了错误：${error.message || '请稍后再试'}` }
+              : m
+          );
+        }
+        return prev;
+      });
+    } finally {
+      setIsLoading(false);
+    }
+    
+  }, [currentRole, currentSession, messages, debouncedSaveMessages]);
+
   const value: ChatContextType = {
     messages,
     inputText,
     setInputText,
     roles,
     currentRole,
-    setCurrentRole: setCurrentRoleHandler,
-    sessions,
     currentSession,
-    setCurrentSession,
+    sessions,
     isLoading,
-    isInitialized,
-    sendMessage,
-    clearMessages,
+    error,
     createNewChat,
-    deleteSession,
     loadSession,
+    sendMessage,
+    deleteSession: deleteSessionFn,
   };
-  
+
   return (
     <ChatContext.Provider value={value}>
       {children}
     </ChatContext.Provider>
   );
+}
+
+export function useChat() {
+  const context = useContext(ChatContext);
+  if (!context) {
+    throw new Error('useChat must be used within a ChatProvider');
+  }
+  return context;
 }

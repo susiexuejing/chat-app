@@ -38,8 +38,8 @@ function ChatContent() {
 
   // 处理发送消息（由 ChatContext 统一处理 API 调用）
   const handleSendMessage = useCallback(
-    async (text: string, options?: { imageUri?: string; audioUri?: string }) => {
-      await sendMessage(text, options);
+    async (text: string) => {
+      await sendMessage(text);
     },
     [sendMessage]
   );
