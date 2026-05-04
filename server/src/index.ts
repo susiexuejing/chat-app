@@ -20,7 +20,7 @@ app.get('/api/v1/health', (req, res) => {
  * 百炼 API 配置
  * 文档: https://help.aliyun.com/zh/model-studio/qwen-omni
  */
-const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE_URL = 'https://coding.dashscope.aliyuncs.com/v1';
 // 模型选择: qwen-plus (文本) 或 qwen3.5-omni-plus (多模态-文本+音频)
 const DEFAULT_MODEL = process.env.DASHSCOPE_MODEL || 'qwen-plus';
 
