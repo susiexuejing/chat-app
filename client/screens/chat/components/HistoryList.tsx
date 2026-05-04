@@ -59,18 +59,11 @@ export function HistoryList({ onClose }: HistoryListProps) {
   };
 
   const handleDelete = (session: ChatSession) => {
-    Alert.alert(
-      '删除对话',
-      '确定要删除这段对话吗？此操作无法撤销。',
-      [
-        { text: '取消', style: 'cancel' },
-        {
-          text: '删除',
-          style: 'destructive',
-          onPress: () => deleteSession(session.id),
-        },
-      ]
-    );
+    // 使用浏览器原生 confirm 对话框（Web 兼容）
+    const confirmed = window.confirm('即将删除这个对话，对话删除后不能恢复，是否确认删除？');
+    if (confirmed) {
+      deleteSession(session.id);
+    }
   };
 
   const renderItem = ({ item }: { item: ChatSession }) => {
