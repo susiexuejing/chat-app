@@ -8,9 +8,31 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-// 后端地址
-const BACKEND_BASE_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091';
-const STREAM_API_URL = `${BACKEND_BASE_URL}/api/v1/chat/stream`;
+// 获取后端地址 - 尝试多个可能的地址
+function getBackendUrl(): string {
+  // 1. 优先使用环境变量
+  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL) {
+    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_BASE_URL;
+  }
+  // 2. 尝试从 window.location 获取当前域名
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    // 如果是云端域名，使用 https
+    if (hostname.includes('coze')) {
+      return `${protocol}//${hostname}`;
+    }
+  }
+  // 3. 备用云端域名
+  const cloudDomain = 'https://71ec546d-7bf0-4452-a60b-790bde3c6291.dev.coze.site';
+  // 4. 默认 localhost
+  return 'http://localhost:9091';
+}
+
+const BACKEND_BASE_URL = getBackendUrl();
+const STREAM_API_URL = BACKEND_BASE_URL 
+  ? `${BACKEND_BASE_URL}/api/v1/chat/stream` 
+  : '/api/v1/chat/stream';
 
 export interface ChatRequest {
   role: string;
@@ -64,7 +86,7 @@ async function chatWeb(
         role: roleName,
         systemPrompt,
         messages,
-        model: 'qwen-plus',
+        model: 'qwen3.6-plus',
       }),
     });
 
@@ -107,7 +129,7 @@ async function chatWeb(
       }
     }
   } catch (error) {
-    console.error('Chat error:', error);
+    console.error('Web chat error:', error);
     throw error;
   }
 }
@@ -136,12 +158,18 @@ async function chatNative(
         role: roleName,
         systemPrompt,
         messages,
-        model: 'qwen-plus',
+        model: 'qwen3.6-plus',
       }),
     });
 
+    const timeout = setTimeout(() => {
+      sse.close();
+      reject(new Error('Request timeout'));
+    }, 120000); // 2分钟超时
+
     sse.addEventListener('message', (event: any) => {
       if (event.data === '[DONE]') {
+        clearTimeout(timeout);
         sse.close();
         resolve();
         return;
@@ -158,20 +186,15 @@ async function chatNative(
     });
 
     sse.addEventListener('error', (error: any) => {
-      console.error('SSE error:', error);
+      clearTimeout(timeout);
       sse.close();
-      reject(new Error('SSE connection error'));
+      reject(new Error(error.message || 'SSE connection error'));
     });
 
     sse.addEventListener('close', () => {
+      clearTimeout(timeout);
       resolve();
     });
-
-    // 超时保护
-    setTimeout(() => {
-      sse.close();
-      resolve();
-    }, 180000); // 3分钟超时
   });
 }
 
@@ -183,7 +206,7 @@ export async function chatWithDashScopeSync(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   roleName: string,
 ): Promise<string> {
-  const response = await fetch(`${BACKEND_BASE_URL}/api/v1/chat`, {
+  const response = await fetch(`${STREAM_API_URL.replace('/stream', '')}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -192,7 +215,7 @@ export async function chatWithDashScopeSync(
       role: roleName,
       systemPrompt,
       messages,
-      model: 'qwen-plus',
+      model: 'qwen3.6-plus',
     }),
   });
 
@@ -202,5 +225,5 @@ export async function chatWithDashScopeSync(
   }
 
   const data = await response.json();
-  return data.content || '';
+  return data.content || data.response || '';
 }
