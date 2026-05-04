@@ -8,24 +8,15 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-// 获取后端地址 - 尝试多个可能的地址
+// 获取后端地址 - Web 环境直接使用当前域名
 function getBackendUrl(): string {
-  // 1. 优先使用环境变量
-  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL) {
-    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_BASE_URL;
-  }
-  // 2. 尝试从 window.location 获取当前域名
+  // Web 环境：从 window.location 获取当前域名
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // 如果是云端域名，使用 https
-    if (hostname.includes('coze')) {
-      return `${protocol}//${hostname}`;
-    }
+    return `${protocol}//${hostname}:9091`;
   }
-  // 3. 备用云端域名
-  const cloudDomain = 'https://71ec546d-7bf0-4452-a60b-790bde3c6291.dev.coze.site';
-  // 4. 默认 localhost
+  // 默认 localhost
   return 'http://localhost:9091';
 }
 
