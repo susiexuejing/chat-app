@@ -218,3 +218,50 @@ export async function chatWithDashScopeSync(
   const data = await response.json();
   return data.content || data.response || '';
 }
+
+/**
+ * 语音转文字（ASR）
+ * @param audioUri 录音文件的 URI
+ * @returns 识别后的文字
+ */
+export async function speechToText(audioUri: string): Promise<string> {
+  try {
+    // 创建 FormData
+    const formData = new FormData();
+    
+    // 获取文件名和 MIME 类型
+    const fileName = audioUri.split('/').pop() || 'recording.m4a';
+    const mimeType = 'audio/m4a';
+    
+    // 根据环境处理文件
+    if (Platform.OS === 'web') {
+      // Web 环境：使用 fetch 获取 blob
+      const response = await fetch(audioUri);
+      const blob = await response.blob();
+      formData.append('file', blob, fileName);
+    } else {
+      // React Native 环境：使用 uri
+      formData.append('file', {
+        uri: audioUri,
+        name: fileName,
+        type: mimeType,
+      } as any);
+    }
+
+    const response = await fetch(`${BACKEND_BASE_URL}/api/v1/asr`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `ASR failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.text || data.transcription || '';
+  } catch (error) {
+    console.error('ASR error:', error);
+    throw error;
+  }
+}

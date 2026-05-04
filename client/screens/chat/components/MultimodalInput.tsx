@@ -12,10 +12,13 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
+  Text,
 } from 'react-native';
 import { Audio } from 'expo-av';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useChat } from '../contexts/ChatContext';
+import { speechToText } from '../api/cozeApi';
 
 interface MultimodalInputProps {
   onSendMessage: (text: string, options?: { audioUri?: string }) => void;
@@ -25,6 +28,7 @@ interface MultimodalInputProps {
 export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProps) {
   const { inputText, setInputText } = useChat();
   const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
 
@@ -86,12 +90,29 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
       setIsRecording(false);
 
       if (uri) {
-        // 发送语音消息（目前使用语音URI，后续可实现语音转文字）
-        onSendMessage('[语音消息]', { audioUri: uri });
+        setIsTranscribing(true);
+        
+        try {
+          // 调用语音转文字 API
+          const text = await speechToText(uri);
+          
+          if (text && text.trim()) {
+            // 将识别文字填充到输入框
+            setInputText(text.trim());
+          } else {
+            Alert.alert('提示', '未能识别到语音内容，请重试');
+          }
+        } catch (error) {
+          console.error('语音转文字失败:', error);
+          Alert.alert('识别失败', '语音转文字失败，请重试');
+        } finally {
+          setIsTranscribing(false);
+        }
       }
     } catch (error) {
       console.error('停止录音失败:', error);
       setIsRecording(false);
+      setIsTranscribing(false);
     }
   };
 
@@ -107,16 +128,20 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
           <TouchableOpacity
             onPressIn={startRecording}
             onPressOut={stopRecording}
-            disabled={disabled}
+            disabled={disabled || isTranscribing}
             className={`w-10 h-10 items-center justify-center mr-2 rounded-full ${
               isRecording ? 'bg-red-500' : ''
             }`}
           >
-            <FontAwesome6
-              name="microphone"
-              size={20}
-              color={isRecording ? 'white' : (disabled ? '#9CA3AF' : '#6B7280')}
-            />
+            {isTranscribing ? (
+              <ActivityIndicator size="small" color="#6B7280" />
+            ) : (
+              <FontAwesome6
+                name="microphone"
+                size={20}
+                color={isRecording ? 'white' : (disabled ? '#9CA3AF' : '#6B7280')}
+              />
+            )}
           </TouchableOpacity>
 
           {/* 输入框 */}
