@@ -67,6 +67,14 @@ app.post('/api/v1/chat', async (req, res) => {
         model: selectedModel,
         messages: chatMessages,
         stream: false,
+        // 限制输出长度，加快响应速度
+        max_tokens: 500,
+        // 禁用思考过程
+        extra_body: {
+          thinking: {
+            type: "off"
+          }
+        }
       }),
     });
 
@@ -141,6 +149,14 @@ app.post('/api/v1/chat/stream', async (req, res) => {
         model: selectedModel,
         messages: chatMessages,
         stream: true,
+        // 限制输出长度，加快响应速度
+        max_tokens: 500,
+        // 禁用思考过程
+        extra_body: {
+          thinking: {
+            type: "off"
+          }
+        }
       }),
     });
 
