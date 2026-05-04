@@ -1,6 +1,6 @@
 /**
  * 文本输入组件
- * 支持文本输入、语音输入
+ * 支持文本输入、语音输入（Web 和 Native）
  */
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -25,34 +25,81 @@ interface MultimodalInputProps {
   disabled?: boolean;
 }
 
+// 检测是否为 Web 环境
+const isWeb = Platform.OS === 'web';
+
 export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProps) {
   const { inputText, setInputText } = useChat();
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const webRecognitionRef = useRef<any>(null);
 
-  // 请求录音权限
+  // 请求录音权限 (仅 Native)
   useEffect(() => {
-    (async () => {
-      const { status } = await Audio.requestPermissionsAsync();
-      setHasPermission(status === 'granted');
-    })();
+    if (!isWeb) {
+      (async () => {
+        const { status } = await Audio.requestPermissionsAsync();
+        setHasPermission(status === 'granted');
+      })();
+    }
   }, []);
 
-  // 处理文本发送
-  const handleSend = () => {
-    if (disabled) return;
-    
-    const text = inputText.trim();
-    if (!text) return;
+  // Web 语音识别
+  const startWebRecognition = () => {
+    if (!isWeb || !window.webkitSpeechRecognition && !window.SpeechRecognition) {
+      Alert.alert('不支持', '您的浏览器不支持语音识别功能');
+      return;
+    }
 
-    onSendMessage(text);
-    setInputText('');
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = 'zh-CN';
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      if (transcript && transcript.trim()) {
+        setInputText(transcript.trim());
+      } else {
+        Alert.alert('提示', '未能识别到语音内容，请重试');
+      }
+      setIsRecording(false);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('语音识别错误:', event.error);
+      setIsRecording(false);
+      if (event.error !== 'no-speech') {
+        Alert.alert('识别失败', '语音识别失败，请重试');
+      }
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+    };
+
+    webRecognitionRef.current = recognition;
+    recognition.start();
   };
 
-  // 语音输入
-  const startRecording = async () => {
+  const stopWebRecognition = () => {
+    if (webRecognitionRef.current) {
+      webRecognitionRef.current.stop();
+      webRecognitionRef.current = null;
+    }
+    setIsRecording(false);
+  };
+
+  // Native 录音
+  const startNativeRecording = async () => {
     if (!hasPermission) {
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
@@ -80,7 +127,7 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
     }
   };
 
-  const stopRecording = async () => {
+  const stopNativeRecording = async () => {
     if (!recordingRef.current) return;
 
     try {
@@ -93,11 +140,9 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
         setIsTranscribing(true);
         
         try {
-          // 调用语音转文字 API
           const text = await speechToText(uri);
           
           if (text && text.trim()) {
-            // 将识别文字填充到输入框
             setInputText(text.trim());
           } else {
             Alert.alert('提示', '未能识别到语音内容，请重试');
@@ -116,6 +161,35 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
     }
   };
 
+  // 统一开始录音
+  const handleStartRecording = () => {
+    if (isWeb) {
+      startWebRecognition();
+    } else {
+      startNativeRecording();
+    }
+  };
+
+  // 统一停止录音
+  const handleStopRecording = () => {
+    if (isWeb) {
+      stopWebRecognition();
+    } else {
+      stopNativeRecording();
+    }
+  };
+
+  // 处理文本发送
+  const handleSend = () => {
+    if (disabled) return;
+    
+    const text = inputText.trim();
+    if (!text) return;
+
+    onSendMessage(text);
+    setInputText('');
+  };
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -126,8 +200,8 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
         <View className="flex-row items-end">
           {/* 语音按钮 */}
           <TouchableOpacity
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
+            onPressIn={handleStartRecording}
+            onPressOut={handleStopRecording}
             disabled={disabled || isTranscribing}
             className={`w-10 h-10 items-center justify-center mr-2 rounded-full ${
               isRecording ? 'bg-red-500' : ''
