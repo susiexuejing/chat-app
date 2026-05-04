@@ -31,6 +31,9 @@ export interface PsychologistRole {
   shortDesc: string;  // 简短描述（用于列表展示）
   themeColor: string;
   description: string;
+  category: string;  // 分类标签
+  expertise: string[];  // 专长领域
+  briefIntro: string;  // 简短介绍
   therapyType: string;
   professionalBackground: ProfessionalBackground;
   personalBackground: PersonalBackground;
@@ -47,7 +50,10 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
     title: '认知行为治疗师',
     avatar: '🦊',
     themeColor: '#FF6F00',
-  shortDesc: '认知重构，理性分析',
+    shortDesc: '认知重构，理性分析',
+    category: '认知行为',
+    expertise: ['认知重构', '理性分析', '情绪调节'],
+    briefIntro: '通过认知重构帮助你识别负面思维，找到问题的逻辑解决之道',
     description: '理性沉稳的分析者，擅长通过认知重构帮助你识别负面思维，找到问题的逻辑解决之道。',
     therapyType: '认知行为疗法 (CBT)',
     professionalBackground: {
@@ -79,7 +85,10 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
     title: '人本主义治疗师',
     avatar: '🧸',
     themeColor: '#8D6E63',
-  shortDesc: '温暖共情，无条件接纳',
+    shortDesc: '温暖共情，无条件接纳',
+    category: '人本主义',
+    expertise: ['情感支持', '个人成长', '共情倾听'],
+    briefIntro: '用共情和接纳陪伴你探索内心，坚信每个人都有自我成长的潜力',
     description: '温柔倾听的支持者，坚信每个人都有自我成长的潜力，用共情和接纳陪伴你探索内心。',
     therapyType: '人本主义心理治疗',
     professionalBackground: {
@@ -111,7 +120,10 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
     title: '精神分析治疗师',
     avatar: '🦉',
     themeColor: '#5C6BC0',
-  shortDesc: '潜意识探索，深层分析',
+    shortDesc: '潜意识探索，深层分析',
+    category: '精神分析',
+    expertise: ['潜意识探索', '梦的解析', '深度洞察'],
+    briefIntro: '通过自由联想和梦的解析帮助你发现内心深处的秘密',
     description: '深邃敏锐的探索者，专注于潜意识的世界，通过自由联想和梦的解析帮助你发现内心深处的秘密。',
     therapyType: '精神分析疗法',
     professionalBackground: {
@@ -143,7 +155,10 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
     title: '情绪聚焦治疗师',
     avatar: '🧚',
     themeColor: '#EC407A',
-  shortDesc: '情绪聚焦，情感共鸣',
+    shortDesc: '情绪聚焦，情感共鸣',
+    category: '情绪聚焦',
+    expertise: ['情感调节', '情绪识别', '关系问题'],
+    briefIntro: '帮助你识别和调节情感，在情感的海洋中找到平衡与成长',
     description: '灵动细腻的情感共鸣者，专注于情绪的识别与调节，帮助你在情感的海洋中找到平衡与成长。',
     therapyType: '情绪聚焦疗法 (EFT)',
     professionalBackground: {
@@ -175,7 +190,10 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
     title: '存在主义治疗师',
     avatar: '🐬',
     themeColor: '#26A69A',
-  shortDesc: '存在主义，生命意义',
+    shortDesc: '存在主义，生命意义',
+    category: '存在主义',
+    expertise: ['生命意义', '人生决策', '自由选择'],
+    briefIntro: '帮助你面对存在的困境，在生命的困境中找到属于你的答案',
     description: '智慧自由的思想者，关注生命的意义与个人的选择，帮助你在存在的困境中找到属于你的答案。',
     therapyType: '存在主义疗法',
     professionalBackground: {
@@ -205,6 +223,7 @@ export const DEFAULT_ROLES: PsychologistRole[] = [
 
 // 别名导出（兼容旧代码）
 export type ChatRole = PsychologistRole;
+export const roles = DEFAULT_ROLES;
 export const THERAPIST_ROLES = DEFAULT_ROLES;
 export const DEFAULT_ROLE = DEFAULT_ROLES[0];
 
