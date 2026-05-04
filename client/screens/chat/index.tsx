@@ -70,6 +70,7 @@ function ChatContent() {
         onSelectRole={() => setRoleSelectorVisible(true)}
         onShowIntro={() => setIntroModalVisible(true)}
         onShowHistory={() => setShowHistory(true)}
+        onNewChat={createNewChat}
         hasHistory={sessions.length > 0}
       />
 

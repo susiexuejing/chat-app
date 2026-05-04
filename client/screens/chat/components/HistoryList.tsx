@@ -26,7 +26,7 @@ interface HistoryListProps {
 }
 
 export function HistoryList({ onClose }: HistoryListProps) {
-  const { sessions, currentSession, loadSession, deleteSession, createNewChat } = useChat();
+  const { sessions, currentSession, loadSession, deleteSession } = useChat();
   const insets = useSafeAreaInsets();
 
   const formatTime = (timestamp: number) => {
@@ -141,18 +141,6 @@ export function HistoryList({ onClose }: HistoryListProps) {
             <FontAwesome6 name="xmark" size={20} color="#6B7280" />
           </TouchableOpacity>
         </View>
-      </View>
-
-      {/* 新建对话按钮 */}
-      <View className="px-4 py-3">
-        <TouchableOpacity
-          onPress={createNewChat}
-          className="flex-row items-center justify-center p-4 rounded-2xl"
-          style={{ backgroundColor: '#10B981' }}
-        >
-          <FontAwesome6 name="plus" size={18} color="white" />
-          <Text className="ml-2 text-white font-semibold">新建对话</Text>
-        </TouchableOpacity>
       </View>
 
       {/* 对话列表 */}

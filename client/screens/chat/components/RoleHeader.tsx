@@ -13,6 +13,7 @@ interface RoleHeaderProps {
   onSelectRole: () => void;
   onShowIntro: () => void;
   onShowHistory: () => void;
+  onNewChat: () => void;
   hasHistory?: boolean;
 }
 
@@ -20,6 +21,7 @@ export function RoleHeader({
   onSelectRole, 
   onShowIntro, 
   onShowHistory,
+  onNewChat,
   hasHistory = false,
 }: RoleHeaderProps) {
   const { currentRole } = useChat();
@@ -72,15 +74,15 @@ export function RoleHeader({
           </TouchableOpacity>
         )}
 
-        {/* 切换按钮 */}
+        {/* 新建对话按钮 */}
         <TouchableOpacity
-          onPress={onSelectRole}
+          onPress={onNewChat}
           className="px-3 py-2 rounded-full"
           style={{ backgroundColor: currentRole.themeColor + '15' }}
         >
           <View className="flex-row items-center">
             <FontAwesome6
-              name="right-left"
+              name="plus"
               size={14}
               color={currentRole.themeColor}
             />
@@ -88,7 +90,7 @@ export function RoleHeader({
               className="ml-1.5 text-sm font-medium"
               style={{ color: currentRole.themeColor }}
             >
-              切换
+              新建对话
             </Text>
           </View>
         </TouchableOpacity>
