@@ -21,8 +21,8 @@ app.get('/api/v1/health', (req, res) => {
  * 文档: https://help.aliyun.com/zh/model-studio/qwen-omni
  */
 const DASHSCOPE_BASE_URL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
-// 模型选择: glm-5 (用户有权限) 或 qwen-plus
-const DEFAULT_MODEL = process.env.DASHSCOPE_MODEL || 'glm-5';
+// 模型选择: qwen3.6-plus (用户有权限) 或 qwen-plus
+const DEFAULT_MODEL = process.env.DASHSCOPE_MODEL || 'qwen3.6-plus';
 
 /**
  * 聊天消息接口（非流式）
