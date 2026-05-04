@@ -217,9 +217,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     
     try {
       // 调用百炼 API（直接通过后端）
+      // 注意：传递 newMessages（包含新用户消息），而不是旧的 messages
       await chatWithDashScope(
         currentRole.systemPrompt,
-        messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        newMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         currentRole.name,
         (chunk: string) => {
           setMessages(prev => {
