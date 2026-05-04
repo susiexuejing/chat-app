@@ -41,10 +41,9 @@ async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
   }
 }
 
-// 创建新会话
-async function createNewSession(role: PsychologistRole): Promise<ChatSession> {
-  const sessions = await getChatSessions();
-  const newSession: ChatSession = {
+// 创建新会话对象（不保存到存储，只有有消息时才保存）
+function createSessionObject(role: PsychologistRole): ChatSession {
+  return {
     id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
     roleId: role.id,
     roleName: role.name,
@@ -52,9 +51,16 @@ async function createNewSession(role: PsychologistRole): Promise<ChatSession> {
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
-  sessions.unshift(newSession);
-  await saveChatSessions(sessions);
-  return newSession;
+}
+
+// 保存会话到存储（只有消息数 >= 1 时才调用）
+async function saveSessionToStore(session: ChatSession): Promise<void> {
+  const sessions = await getChatSessions();
+  const exists = sessions.find(s => s.id === session.id);
+  if (!exists) {
+    sessions.unshift(session);
+    await saveChatSessions(sessions);
+  }
 }
 
 // 更新会话消息
@@ -141,14 +147,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       await updateSessionMessages(currentSession.id, messages);
     }
     
-    // 创建新会话
-    const newSession = await createNewSession(currentRole);
+    // 创建新会话对象（不保存到存储，只有有消息时才保存）
+    const newSession = createSessionObject(currentRole);
     setCurrentSession(newSession);
     setMessages([]);
     
-    // 更新会话列表
-    const loadedSessions = await getChatSessions();
-    setSessions(loadedSessions);
+    // 如果之前有会话且消息数 >= 1，更新会话列表
+    if (currentSession && messages.length >= 1) {
+      const loadedSessions = await getChatSessions();
+      setSessions(loadedSessions);
+    }
   }, [currentRole, currentSession, messages]);
 
   // 加载会话
@@ -204,10 +212,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const shouldSaveHistory = messages.length >= 1;
     
     if (shouldSaveHistory && !session) {
-      session = await createNewSession(currentRole);
+      // 创建会话对象并保存到存储
+      session = createSessionObject(currentRole);
+      await saveSessionToStore(session);
       setCurrentSession(session);
-      const loadedSessions = await getChatSessions();
-      setSessions(loadedSessions);
+      setSessions(await getChatSessions());
     }
     
     // 创建占位 AI 消息
