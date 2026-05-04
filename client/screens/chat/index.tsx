@@ -75,7 +75,7 @@ function ChatContent() {
 
       {/* 消息列表 */}
       <View className="flex-1">
-        <MessageList onSelectRole={() => setRoleSelectorVisible(true)} />
+        <MessageList onShowIntro={() => setIntroModalVisible(true)} />
         
         {/* 加载指示器 */}
         {isLoading && (

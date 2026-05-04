@@ -136,8 +136,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // 新建对话
   const createNewChat = useCallback(async () => {
-    // 保存当前会话
-    if (currentSession && messages.length > 0) {
+    // 保存当前会话（只有消息数 >= 1 时才保存）
+    if (currentSession && messages.length >= 1) {
       await updateSessionMessages(currentSession.id, messages);
     }
     
@@ -146,6 +146,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setCurrentSession(newSession);
     setMessages([]);
     
+    // 更新会话列表
     const loadedSessions = await getChatSessions();
     setSessions(loadedSessions);
   }, [currentRole, currentSession, messages]);
@@ -197,9 +198,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(true);
     setError(null);
     
-    // 确保有会话
+    // 只有当消息数量 >= 1 时才创建/保存会话
+    // （第一条消息时不创建会话，只有第二条消息开始才保存）
     let session = currentSession;
-    if (!session) {
+    const shouldSaveHistory = messages.length >= 1;
+    
+    if (shouldSaveHistory && !session) {
       session = await createNewSession(currentRole);
       setCurrentSession(session);
       const loadedSessions = await getChatSessions();
@@ -237,8 +241,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
       );
       
-      // 保存消息到本地
-      debouncedSaveMessages(session.id, newMessages);
+      // 只有当消息数量 >= 1 时才保存到历史记录
+      if (shouldSaveHistory && session) {
+        debouncedSaveMessages(session.id, newMessages);
+      }
       
     } catch (error: any) {
       console.error('Failed to send message:', error);
