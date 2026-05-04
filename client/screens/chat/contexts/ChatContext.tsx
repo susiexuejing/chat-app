@@ -10,6 +10,7 @@ export interface ChatContextType {
   inputText: string;
   setInputText: (text: string) => void;
   currentRole: PsychologistRole;
+  setCurrentRole: (role: PsychologistRole) => void;
   roles: PsychologistRole[];
   currentSession: ChatSession | null;
   sessions: ChatSession[];
@@ -81,6 +82,7 @@ const emptyContext: ChatContextType = {
   inputText: '',
   setInputText: () => {},
   currentRole: getDefaultRoles()[0],
+  setCurrentRole: () => {},
   roles: [],
   currentSession: null,
   sessions: [],
@@ -161,7 +163,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [roles]);
 
   // 删除会话
-  const deleteSessionFn = useCallback(async (sessionId: string) => {
+  const deleteSession = useCallback(async (sessionId: string) => {
     await deleteSessionFromStore(sessionId);
     
     if (currentSession?.id === sessionId) {
@@ -252,6 +254,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         inputText,
         setInputText,
         currentRole,
+        setCurrentRole,
         roles,
         currentSession,
         sessions,
@@ -260,7 +263,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         createNewChat,
         loadSession,
         sendMessage,
-        deleteSession: deleteSessionFn,
+        deleteSession,
       }}
     >
       {children}

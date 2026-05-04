@@ -22,11 +22,13 @@ interface RoleSelectorProps {
 }
 
 export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
-  const { currentRole, roles, createNewChat } = useChat();
+  const { currentRole, roles, setCurrentRole, createNewChat } = useChat();
 
-  const handleSelectRole = (role: ChatRole) => {
+  const handleSelectRole = async (role: ChatRole) => {
+    // 先设置当前角色
+    setCurrentRole(role);
     // 切换角色时创建新对话
-    createNewChat();
+    await createNewChat();
     onClose();
   };
 
