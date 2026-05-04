@@ -10,7 +10,6 @@ import {
   Text,
   Modal,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
 import {
   RoleSelector,
@@ -71,13 +70,12 @@ function ChatContent() {
         onSelectRole={() => setRoleSelectorVisible(true)}
         onShowIntro={() => setIntroModalVisible(true)}
         onShowHistory={() => setShowHistory(true)}
-        onNewChat={createNewChat}
         hasHistory={sessions.length > 0}
       />
 
       {/* 消息列表 */}
       <View className="flex-1">
-        <MessageList onShowIntro={() => setIntroModalVisible(true)} />
+        <MessageList onSelectRole={() => setRoleSelectorVisible(true)} />
         
         {/* 加载指示器 */}
         {isLoading && (
@@ -90,14 +88,6 @@ function ChatContent() {
             </View>
           </View>
         )}
-      </View>
-
-      {/* 免责声明 */}
-      <View className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800 flex-row items-center justify-center">
-        <Ionicons name="warning-outline" size={12} color="#b45309" className="mr-1" />
-        <Text className="text-xs text-amber-700 dark:text-amber-400">
-          本产品为 AI 模拟对话，不代表真实心理咨询服务。如有严重心理困扰，请寻求专业帮助。
-        </Text>
       </View>
 
       {/* 输入区域 */}

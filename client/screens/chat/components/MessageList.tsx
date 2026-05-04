@@ -11,10 +11,10 @@ import { ChatMessage } from '../types';
 import { FontAwesome6 } from '@expo/vector-icons';
 
 interface MessageListProps {
-  onShowIntro: () => void;
+  onSelectRole: () => void;
 }
 
-export function MessageList({ onShowIntro }: MessageListProps) {
+export function MessageList({ onSelectRole }: MessageListProps) {
   const { messages, currentRole } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -55,7 +55,7 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         
         {/* 简介提示 */}
         <TouchableOpacity
-          onPress={onShowIntro}
+          onPress={onSelectRole}
           className="bg-gray-100 dark:bg-gray-800 rounded-2xl p-4 mb-6 w-full"
         >
           <View className="flex-row items-center">

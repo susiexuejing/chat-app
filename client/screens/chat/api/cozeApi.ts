@@ -8,15 +8,24 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
-// 获取后端地址 - Web 环境直接使用当前域名
+// 获取后端地址 - 尝试多个可能的地址
 function getBackendUrl(): string {
-  // Web 环境：从 window.location 获取当前域名
+  // 1. 优先使用环境变量
+  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL) {
+    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_BASE_URL;
+  }
+  // 2. 尝试从 window.location 获取当前域名
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    return `${protocol}//${hostname}:9091`;
+    // 如果是云端域名，使用 https
+    if (hostname.includes('coze')) {
+      return `${protocol}//${hostname}`;
+    }
   }
-  // 默认 localhost
+  // 3. 备用云端域名
+  const cloudDomain = 'https://71ec546d-7bf0-4452-a60b-790bde3c6291.dev.coze.site';
+  // 4. 默认 localhost
   return 'http://localhost:9091';
 }
 
@@ -217,51 +226,4 @@ export async function chatWithDashScopeSync(
 
   const data = await response.json();
   return data.content || data.response || '';
-}
-
-/**
- * 语音转文字（ASR）
- * @param audioUri 录音文件的 URI
- * @returns 识别后的文字
- */
-export async function speechToText(audioUri: string): Promise<string> {
-  try {
-    // 创建 FormData
-    const formData = new FormData();
-    
-    // 获取文件名和 MIME 类型
-    const fileName = audioUri.split('/').pop() || 'recording.m4a';
-    const mimeType = 'audio/m4a';
-    
-    // 根据环境处理文件
-    if (Platform.OS === 'web') {
-      // Web 环境：使用 fetch 获取 blob
-      const response = await fetch(audioUri);
-      const blob = await response.blob();
-      formData.append('file', blob, fileName);
-    } else {
-      // React Native 环境：使用 uri
-      formData.append('file', {
-        uri: audioUri,
-        name: fileName,
-        type: mimeType,
-      } as any);
-    }
-
-    const response = await fetch(`${BACKEND_BASE_URL}/api/v1/asr`, {
-      method: 'POST',
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `ASR failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    return data.text || data.transcription || '';
-  } catch (error) {
-    console.error('ASR error:', error);
-    throw error;
-  }
 }
