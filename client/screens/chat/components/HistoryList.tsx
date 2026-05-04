@@ -71,7 +71,10 @@ export function HistoryList({ onClose }: HistoryListProps) {
     
     return (
       <TouchableOpacity
-        onPress={() => loadSession(item)}
+        onPress={() => {
+          loadSession(item);
+          onClose();
+        }}
         onLongPress={() => handleDelete(item)}
         className={`flex-row items-center p-4 rounded-xl mb-2 ${
           isActive
