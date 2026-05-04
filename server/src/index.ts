@@ -1,10 +1,17 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import multer from 'multer';
 dotenv.config(); // 加载 .env 环境变量
 
 const app = express();
 const port = process.env.PORT || 9091;
+
+// Multer 配置（内存存储）
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
 
 // Middleware
 app.use(cors());
@@ -403,4 +410,61 @@ app.listen(port, () => {
   console.log(`Server listening at http://localhost:${port}/`);
   console.log(`DashScope API configured with model: ${DEFAULT_MODEL}`);
   console.log(`API documentation: https://help.aliyun.com/zh/model-studio/qwen-omni`);
+});
+
+// ==================== 语音转文字 (ASR) 接口 ====================
+// 使用百炼 paraformer 模型进行语音识别
+const ASR_API_URL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/paraformer/audio_transcriptions';
+
+app.post('/api/v1/asr', upload.single('audio'), async (req, res) => {
+  try {
+    // 获取 API Key
+    const apiKey = process.env.DASHSCOPE_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'API key not configured' });
+    }
+
+    // 获取音频文件
+    const audioBuffer = req.file?.buffer;
+    if (!audioBuffer) {
+      return res.status(400).json({ error: 'No audio file provided' });
+    }
+
+    console.log('ASR request received, audio size:', audioBuffer.length, 'bytes');
+
+    // 调用百炼 ASR API (paraformer 模型)
+    const response = await fetch(ASR_API_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: audioBuffer,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('ASR API error:', response.status, errorData);
+      return res.status(response.status).json({
+        error: 'ASR service error',
+        details: errorData,
+      });
+    }
+
+    const data = await response.json() as {
+      text?: string;
+      transcripts?: Array<{ text?: string }>;
+    };
+
+    // 尝试多种响应格式
+    const transcription = data?.text || data?.transcripts?.[0]?.text || '';
+
+    console.log('ASR result:', transcription);
+
+    res.json({
+      text: transcription,
+    });
+  } catch (error) {
+    console.error('ASR error:', error);
+    res.status(500).json({ error: 'Internal server error', message: String(error) });
+  }
 });
