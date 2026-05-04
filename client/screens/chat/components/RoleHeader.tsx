@@ -51,7 +51,7 @@ export function RoleHeader({
 
         {/* 名称和简介 */}
         <TouchableOpacity
-          onPress={onSelectRole}
+          onPress={onShowIntro}
           className="flex-1 ml-3"
         >
           <Text className="text-base font-semibold text-gray-900 dark:text-white">
