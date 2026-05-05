@@ -120,12 +120,14 @@ export function MultimodalInput({ onSendMessage, disabled }: MultimodalInputProp
           </TouchableOpacity>
 
           {/* 输入框 */}
-          <View className="flex-1 bg-gray-100 dark:bg-gray-800 rounded-2xl px-4 py-2 mr-2">
+          <View className={`flex-1 rounded-2xl px-4 py-2 mr-2 ${
+            disabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
+          }`}>
             <TextInput
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder="输入你的问题..."
-              placeholderTextColor="#9CA3AF"
+              value={disabled ? '等待回复中...' : inputText}
+              onChangeText={disabled ? undefined : setInputText}
+              placeholder={disabled ? '' : "输入你的问题..."}
+              placeholderTextColor={disabled ? 'transparent' : "#9CA3AF"}
               multiline
               maxLength={1000}
               style={styles.input}

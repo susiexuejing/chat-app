@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useEffect } from 'react';
-import { View, ScrollView, Text, Image } from 'react-native';
+import { View, ScrollView, Text, Image, ActivityIndicator } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { useChat } from '../contexts/ChatContext';
 import { ChatMessage } from '../types';
@@ -17,6 +17,7 @@ interface MessageListProps {
 export function MessageList({ onShowIntro }: MessageListProps) {
   const { messages, currentRole } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
+  const [isAITyping, setIsAITyping] = React.useState(false);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -106,6 +107,22 @@ export function MessageList({ onShowIntro }: MessageListProps) {
       {messages.map((message: ChatMessage) => (
         <MessageBubble key={message.id} message={message} />
       ))}
+      
+      {/* AI 正在输入指示器 */}
+      {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+        <View className="flex-row items-center mb-4 px-4">
+          <Image
+            source={{ uri: currentRole.avatar }}
+            className="w-8 h-8 rounded-full mr-2"
+          />
+          <View className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded-2xl rounded-bl-md flex-row items-center">
+            <ActivityIndicator size="small" color={currentRole.themeColor} className="mr-2" />
+            <Text className="text-gray-500 dark:text-gray-400 text-sm">
+              {currentRole.name} 正在思考中...
+            </Text>
+          </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
