@@ -46,23 +46,6 @@ export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCar
         </View>
       )}
       
-      {/* 可能的想法 */}
-      {analysis.thoughts.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>
-            <Ionicons name="bulb-outline" size={12} color="#F59E0B" />
-            {' '}可能的念头
-          </Text>
-          <View style={styles.thoughtTags}>
-            {analysis.thoughts.map((thought, index) => (
-              <View key={index} style={styles.thoughtTag}>
-                <Text style={styles.thoughtLabel}>{thought.label}</Text>
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
-      
       {/* 互动选项 */}
       {analysis.interactionOptions.length > 0 && (
         <View style={styles.section}>
@@ -128,22 +111,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#334155',
     fontStyle: 'italic',
-  },
-  thoughtTags: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  thoughtTag: {
-    backgroundColor: '#FEF3C7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  thoughtLabel: {
-    fontSize: 12,
-    color: '#92400E',
-    fontWeight: '500',
   },
   optionsContainer: {
     gap: 8,

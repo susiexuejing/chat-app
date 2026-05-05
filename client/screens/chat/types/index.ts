@@ -31,7 +31,6 @@ export interface AnalysisResult {
   keywords: string[]; // 关键词
   summary: string; // 内容摘要
   keyEvent: string; // 关键事件
-  thoughts: Array<{ label: string; question: string }>; // 可能的念头
   interactionOptions: Array<{ label: string; value: string }>; // 互动选项
 }
 

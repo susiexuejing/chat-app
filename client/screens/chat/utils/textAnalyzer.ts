@@ -63,21 +63,6 @@ export function analyzeEmotions(text: string): string[] {
 }
 
 /**
- * 提取可能的念头
- */
-export function analyzeThoughts(text: string): Array<{ label: string; question: string }> {
-  const found: Array<{ label: string; question: string }> = [];
-  
-  for (const { pattern, label, question } of THOUGHT_PATTERNS) {
-    if (pattern.test(text)) {
-      found.push({ label, question });
-    }
-  }
-  
-  return found.slice(0, 2); // 最多返回2个念头
-}
-
-/**
  * 提取关键事件
  */
 export function extractKeyEvents(text: string): string {
@@ -117,11 +102,10 @@ export function extractKeywords(text: string): string[] {
 }
 
 /**
- * 生成互动选项
+ * 生成互动选项（基于情绪）
  */
 export function generateInteractionOptions(
-  emotions: string[],
-  thoughts: Array<{ label: string; question: string }>
+  emotions: string[]
 ): Array<{ label: string; value: string }> {
   const options: Array<{ label: string; value: string }> = [];
   
@@ -138,12 +122,11 @@ export function generateInteractionOptions(
   if (emotions.includes('迷茫')) {
     options.push({ label: '需要明确下一步该怎么做', value: '需要明确下一步该怎么做' });
   }
-  
-  // 基于念头生成选项
-  for (const thought of thoughts) {
-    if (!options.find(o => o.value.includes(thought.label))) {
-      options.push({ label: thought.question, value: thought.question });
-    }
+  if (emotions.includes('孤独')) {
+    options.push({ label: '希望有人陪伴', value: '希望有人陪伴' });
+  }
+  if (emotions.includes('疲惫')) {
+    options.push({ label: '想要休息一下', value: '想要休息一下' });
   }
   
   return options.slice(0, 4);
@@ -155,10 +138,9 @@ export function generateInteractionOptions(
 
 export function analyzeText(text: string): AnalysisResult {
   const emotions = analyzeEmotions(text);
-  const thoughts = analyzeThoughts(text);
   const keyEvent = extractKeyEvents(text);
   const keywords = extractKeywords(text);
-  const interactionOptions = generateInteractionOptions(emotions, thoughts);
+  const interactionOptions = generateInteractionOptions(emotions);
   
   // 生成摘要
   let summary = '正在感受你的情绪...';
@@ -168,7 +150,6 @@ export function analyzeText(text: string): AnalysisResult {
   
   return {
     emotions,
-    thoughts,
     keyEvent,
     keywords,
     interactionOptions,
