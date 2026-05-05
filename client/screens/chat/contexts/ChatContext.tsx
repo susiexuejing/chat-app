@@ -16,6 +16,7 @@ export interface ChatContextType {
   sessions: ChatSession[];
   isLoading: boolean;
   error: string | null;
+  clearError: () => void;
   createNewChat: () => Promise<void>;
   loadSession: (session: ChatSession) => void;
   sendMessage: (content: string) => Promise<void>;
@@ -94,6 +95,7 @@ const emptyContext: ChatContextType = {
   sessions: [],
   isLoading: false,
   error: null,
+  clearError: () => {},
   createNewChat: async () => {},
   loadSession: () => {},
   sendMessage: async () => {},
@@ -276,6 +278,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         sessions,
         isLoading,
         error,
+        clearError: () => setError(null),
         createNewChat,
         loadSession,
         sendMessage,

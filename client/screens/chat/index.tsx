@@ -3,12 +3,13 @@
  * 支持角色切换、文本/语音/图片多模态输入、历史对话管理
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   ActivityIndicator,
   Text,
   Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
@@ -31,6 +32,8 @@ function ChatContent() {
     createNewChat,
     currentSession,
     sessions,
+    error,
+    clearError,
   } = useChat();
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
@@ -87,6 +90,48 @@ function ChatContent() {
               <Text className="ml-2 text-sm text-gray-500 dark:text-gray-400">
                 {currentRole.name} 正在思考...
               </Text>
+            </View>
+          </View>
+        )}
+        
+        {/* 错误提示 */}
+        {error && !isLoading && (
+          <View className="absolute bottom-24 left-4 right-4">
+            <View className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl p-4">
+              <View className="flex-row items-start">
+                <View className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/50 items-center justify-center mr-3">
+                  <Ionicons name="alert-circle" size={18} color="#dc2626" />
+                </View>
+                <View className="flex-1">
+                  <Text className="text-sm font-medium text-red-700 dark:text-red-400 mb-1">
+                    请求超时
+                  </Text>
+                  <Text className="text-xs text-red-600 dark:text-red-300 mb-2">
+                    网络连接不稳定，请检查网络后重试
+                  </Text>
+                  <View className="flex-row">
+                    <TouchableOpacity
+                      className="bg-red-500 px-3 py-1.5 rounded-lg mr-2"
+                      onPress={() => {
+                        clearError();
+                        // 重试上一条消息
+                        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+                        if (lastUserMessage) {
+                          handleSendMessage(lastUserMessage.content);
+                        }
+                      }}
+                    >
+                      <Text className="text-xs text-white font-medium">重试</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      className="bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg"
+                      onPress={clearError}
+                    >
+                      <Text className="text-xs text-gray-600 dark:text-gray-300">忽略</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         )}
