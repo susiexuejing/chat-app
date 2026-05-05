@@ -4,7 +4,7 @@
  */
 
 import React, { useRef, useEffect } from 'react';
-import { View, ScrollView, Text, Image, ActivityIndicator } from 'react-native';
+import { View, ScrollView, Text, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { LightAnalysisCard } from './LightAnalysisCard';
 import { useChat } from '../contexts/ChatContext';
@@ -124,16 +124,24 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }}
     >
-      {messages.map((message: ChatMessage) => (
-        <MessageBubble key={message.id} message={message} />
-      ))}
+      {/* 遍历消息，在用户消息后插入轻量分析卡片 */}
+      {messages.map((message: ChatMessage, index: number) => {
+        const isLastMessage = index === messages.length - 1;
+        const isUserMessage = message.role === 'user';
+        
+        return (
+          <React.Fragment key={message.id}>
+            <MessageBubble message={message} />
+            
+            {/* 用户消息后立即显示轻量分析卡片 */}
+            {isUserMessage && currentAnalysis && isLastMessage && (
+              <LightAnalysisCard analysis={currentAnalysis} />
+            )}
+          </React.Fragment>
+        );
+      })}
       
-      {/* 轻量分析卡片 - 显示在用户消息后面，AI 回复之前 */}
-      {currentAnalysis && messages.length > 0 && (
-        <LightAnalysisCard analysis={currentAnalysis} />
-      )}
-      
-      {/* AI 正在输入指示器 */}
+      {/* AI 正在输入指示器（当最后一条是用户消息时显示） */}
       {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
         <View className="flex-row items-center mb-4 px-4">
           <Image
@@ -151,6 +159,3 @@ export function MessageList({ onShowIntro }: MessageListProps) {
     </ScrollView>
   );
 }
-
-// 导入 TouchableOpacity
-import { TouchableOpacity } from 'react-native';
