@@ -29,6 +29,9 @@ export function RolePickerModal({
   onSelectRole,
   onClose,
 }: RolePickerModalProps) {
+  // 只有 visible 为 true 时才渲染
+  if (!visible) return null;
+
   const handleSelect = (role: PsychologistRole) => {
     onSelectRole(role);
     onClose();
@@ -36,7 +39,7 @@ export function RolePickerModal({
 
   return (
     <Modal
-      visible={visible}
+      visible={true}
       transparent
       animationType="fade"
       onRequestClose={onClose}

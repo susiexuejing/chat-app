@@ -24,11 +24,12 @@ interface RoleDetailModalProps {
 const { width } = Dimensions.get('window');
 
 export function RoleDetailModal({ visible, role, onClose }: RoleDetailModalProps) {
-  if (!role) return null;
+  // 只有 visible 为 true 且 role 存在时才渲染
+  if (!visible || !role) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={true}
       transparent
       animationType="fade"
       onRequestClose={onClose}
