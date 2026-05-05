@@ -28,6 +28,17 @@ export function MessageList({ onShowIntro }: MessageListProps) {
     }
   }, [lightAnalysis]);
 
+  // 当 AI 开始回复时，隐藏分析卡片
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      // 如果最后一条是 assistant 且有内容，说明 AI 开始回复了
+      if (lastMsg.role === 'assistant' && lastMsg.content && lastMsg.content.length > 0) {
+        setCurrentAnalysis(null);
+      }
+    }
+  }, [messages.length, messages]);
+
   // 自动滚动到底部
   useEffect(() => {
     if (messages.length > 0) {
@@ -117,8 +128,8 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         <MessageBubble key={message.id} message={message} />
       ))}
       
-      {/* 轻量分析卡片 */}
-      {currentAnalysis && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+      {/* 轻量分析卡片 - 显示在用户消息后面，AI 回复之前 */}
+      {currentAnalysis && messages.length > 0 && (
         <LightAnalysisCard analysis={currentAnalysis} />
       )}
       
