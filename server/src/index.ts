@@ -68,12 +68,14 @@ app.post('/api/v1/chat', async (req, res) => {
         messages: chatMessages,
         stream: false,
         // 限制输出长度，加快响应速度
-        max_tokens: 500,
+        max_tokens: 250,
         // 禁用思考过程
         extra_body: {
+          // 禁用思考过程
           thinking: {
             type: "off"
-          }
+          },
+          thinking_budget: 0
         }
       }),
     });
