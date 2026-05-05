@@ -1,312 +1,318 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
+import { ChatMessage, ChatSession, LightAnalysisResult } from '../types';
+import { analyzeText } from '../utils/textAnalyzer';
 import { chatWithDashScope } from '../api/cozeApi';
-import { getDefaultRoles, PsychologistRole } from '../constants/roles';
-import { ChatMessage, ChatSession } from '../types';
-import { analyzeText, AnalysisResult } from '../utils/textAnalyzer';
 
-// Context 类型
-export interface ChatContextType {
+interface ChatContextValue {
   messages: ChatMessage[];
-  inputText: string;
-  setInputText: (text: string) => void;
-  currentRole: PsychologistRole;
-  setCurrentRole: (role: PsychologistRole) => void;
-  roles: PsychologistRole[];
-  currentSession: ChatSession | null;
   sessions: ChatSession[];
+  currentRole: PsychologistRole | null;
+  currentSessionId: string | null;
   isLoading: boolean;
+  isThinking: boolean;
+  thinkingContent: string;
   error: string | null;
-  thinking: string; // AI 思考内容
-  lightAnalysis: AnalysisResult | null; // 前端轻量分析结果
-  clearError: () => void;
-  createNewChat: () => Promise<void>;
-  loadSession: (session: ChatSession) => void;
+  showHistory: boolean;
+  lightAnalysis: LightAnalysisResult | null;
+  inputText: string;
+  showRoleIntro: boolean;
+  roles: PsychologistRole[];
+  onSelectRole?: (role: PsychologistRole) => void;
+  onShowIntro?: () => void;
+  setShowRoleIntro: (show: boolean) => void;
+  setShowHistory: (show: boolean) => void;
   sendMessage: (content: string) => Promise<void>;
+  setLightAnalysis: (analysis: LightAnalysisResult | null) => void;
+  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  setInputText: (text: string) => void;
+  setCurrentRole: (role: PsychologistRole | null) => void;
+  clearError: () => void;
+  createNewChat: (role: PsychologistRole) => void;
+  loadSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
+  currentSession: ChatSession | null;
 }
 
-// 获取会话列表（从 AsyncStorage）
-async function getChatSessions(): Promise<ChatSession[]> {
-  try {
-    const data = await AsyncStorage.getItem('chat_sessions');
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
-}
+const STORAGE_KEY = 'chat_sessions';
 
-// 保存会话列表
-async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
-  try {
-    await AsyncStorage.setItem('chat_sessions', JSON.stringify(sessions));
-  } catch (error) {
-    console.error('Failed to save sessions:', error);
-  }
-}
-
-// 创建新会话对象（不保存到存储，只有有消息时才保存）
-function createSessionObject(role: PsychologistRole): ChatSession {
-  return {
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-    roleId: role.id,
-    roleName: role.name,
-    messages: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-}
-
-// 保存会话到存储（只有消息数 >= 1 时才调用）
-async function saveSessionToStore(session: ChatSession): Promise<void> {
-  const sessions = await getChatSessions();
-  const exists = sessions.find(s => s.id === session.id);
-  if (!exists) {
-    sessions.unshift(session);
-    await saveChatSessions(sessions);
-  }
-}
-
-// 更新会话消息
-async function updateSessionMessages(sessionId: string, messages: ChatMessage[]): Promise<void> {
-  const sessions = await getChatSessions();
-  const index = sessions.findIndex(s => s.id === sessionId);
-  if (index !== -1) {
-    sessions[index].messages = messages;
-    sessions[index].updatedAt = Date.now();
-    await saveChatSessions(sessions);
-  }
-}
-
-// 删除会话
-async function deleteSessionFromStore(sessionId: string): Promise<void> {
-  const sessions = await getChatSessions();
-  const filtered = sessions.filter(s => s.id !== sessionId);
-  await saveChatSessions(filtered);
-}
-
-// 空的 Context（eslint-disable 忽略空方法，因为只是默认值）
-/* eslint-disable @typescript-eslint/no-empty-function */
-const emptyContext: ChatContextType = {
+export const ChatContext = createContext<ChatContextValue>({
   messages: [],
-  inputText: '',
-  setInputText: () => {},
-  currentRole: getDefaultRoles()[0],
-  setCurrentRole: () => {},
-  roles: [],
-  currentSession: null,
   sessions: [],
+  currentRole: null,
+  currentSessionId: null,
   isLoading: false,
+  isThinking: false,
+  thinkingContent: '',
   error: null,
-  thinking: '',
-  clearError: () => {},
-  createNewChat: async () => {},
-  loadSession: () => {},
-  sendMessage: async () => {},
-  deleteSession: async () => {},
+  showHistory: false,
   lightAnalysis: null,
-};
-/* eslint-enable @typescript-eslint/no-empty-function */
+  inputText: '',
+  showRoleIntro: false,
+  roles: DEFAULT_ROLES,
+  onSelectRole: undefined,
+  onShowIntro: undefined,
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setShowRoleIntro: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setShowHistory: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setMessages: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setInputText: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setLightAnalysis: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  setCurrentRole: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  createNewChat: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  loadSession: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  deleteSession: async () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  clearError: () => {},
+  // eslint-disable-next-line @typescript-eslint/no-empty-function
+  sendMessage: async () => {},
+  currentSession: null,
+});
 
-export const ChatContext = createContext<ChatContextType>(emptyContext);
+export const useChat = () => useContext(ChatContext);
 
-// 导出 useChat hook
-export function useChat() {
-  return useContext(ChatContext);
+interface ChatProviderProps {
+  children: ReactNode;
+  onSelectRole?: (role: PsychologistRole) => void;
+  onShowIntro?: () => void;
 }
 
-export function ChatProvider({ children }: { children: React.ReactNode }) {
+export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProviderProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [inputText, setInputText] = useState('');
-  const [roles] = useState<PsychologistRole[]>(getDefaultRoles());
-  const [currentRole, setCurrentRole] = useState<PsychologistRole>(getDefaultRoles()[0]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
+  const [currentRole, setCurrentRole] = useState<PsychologistRole | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
+  const [thinkingContent, setThinkingContent] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [thinking, setThinking] = useState(''); // AI 思考内容
-  const [lightAnalysis, setLightAnalysis] = useState<AnalysisResult | null>(null); // 前端轻量分析结果
+  const [showHistory, setShowHistory] = useState(false);
+  const [lightAnalysis, setLightAnalysis] = useState<LightAnalysisResult | null>(null);
+  const [inputText, setInputText] = useState('');
+  const [showRoleIntro, setShowRoleIntro] = useState(false);
+  const roles = DEFAULT_ROLES;
 
-  // 保存定时器
-  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentSession = sessions.find(s => s.id === currentSessionId) || null;
 
-  // 初始化加载
+  // Save sessions to storage
+  const saveSessionsToStorage = useCallback(async (newSessions: ChatSession[]) => {
+    try {
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSessions));
+    } catch (err) {
+      console.error('Failed to save sessions:', err);
+    }
+  }, []);
+
+  // Load sessions from storage on mount
   useEffect(() => {
-    const loadInitialData = async () => {
-      const loadedSessions = await getChatSessions();
-      setSessions(loadedSessions);
-    };
-    loadInitialData();
-  }, []);
-
-  // 防抖保存消息
-  const debouncedSaveMessages = useCallback((sessionId: string, newMessages: ChatMessage[]) => {
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-    saveTimeoutRef.current = setTimeout(() => {
-      updateSessionMessages(sessionId, newMessages);
-    }, 500);
-  }, []);
-
-  // 新建对话
-  const createNewChat = useCallback(async () => {
-    // 保存当前会话（只有消息数 >= 1 时才保存）
-    if (currentSession && messages.length >= 1) {
-      await updateSessionMessages(currentSession.id, messages);
-    }
-    
-    // 创建新会话对象（不保存到存储，只有有消息时才保存）
-    const newSession = createSessionObject(currentRole);
-    setCurrentSession(newSession);
-    setMessages([]);
-    
-    // 如果之前有会话且消息数 >= 1，更新会话列表
-    if (currentSession && messages.length >= 1) {
-      const loadedSessions = await getChatSessions();
-      setSessions(loadedSessions);
-    }
-  }, [currentRole, currentSession, messages]);
-
-  // 加载会话
-  const loadSession = useCallback((session: ChatSession) => {
-    setCurrentSession(session);
-    setMessages(session.messages || []);
-    
-    // 设置对应的角色
-    const role = roles.find(r => r.id === session.roleId);
-    if (role) {
-      setCurrentRole(role);
-    }
-  }, [roles]);
-
-  // 删除会话
-  const deleteSession = useCallback(async (sessionId: string) => {
-    await deleteSessionFromStore(sessionId);
-    
-    if (currentSession?.id === sessionId) {
-      const loadedSessions = await getChatSessions();
-      if (loadedSessions.length > 0) {
-        loadSession(loadedSessions[0]);
-      } else {
-        await createNewChat();
+    const loadSessionsFromStorage = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY);
+        if (stored) {
+          setSessions(JSON.parse(stored));
+        }
+      } catch (err) {
+        console.error('Failed to load sessions:', err);
       }
-      setSessions(loadedSessions);
-    } else {
-      setSessions(await getChatSessions());
-    }
-  }, [currentSession, loadSession, createNewChat]);
+    };
+    loadSessionsFromStorage();
+  }, []);
 
-  // 发送消息
-  const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim()) return;
-    
-    // 创建用户消息
-    const userMessage: ChatMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  const createNewChat = useCallback((role: PsychologistRole) => {
+    const newSession: ChatSession = {
+      id: `session_${Date.now()}`,
+      roleId: role.id,
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+
+    setSessions(prev => {
+      const updated = [newSession, ...prev];
+      saveSessionsToStorage(updated);
+      return updated;
+    });
+
+    setCurrentSessionId(newSession.id);
+    setCurrentRole(role);
+    setMessages([]);
+    setLightAnalysis(null);
+    setError(null);
+    setShowHistory(false);
+  }, [saveSessionsToStorage]);
+
+  const loadSession = useCallback((sessionId: string) => {
+    setSessions(prev => {
+      const session = prev.find(s => s.id === sessionId);
+      if (session) {
+        const role = DEFAULT_ROLES.find(r => r.id === session.roleId) || null;
+        setCurrentSessionId(session.id);
+        setCurrentRole(role);
+        setMessages(session.messages);
+        setLightAnalysis(null);
+        setError(null);
+        setShowHistory(false);
+      }
+      return prev;
+    });
+  }, []);
+
+  const deleteSession = useCallback(async (sessionId: string) => {
+    setSessions(prev => {
+      const updated = prev.filter(s => s.id !== sessionId);
+      saveSessionsToStorage(updated);
+      
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+        setCurrentRole(null);
+      }
+      return updated;
+    });
+  }, [currentSessionId, saveSessionsToStorage]);
+
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  const sendMessage = useCallback(async (userMessage: string) => {
+    if (!currentRole || !userMessage.trim()) return;
+
+    const userMsg: ChatMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       role: 'user',
-      content,
+      content: userMessage,
       timestamp: Date.now(),
     };
-    
-    const newMessages = [...messages, userMessage];
-    setMessages(newMessages);
+
+    setMessages(prev => [...prev, userMsg]);
     setInputText('');
-    setIsLoading(true);
-    setError(null);
-    
-    // 只有当消息数量 >= 1 时才创建/保存会话
-    // （第一条消息时不创建会话，只有第二条消息开始才保存）
-    let session = currentSession;
-    const shouldSaveHistory = messages.length >= 1;
-    
-    if (shouldSaveHistory && !session) {
-      // 创建会话对象并保存到存储
-      session = createSessionObject(currentRole);
-      await saveSessionToStore(session);
-      setCurrentSession(session);
-      setSessions(await getChatSessions());
-    }
-    
-    // 创建占位 AI 消息
-    const assistantMessage: ChatMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 10)}`,
+
+    // Perform light analysis immediately
+    const analysis = analyzeText(userMessage);
+    setLightAnalysis(analysis);
+
+    // Add a placeholder for AI response
+    const aiMsgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const aiMsg: ChatMessage = {
+      id: aiMsgId,
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
     };
-    setMessages(prev => [...prev, assistantMessage]);
-    
-    // ========== 前端轻量分析 - 立即给用户反馈 ==========
-    const analysis = analyzeText(content);
-    setLightAnalysis(analysis);
-    
+
+    setMessages(prev => [...prev, aiMsg]);
+    setIsLoading(true);
+    setIsThinking(false);
+    setThinkingContent('');
+
+    let fullContent = '';
+    let thinkingText = '';
+
     try {
-      // 调用百炼 API（直接通过后端）
-      // 注意：传递 newMessages（包含新用户消息），而不是旧的 messages
+      // Get current messages using callback to avoid stale closure
+      let currentMessages: ChatMessage[] = [];
+      setMessages(prev => {
+        currentMessages = [...prev];
+        return prev;
+      });
+
       await chatWithDashScope(
         currentRole.systemPrompt,
-        newMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        currentMessages.slice(0, -1).map(m => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        })),
         currentRole.name,
-        // 实际回复内容的回调
-        (chunk: string) => {
-          setThinking(''); // 清空思考内容
-          setMessages(prev => {
-            const lastMsg = prev[prev.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              return prev.map((m, i) => 
-                i === prev.length - 1 
-                  ? { ...m, content: m.content + chunk }
-                  : m
-              );
-            }
-            return prev;
-          });
+        (content) => {
+          // onChunk - content callback
+          fullContent += content;
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === aiMsgId ? { ...m, content: fullContent } : m
+            )
+          );
         },
-        // 思考内容的回调
-        (thinkingChunk: string) => {
-          setThinking(prev => prev + thinkingChunk);
+        (thinking) => {
+          // onThinkingChunk - thinking callback
+          thinkingText += thinking;
+          setIsThinking(true);
+          setThinkingContent(thinkingText);
         }
       );
-      
-      // 只有当消息数量 >= 1 时才保存到历史记录
-      if (shouldSaveHistory && session) {
-        debouncedSaveMessages(session.id, newMessages);
-      }
-      
-    } catch (error: any) {
-      console.error('Failed to send message:', error);
-      setError(error.message || '发送失败，请稍后再试');
-    } finally {
+
       setIsLoading(false);
-      setThinking(''); // 清空思考内容
-      setLightAnalysis(null); // 清空轻量分析结果
+      setIsThinking(false);
+      setThinkingContent('');
+
+      // Save to session if message count >= 1
+      if (currentSessionId) {
+        setSessions(prev => {
+          const updated = prev.map(s => {
+            if (s.id === currentSessionId) {
+              const updatedMessages = [...s.messages, userMsg, { ...aiMsg, content: fullContent }];
+              return { ...s, messages: updatedMessages, updatedAt: Date.now() };
+            }
+            return s;
+          });
+          saveSessionsToStorage(updated);
+          return updated;
+        });
+      }
+    } catch (err) {
+      setIsLoading(false);
+      setIsThinking(false);
+      setThinkingContent('');
+      setError(err instanceof Error ? err.message : '发送失败');
+
+      setMessages(prev => prev.filter(m => m.id !== aiMsgId));
     }
-  }, [messages, currentRole, currentSession, debouncedSaveMessages]);
+  }, [currentRole, currentSessionId, saveSessionsToStorage]);
 
   return (
     <ChatContext.Provider
       value={{
         messages,
-        inputText,
-        setInputText,
-        currentRole,
-        setCurrentRole,
-        roles,
-        currentSession,
         sessions,
+        currentRole,
+        currentSessionId,
         isLoading,
+        isThinking,
+        thinkingContent,
         error,
-        thinking,
+        showHistory,
         lightAnalysis,
-        clearError: () => setError(null),
+        inputText,
+        showRoleIntro,
+        roles,
+        onSelectRole,
+        onShowIntro,
+        setShowRoleIntro,
+        setShowHistory,
+        setMessages,
+        setInputText,
+        setLightAnalysis,
+        setCurrentRole,
         createNewChat,
         loadSession,
-        sendMessage,
         deleteSession,
+        clearError,
+        sendMessage,
+        currentSession,
       }}
     >
       {children}
     </ChatContext.Provider>
   );
 }
+
+export const useChatContext = () => useContext(ChatContext);

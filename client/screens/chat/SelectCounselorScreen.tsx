@@ -14,7 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Screen } from '@/components/Screen';
-import { ChatRole, PsychologistRole, roles } from './constants/roles';
+import { PsychologistRole, DEFAULT_ROLES } from './constants/roles';
 import { useChat } from './contexts/ChatContext';
 import { FontAwesome6 } from '@expo/vector-icons';
 
@@ -23,12 +23,12 @@ export default function SelectCounselorScreen() {
   const { setCurrentRole, createNewChat } = useChat();
   const [selectedRole, setSelectedRole] = useState<PsychologistRole | null>(null);
 
-  const handleSelectCounselor = async (role: PsychologistRole) => {
+  const handleSelectCounselor = (role: PsychologistRole) => {
     setSelectedRole(role);
     // 设置当前角色
     setCurrentRole(role);
     // 创建新对话
-    await createNewChat();
+    createNewChat(role);
     // 跳转到聊天页面
     router.push('/chat');
   };
@@ -54,94 +54,83 @@ export default function SelectCounselorScreen() {
           className="flex-1 px-4 py-6"
           showsVerticalScrollIndicator={false}
         >
-          {roles.map((role: PsychologistRole) => (
+          {DEFAULT_ROLES.map((role: PsychologistRole) => (
             <TouchableOpacity
               key={role.id}
               onPress={() => handleSelectCounselor(role)}
-              activeOpacity={0.7}
-              className="bg-white dark:bg-gray-800 rounded-2xl p-5 mb-4"
-              style={[
-                { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 8, elevation: 3 }
-              ]}
+              className={`flex-row items-center p-4 rounded-2xl mb-4 ${
+                selectedRole?.id === role.id
+                  ? 'bg-indigo-50 dark:bg-indigo-900/20'
+                  : 'bg-gray-50 dark:bg-gray-800/50'
+              }`}
+              style={{
+                borderWidth: 2,
+                borderColor: selectedRole?.id === role.id ? role.themeColor : 'transparent',
+              }}
             >
-              <View className="flex-row items-center">
-                {/* 头像 */}
-                <View className="relative">
-                  <Image
-                    source={{ uri: role.avatar }}
-                    className="w-16 h-16 rounded-full"
-                  />
-                  <View 
-                    className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full items-center justify-center"
-                    style={{ backgroundColor: role.themeColor }}
+              {/* 头像 */}
+              <Image
+                source={{ uri: role.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${role.id}` }}
+                className="w-16 h-16 rounded-full"
+              />
+
+              {/* 信息 */}
+              <View className="flex-1 ml-4">
+                <View className="flex-row items-center">
+                  <Text className="text-lg font-semibold text-gray-900 dark:text-white">
+                    {role.name}
+                  </Text>
+                  <View
+                    className="ml-2 px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: role.themeColor + '20' }}
                   >
-                    <FontAwesome6 name="heart" size={12} color="white" />
+                    <Text
+                      className="text-xs font-medium"
+                      style={{ color: role.themeColor }}
+                    >
+                      {role.therapyType}
+                    </Text>
                   </View>
                 </View>
 
-                {/* 信息 */}
-                <View className="flex-1 ml-4">
-                  <View className="flex-row items-center">
-                    <Text className="text-lg font-semibold text-gray-900 dark:text-white">
-                      {role.name}
-                    </Text>
-                    <View 
-                      className="ml-2 px-2 py-0.5 rounded-full"
+                <Text className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                  {role.title}
+                </Text>
+
+                <Text
+                  className="text-sm text-gray-600 dark:text-gray-300 mt-2"
+                  numberOfLines={2}
+                >
+                  {role.shortDesc}
+                </Text>
+
+                {/* 专长标签 */}
+                <View className="flex-row flex-wrap mt-2">
+                  {role.expertise?.slice(0, 3).map((tag: string, index: number) => (
+                    <View
+                      key={index}
+                      className="mr-2 mb-1 px-2 py-0.5 rounded-full"
                       style={{ backgroundColor: role.themeColor + '15' }}
                     >
-                      <Text 
-                        className="text-xs font-medium"
+                      <Text
+                        className="text-xs"
                         style={{ color: role.themeColor }}
                       >
-                        {role.category}
+                        {tag}
                       </Text>
                     </View>
-                  </View>
-                  
-                  <Text 
-                    className="text-sm text-gray-500 dark:text-gray-400 mt-1 mb-2"
-                    numberOfLines={1}
-                  >
-                    {role.shortDesc}
-                  </Text>
-
-                  {/* 专长标签 */}
-                  <View className="flex-row flex-wrap">
-                    {role.expertise.slice(0, 3).map((tag: string, index: number) => (
-                      <View 
-                        key={index}
-                        className="mr-2 mb-1 px-2 py-1 rounded-full"
-                        style={{ backgroundColor: '#F3F4F6' }}
-                      >
-                        <Text className="text-xs text-gray-600 dark:text-gray-300">
-                          {tag}
-                        </Text>
-                      </View>
-                    ))}
-                  </View>
+                  ))}
                 </View>
-
-                {/* 箭头 */}
-                <FontAwesome6 
-                  name="chevron-right" 
-                  size={18} 
-                  color="#9CA3AF" 
-                />
               </View>
 
-              {/* 简介 */}
-              <Text 
-                className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-300"
-                numberOfLines={2}
-              >
-                {role.briefIntro}
-              </Text>
+              {/* 箭头 */}
+              <FontAwesome6 name="chevron-right" size={16} color="#9CA3AF" />
             </TouchableOpacity>
           ))}
-
-          {/* 底部留白 */}
-          <View className="h-20" />
         </ScrollView>
+
+        {/* 底部安全区 */}
+        <View style={{ height: insets.bottom + 20 }} />
       </View>
     </Screen>
   );

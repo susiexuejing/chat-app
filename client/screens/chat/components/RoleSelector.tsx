@@ -11,8 +11,9 @@ import {
   Modal,
   ScrollView,
   Image,
+  TouchableWithoutFeedback,
 } from 'react-native';
-import { ChatRole, PsychologistRole } from '../constants/roles';
+import { PsychologistRole } from '../constants/roles';
 import { useChat } from '../contexts/ChatContext';
 import { FontAwesome6 } from '@expo/vector-icons';
 
@@ -24,11 +25,11 @@ interface RoleSelectorProps {
 export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
   const { currentRole, roles, setCurrentRole, createNewChat } = useChat();
 
-  const handleSelectRole = async (role: ChatRole) => {
+  const handleSelectRole = (role: PsychologistRole) => {
     // 先设置当前角色
     setCurrentRole(role);
     // 切换角色时创建新对话
-    await createNewChat();
+    createNewChat(role);
     onClose();
   };
 
@@ -65,16 +66,16 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                 key={role.id}
                 onPress={() => handleSelectRole(role)}
                 className={`flex-row items-center p-4 rounded-2xl mb-3 ${
-                  currentRole.id === role.id
+                  currentRole?.id === role.id
                     ? 'bg-gray-100 dark:bg-gray-800 border-2'
                     : 'bg-gray-50 dark:bg-gray-800/50'
                 }`}
                 style={{
-                  borderColor: currentRole.id === role.id ? role.themeColor : 'transparent',
+                  borderColor: currentRole?.id === role.id ? role.themeColor : 'transparent',
                 }}
               >
                 <Image
-                  source={{ uri: role.avatar }}
+                  source={{ uri: role.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${role.id}` }}
                   className="w-14 h-14 rounded-full"
                 />
                 <View className="flex-1 ml-4">
@@ -82,7 +83,7 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                     <Text className="text-base font-semibold text-gray-900 dark:text-white">
                       {role.name}
                     </Text>
-                    {currentRole.id === role.id && (
+                    {currentRole?.id === role.id && (
                       <View
                         className="ml-2 px-2 py-0.5 rounded-full"
                         style={{ backgroundColor: role.themeColor + '20' }}
@@ -99,12 +100,15 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                   <Text className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {role.shortDesc}
                   </Text>
+                  <View className="flex-row items-center mt-2">
+                    <Text className="text-xs text-gray-400">
+                      {role.expertise?.slice(0, 3).join(' · ')}
+                    </Text>
+                  </View>
                 </View>
-                <FontAwesome6
-                  name="chevron-right"
-                  size={16}
-                  color="#9CA3AF"
-                />
+                
+                {/* 箭头 */}
+                <FontAwesome6 name="chevron-right" size={14} color="#9CA3AF" />
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -113,6 +117,3 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
     </Modal>
   );
 }
-
-// 辅助组件
-import { TouchableWithoutFeedback } from 'react-native';

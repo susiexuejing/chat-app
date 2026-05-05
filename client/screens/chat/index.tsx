@@ -27,11 +27,10 @@ function ChatContent() {
   const {
     currentRole,
     messages,
+    sessions,
     sendMessage,
     isLoading,
     createNewChat,
-    currentSession,
-    sessions,
     error,
     clearError,
   } = useChat();
@@ -80,15 +79,15 @@ function ChatContent() {
 
       {/* 消息列表 */}
       <View className="flex-1">
-        <MessageList onShowIntro={() => setIntroModalVisible(true)} />
+        <MessageList />
         
         {/* 加载指示器 */}
         {isLoading && (
           <View className="absolute bottom-24 left-0 right-0 items-center">
             <View className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-full flex-row items-center">
-              <ActivityIndicator size="small" color={currentRole.themeColor} />
+              <ActivityIndicator size="small" color="#8B5CF6" />
               <Text className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                {currentRole.name} 正在思考...
+                {currentRole?.name || '咨询师'} 正在思考...
               </Text>
             </View>
           </View>

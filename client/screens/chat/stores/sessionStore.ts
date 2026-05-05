@@ -4,10 +4,28 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatSession, ChatMessage, generateId, createMessage } from '../types';
-import { ChatRole } from '../constants/roles';
+import { ChatSession, ChatMessage } from '../types';
+import { PsychologistRole } from '../constants/roles';
 
 const STORAGE_KEY = 'chat_sessions';
+
+// 生成唯一ID
+function generateId(): string {
+  return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// 创建消息对象
+function createMessage(
+  role: 'user' | 'assistant',
+  content: string
+): ChatMessage {
+  return {
+    id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    role,
+    content,
+    timestamp: Date.now(),
+  };
+}
 
 // 获取所有对话历史
 export async function getChatSessions(): Promise<ChatSession[]> {
@@ -33,7 +51,7 @@ export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
 }
 
 // 创建新对话
-export async function createNewSession(role: ChatRole): Promise<ChatSession> {
+export async function createNewSession(role: PsychologistRole): Promise<ChatSession> {
   const sessions = await getChatSessions();
   
   const newSession: ChatSession = {
@@ -88,19 +106,4 @@ export async function clearAllSessions(): Promise<void> {
 export async function getSession(sessionId: string): Promise<ChatSession | null> {
   const sessions = await getChatSessions();
   return sessions.find(s => s.id === sessionId) || null;
-}
-
-// 更新对话标题（基于第一条用户消息）
-export async function updateSessionTitle(
-  sessionId: string,
-  title: string
-): Promise<void> {
-  const sessions = await getChatSessions();
-  
-  const index = sessions.findIndex(s => s.id === sessionId);
-  if (index !== -1) {
-    sessions[index].title = title;
-    sessions[index].updatedAt = Date.now();
-    await saveChatSessions(sessions);
-  }
 }

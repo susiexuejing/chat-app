@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useChat } from '../contexts/ChatContext';
 import { ChatSession } from '../types';
-import { THERAPIST_ROLES } from '../constants/roles';
+import { DEFAULT_ROLES } from '../constants/roles';
 
 // 模块级别存储当前时间（只在模块首次加载时计算一次）
 const INIT_TIME = Date.now();
@@ -44,26 +44,29 @@ export function HistoryList({ onClose }: HistoryListProps) {
   };
 
   const getRoleName = (roleId: string) => {
-    const role = THERAPIST_ROLES.find(r => r.id === roleId);
+    const role = DEFAULT_ROLES.find(r => r.id === roleId);
     return role?.name || '未知咨询师';
   };
 
   const getRoleAvatar = (roleId: string) => {
-    const role = THERAPIST_ROLES.find(r => r.id === roleId);
+    const role = DEFAULT_ROLES.find(r => r.id === roleId);
     return role?.avatar || '';
   };
 
   const getRoleColor = (roleId: string) => {
-    const role = THERAPIST_ROLES.find(r => r.id === roleId);
+    const role = DEFAULT_ROLES.find(r => r.id === roleId);
     return role?.themeColor || '#10B981';
   };
 
   const handleDelete = (session: ChatSession) => {
-    // 使用浏览器原生 confirm 对话框（Web 兼容）
-    const confirmed = window.confirm('即将删除这个对话，对话删除后不能恢复，是否确认删除？');
-    if (confirmed) {
-      deleteSession(session.id);
-    }
+    Alert.alert(
+      '删除对话',
+      '即将删除这个对话，对话删除后不能恢复，是否确认删除？',
+      [
+        { text: '取消', style: 'cancel' },
+        { text: '删除', style: 'destructive', onPress: () => deleteSession(session.id) },
+      ]
+    );
   };
 
   const renderItem = ({ item }: { item: ChatSession }) => {
@@ -72,7 +75,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
     return (
       <TouchableOpacity
         onPress={() => {
-          loadSession(item);
+          loadSession(item.id);
           onClose();
         }}
         onLongPress={() => handleDelete(item)}
@@ -88,7 +91,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
       >
         {/* 角色头像 */}
         <Image
-          source={{ uri: getRoleAvatar(item.roleId) }}
+          source={{ uri: `https://api.dicebear.com/7.x/avataaars/svg?seed=${item.roleId}` }}
           className="w-10 h-10 rounded-full"
         />
         
@@ -99,7 +102,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
               className="text-sm font-medium text-gray-900 dark:text-white"
               numberOfLines={1}
             >
-              {item.title || getRoleName(item.roleId)}
+              {getRoleName(item.roleId)}
             </Text>
             <Text className="text-xs text-gray-400">
               {formatTime(item.updatedAt)}
@@ -110,7 +113,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
               className="text-xs text-gray-500 dark:text-gray-400"
               numberOfLines={1}
             >
-              {getRoleName(item.roleId)} · {item.messages.length}条消息
+              {item.messages.length > 0 ? `${item.messages.length}条消息` : '新对话'}
             </Text>
           </View>
         </View>
@@ -118,7 +121,8 @@ export function HistoryList({ onClose }: HistoryListProps) {
         {/* 删除按钮 */}
         <TouchableOpacity
           onPress={() => handleDelete(item)}
-          className="p-2 ml-1"
+          className="p-2"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <FontAwesome6 name="trash" size={14} color="#9CA3AF" />
         </TouchableOpacity>
@@ -126,38 +130,35 @@ export function HistoryList({ onClose }: HistoryListProps) {
     );
   };
 
-  return (
-    <View
-      className="flex-1 bg-white dark:bg-gray-900"
-      style={{ paddingTop: insets.top }}
-    >
-      {/* 头部 */}
-      <View className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
-        <View className="flex-row items-center justify-between">
-          <Text className="text-xl font-bold text-gray-900 dark:text-white">
-            历史对话
-          </Text>
-          <TouchableOpacity onPress={onClose} className="p-2">
-            <FontAwesome6 name="xmark" size={20} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
+  if (sessions.length === 0) {
+    return (
+      <View className="flex-1 items-center justify-center px-6 py-12">
+        <FontAwesome6 name="comments" size={48} color="#D1D5DB" />
+        <Text className="text-gray-400 mt-4 text-center">
+          还没有历史对话
+        </Text>
+        <Text className="text-gray-400 text-sm text-center mt-1">
+          选择一位咨询师开始对话吧
+        </Text>
       </View>
+    );
+  }
 
+  return (
+    <View className="flex-1" style={{ paddingBottom: insets.bottom }}>
+      {/* 标题 */}
+      <View className="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <Text className="text-lg font-semibold text-gray-900 dark:text-white">
+          历史对话 ({sessions.length})
+        </Text>
+      </View>
+      
       {/* 对话列表 */}
       <FlatList
         data={sessions}
+        keyExtractor={(item) => item.id}
         renderItem={renderItem}
-        keyExtractor={item => item.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-        showsVerticalScrollIndicator={false}
-        ListEmptyComponent={
-          <View className="items-center justify-center py-16">
-            <FontAwesome6 name="comments" size={48} color="#E5E7EB" />
-            <Text className="text-gray-400 mt-4 text-center">
-              暂无历史对话{'\n'}点击上方开始新对话
-            </Text>
-          </View>
-        }
+        contentContainerStyle={{ padding: 16 }}
       />
     </View>
   );

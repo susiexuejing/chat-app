@@ -143,16 +143,14 @@ export function analyzeText(text: string): AnalysisResult {
   const interactionOptions = generateInteractionOptions(emotions);
   
   // 生成摘要
-  let summary = '正在感受你的情绪...';
-  if (emotions.length > 0) {
-    summary = `感受到你可能在经历${emotions.join('、')}的情绪`;
-  }
+  const summary = emotions.length > 0
+    ? `感受到你可能在经历${emotions.join('、')}的情绪`
+    : '正在感受你的情绪...';
   
   return {
     emotions,
     keyEvent,
     keywords,
     interactionOptions,
-    summary,
   };
 }

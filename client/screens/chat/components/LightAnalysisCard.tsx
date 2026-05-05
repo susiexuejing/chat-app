@@ -1,8 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { AnalysisResult } from '../utils/textAnalyzer';
-import { useChat } from '../contexts/ChatContext';
+import { AnalysisResult } from '../types';
 
 interface LightAnalysisCardProps {
   analysis: AnalysisResult;
@@ -10,14 +9,9 @@ interface LightAnalysisCardProps {
 }
 
 export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCardProps) {
-  const { setInputText, inputText } = useChat();
-  
   const handleOptionPress = (option: string) => {
     if (onOptionSelect) {
       onOptionSelect(option);
-    } else {
-      // 默认行为：添加到输入框
-      setInputText(inputText + (inputText ? ' ' : '') + option);
     }
   };
   
@@ -51,7 +45,7 @@ export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCar
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>你想深入探讨：</Text>
           <View style={styles.optionsContainer}>
-            {analysis.interactionOptions.map((option, index) => (
+            {analysis.interactionOptions.map((option: { label: string; value: string }, index: number) => (
               <TouchableOpacity
                 key={index}
                 style={styles.optionButton}
@@ -105,34 +99,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#64748B',
     marginBottom: 6,
-    fontWeight: '600',
   },
   eventText: {
     fontSize: 14,
-    color: '#334155',
-    fontStyle: 'italic',
+    color: '#374151',
+    lineHeight: 20,
+    backgroundColor: '#FEF3C7',
+    padding: 10,
+    borderRadius: 8,
   },
   optionsContainer: {
     gap: 8,
   },
   optionButton: {
-    backgroundColor: '#EDE9FE',
+    backgroundColor: '#EEF2FF',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#DDD6FE',
+    borderColor: '#C7D2FE',
   },
   optionText: {
-    fontSize: 13,
-    color: '#5B21B6',
+    fontSize: 14,
+    color: '#4338CA',
+    textAlign: 'center',
   },
   footer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    paddingTop: 12,
+    paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#E0F2FE',
   },
