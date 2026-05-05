@@ -11,9 +11,8 @@ import {
   Modal,
   ScrollView,
   Image,
-  TouchableWithoutFeedback,
 } from 'react-native';
-import { PsychologistRole } from '../constants/roles';
+import { ChatRole, PsychologistRole } from '../constants/roles';
 import { useChat } from '../contexts/ChatContext';
 import { FontAwesome6 } from '@expo/vector-icons';
 
@@ -25,7 +24,7 @@ interface RoleSelectorProps {
 export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
   const { currentRole, roles, setCurrentRole, createNewChat } = useChat();
 
-  const handleSelectRole = (role: PsychologistRole) => {
+  const handleSelectRole = async (role: ChatRole) => {
     // 先设置当前角色
     setCurrentRole(role);
     // 切换角色时创建新对话
@@ -75,7 +74,7 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                 }}
               >
                 <Image
-                  source={{ uri: role.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${role.id}` }}
+                  source={{ uri: role.avatar }}
                   className="w-14 h-14 rounded-full"
                 />
                 <View className="flex-1 ml-4">
@@ -100,15 +99,12 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
                   <Text className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                     {role.shortDesc}
                   </Text>
-                  <View className="flex-row items-center mt-2">
-                    <Text className="text-xs text-gray-400">
-                      {role.expertise?.slice(0, 3).join(' · ')}
-                    </Text>
-                  </View>
                 </View>
-                
-                {/* 箭头 */}
-                <FontAwesome6 name="chevron-right" size={14} color="#9CA3AF" />
+                <FontAwesome6
+                  name="chevron-right"
+                  size={16}
+                  color="#9CA3AF"
+                />
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -117,3 +113,6 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
     </Modal>
   );
 }
+
+// 辅助组件
+import { TouchableWithoutFeedback } from 'react-native';

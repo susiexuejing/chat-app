@@ -29,7 +29,7 @@ interface ChatContextValue {
   setInputText: (text: string) => void;
   setCurrentRole: (role: PsychologistRole | null) => void;
   clearError: () => void;
-  createNewChat: (role: PsychologistRole) => void;
+  createNewChat: (role?: PsychologistRole) => void;
   loadSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
   currentSession: ChatSession | null;
@@ -127,10 +127,13 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
     loadSessionsFromStorage();
   }, []);
 
-  const createNewChat = useCallback((role: PsychologistRole) => {
+  const createNewChat = useCallback((role?: PsychologistRole) => {
+    const targetRole = role || currentRole;
+    if (!targetRole) return;
+    
     const newSession: ChatSession = {
       id: `session_${Date.now()}`,
-      roleId: role.id,
+      roleId: targetRole.id,
       messages: [],
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -143,12 +146,12 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
     });
 
     setCurrentSessionId(newSession.id);
-    setCurrentRole(role);
+    setCurrentRole(targetRole);
     setMessages([]);
     setLightAnalysis(null);
     setError(null);
     setShowHistory(false);
-  }, [saveSessionsToStorage]);
+  }, [saveSessionsToStorage, currentRole]);
 
   const loadSession = useCallback((sessionId: string) => {
     setSessions(prev => {

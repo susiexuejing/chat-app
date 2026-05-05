@@ -1,44 +1,52 @@
-import { FlatList, View, Text, TouchableOpacity, Image } from 'react-native';
-import { useChat } from '../contexts/ChatContext';
-import { Screen } from '@/components/Screen';
+/**
+ * 消息列表组件
+ * 包含欢迎消息和消息气泡列表
+ */
+
+import React, { useRef, useEffect } from 'react';
+import { View, ScrollView, Text, Image, ActivityIndicator } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { LightAnalysisCard } from './LightAnalysisCard';
-import { RoleHeader } from './RoleHeader';
-import { HistoryList } from './HistoryList';
-import { PsychologistRole } from '../constants/roles';
+import { useChat } from '../contexts/ChatContext';
+import { ChatMessage, AnalysisResult } from '../types';
+import { FontAwesome6 } from '@expo/vector-icons';
 
 interface MessageListProps {
-  onSelectRole?: () => void;
+  onShowIntro: () => void;
 }
 
-export default function MessageList({ onSelectRole }: MessageListProps) {
-  const {
-    messages,
-    currentRole,
-    lightAnalysis,
-    showHistory,
-    setShowHistory,
-    isLoading,
-    isThinking,
-    error,
-    createNewChat,
-    sendMessage,
-    clearError,
-  } = useChat();
-
-  const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-
-  // 检查百炼回复是否开始（当有 assistant 消息且有内容时）
-  const aiReplyStarted = lastMsg?.role === 'assistant' && lastMsg?.content && lastMsg.content.length > 0;
-
-  // 只有在有轻量分析结果且 AI 回复还没开始时才显示分析卡片
-  const shouldShowAnalysis = lightAnalysis && !aiReplyStarted;
-
-  const handleStartChat = () => {
-    if (onSelectRole) {
-      onSelectRole();
+export function MessageList({ onShowIntro }: MessageListProps) {
+  const { messages, currentRole, lightAnalysis } = useChat();
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [isAITyping, setIsAITyping] = React.useState(false);
+  const [currentAnalysis, setCurrentAnalysis] = React.useState<AnalysisResult | null>(null);
+  
+  // 监听 lightAnalysis 变化，显示分析结果
+  React.useEffect(() => {
+    if (lightAnalysis) {
+      setCurrentAnalysis(lightAnalysis);
     }
-  };
+  }, [lightAnalysis]);
+
+  // 当 AI 开始回复时，隐藏分析卡片
+  React.useEffect(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      // 如果最后一条是 assistant 且有内容，说明 AI 开始回复了
+      if (lastMsg.role === 'assistant' && lastMsg.content && lastMsg.content.length > 0) {
+        setCurrentAnalysis(null);
+      }
+    }
+  }, [messages.length, messages]);
+
+  // 自动滚动到底部
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages.length]);
 
   // 欢迎消息
   if (messages.length === 0) {
@@ -46,54 +54,103 @@ export default function MessageList({ onSelectRole }: MessageListProps) {
       <View className="flex-1 items-center justify-center px-6">
         {/* AI 头像 */}
         <Image
-          source={{ uri: `https://api.dicebear.com/7.x/avataaars/svg?seed=${currentRole?.id || 'default'}` }}
+          source={{ uri: currentRole?.avatar }}
           className="w-20 h-20 rounded-full mb-6"
         />
         
         {/* 欢迎语 */}
-        <Text className="text-2xl font-bold text-gray-900 dark:text-white text-center mb-2">
-          嗨，我是 {currentRole?.name || '咨询师'}
+        <Text className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+          {currentRole?.name}
         </Text>
-        
-        <Text className="text-base text-gray-500 dark:text-gray-400 text-center mb-8">
-          {currentRole?.briefIntro || '倾诉你的心事，我来陪伴你'}
-        </Text>
-        
-        {/* 开始按钮 */}
-        <TouchableOpacity
-          className="bg-indigo-500 px-8 py-3 rounded-full"
-          onPress={handleStartChat}
+        <View
+          className="px-3 py-1 rounded-full mb-6"
+          style={{ backgroundColor: currentRole?.themeColor + '15' }}
         >
-          <Text className="text-white font-medium">开始对话</Text>
+          <Text
+            className="text-sm font-medium"
+            style={{ color: currentRole?.themeColor }}
+          >
+            {currentRole?.shortDesc}
+          </Text>
+        </View>
+        
+        {/* 简介提示 */}
+        <TouchableOpacity
+          onPress={onShowIntro}
+          className="bg-gray-100 dark:bg-gray-800 rounded-2xl p-4 mb-6 w-full"
+        >
+          <View className="flex-row items-center">
+            <View
+              className="w-10 h-10 rounded-full items-center justify-center mr-3"
+              style={{ backgroundColor: currentRole?.themeColor + '15' }}
+            >
+              <FontAwesome6
+                name="circle-info"
+                size={18}
+                color={currentRole?.themeColor}
+              />
+            </View>
+            <View className="flex-1">
+              <Text className="text-sm font-medium text-gray-700 dark:text-gray-200">
+                了解 {currentRole?.name}
+              </Text>
+              <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                点击查看咨询师简介和风格
+              </Text>
+            </View>
+            <FontAwesome6 name="chevron-right" size={14} color="#9CA3AF" />
+          </View>
         </TouchableOpacity>
+        
+        {/* 输入提示 */}
+        <Text className="text-gray-500 dark:text-gray-400 text-center text-sm mb-2">
+          欢迎来到这里，我是 {currentRole?.name}
+        </Text>
+        <Text className="text-gray-400 dark:text-gray-500 text-center text-sm">
+          告诉我你想聊些什么，或者有什么困扰着你
+        </Text>
       </View>
     );
   }
 
+  // 消息列表
   return (
-    <>
-      <FlatList
-        data={messages}
-        keyExtractor={(item, index) => `${item.id}-${index}`}
-        renderItem={({ item }) => (
-          <MessageBubble message={item} />
-        )}
-        contentContainerStyle={{ padding: 16, paddingBottom: 128 }}
-        inverted={false}
-      />
+    <ScrollView
+      ref={scrollViewRef}
+      className="flex-1 py-4"
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ flexGrow: 1 }}
+      onContentSizeChange={() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }}
+    >
+      {messages.map((message: ChatMessage) => (
+        <MessageBubble key={message.id} message={message} />
+      ))}
       
-      {/* 轻量分析卡片 - 显示在消息列表下方 */}
-      {shouldShowAnalysis && (
-        <View className="absolute bottom-28 left-2 right-2">
-          <LightAnalysisCard 
-            analysis={lightAnalysis} 
-            onOptionSelect={(response: string) => {
-              // 用户点击选项后，发送该选项作为新消息
-              sendMessage(response);
-            }}
+      {/* 轻量分析卡片 - 显示在用户消息后面，AI 回复之前 */}
+      {currentAnalysis && messages.length > 0 && (
+        <LightAnalysisCard analysis={currentAnalysis} />
+      )}
+      
+      {/* AI 正在输入指示器 */}
+      {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+        <View className="flex-row items-center mb-4 px-4">
+          <Image
+            source={{ uri: currentRole?.avatar }}
+            className="w-8 h-8 rounded-full mr-2"
           />
+          <View className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded-2xl rounded-bl-md flex-row items-center">
+            <ActivityIndicator size="small" color={currentRole?.themeColor} className="mr-2" />
+            <Text className="text-gray-500 dark:text-gray-400 text-sm">
+              {currentRole?.name} 正在思考中...
+            </Text>
+          </View>
         </View>
       )}
-    </>
+    </ScrollView>
   );
 }
+
+// 导入 TouchableOpacity
+import { TouchableOpacity } from 'react-native';

@@ -73,13 +73,13 @@ function ChatContent() {
         onSelectRole={() => setRoleSelectorVisible(true)}
         onShowIntro={() => setIntroModalVisible(true)}
         onShowHistory={() => setShowHistory(true)}
-        onNewChat={createNewChat}
+        onNewChat={() => createNewChat()}
         hasHistory={sessions.length > 0}
       />
 
       {/* 消息列表 */}
       <View className="flex-1">
-        <MessageList />
+        <MessageList onShowIntro={() => setIntroModalVisible(true)} />
         
         {/* 加载指示器 */}
         {isLoading && (
