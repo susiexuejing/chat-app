@@ -24,6 +24,18 @@ export interface ChatSession {
 }
 
 /**
+ * 轻量分析结果类型
+ */
+export interface AnalysisResult {
+  emotions: string[]; // 识别出的情绪
+  keywords: string[]; // 关键词
+  summary: string; // 内容摘要
+  keyEvent: string; // 关键事件
+  thoughts: Array<{ label: string; question: string }>; // 可能的念头
+  interactionOptions: Array<{ label: string; value: string }>; // 互动选项
+}
+
+/**
  * 生成唯一ID
  */
 export function generateId(): string {

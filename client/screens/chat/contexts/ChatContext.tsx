@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { chatWithDashScope } from '../api/cozeApi';
 import { getDefaultRoles, PsychologistRole } from '../constants/roles';
 import { ChatMessage, ChatSession } from '../types';
+import { analyzeText, AnalysisResult } from '../utils/textAnalyzer';
 
 // Context 类型
 export interface ChatContextType {
@@ -17,6 +18,7 @@ export interface ChatContextType {
   isLoading: boolean;
   error: string | null;
   thinking: string; // AI 思考内容
+  lightAnalysis: AnalysisResult | null; // 前端轻量分析结果
   clearError: () => void;
   createNewChat: () => Promise<void>;
   loadSession: (session: ChatSession) => void;
@@ -102,6 +104,7 @@ const emptyContext: ChatContextType = {
   loadSession: () => {},
   sendMessage: async () => {},
   deleteSession: async () => {},
+  lightAnalysis: null,
 };
 /* eslint-enable @typescript-eslint/no-empty-function */
 
@@ -122,6 +125,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [thinking, setThinking] = useState(''); // AI 思考内容
+  const [lightAnalysis, setLightAnalysis] = useState<AnalysisResult | null>(null); // 前端轻量分析结果
 
   // 保存定时器
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -233,6 +237,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
     setMessages(prev => [...prev, assistantMessage]);
     
+    // ========== 前端轻量分析 - 立即给用户反馈 ==========
+    const analysis = analyzeText(content);
+    setLightAnalysis(analysis);
+    
     try {
       // 调用百炼 API（直接通过后端）
       // 注意：传递 newMessages（包含新用户消息），而不是旧的 messages
@@ -272,6 +280,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
       setThinking(''); // 清空思考内容
+      setLightAnalysis(null); // 清空轻量分析结果
     }
   }, [messages, currentRole, currentSession, debouncedSaveMessages]);
 
@@ -289,6 +298,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         error,
         thinking,
+        lightAnalysis,
         clearError: () => setError(null),
         createNewChat,
         loadSession,

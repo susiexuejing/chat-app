@@ -6,8 +6,9 @@
 import React, { useRef, useEffect } from 'react';
 import { View, ScrollView, Text, Image, ActivityIndicator } from 'react-native';
 import { MessageBubble } from './MessageBubble';
+import { LightAnalysisCard } from './LightAnalysisCard';
 import { useChat } from '../contexts/ChatContext';
-import { ChatMessage } from '../types';
+import { ChatMessage, AnalysisResult } from '../types';
 import { FontAwesome6 } from '@expo/vector-icons';
 
 interface MessageListProps {
@@ -15,9 +16,17 @@ interface MessageListProps {
 }
 
 export function MessageList({ onShowIntro }: MessageListProps) {
-  const { messages, currentRole } = useChat();
+  const { messages, currentRole, lightAnalysis } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
   const [isAITyping, setIsAITyping] = React.useState(false);
+  const [currentAnalysis, setCurrentAnalysis] = React.useState<AnalysisResult | null>(null);
+  
+  // 监听 lightAnalysis 变化，显示分析结果
+  React.useEffect(() => {
+    if (lightAnalysis) {
+      setCurrentAnalysis(lightAnalysis);
+    }
+  }, [lightAnalysis]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -107,6 +116,11 @@ export function MessageList({ onShowIntro }: MessageListProps) {
       {messages.map((message: ChatMessage) => (
         <MessageBubble key={message.id} message={message} />
       ))}
+      
+      {/* 轻量分析卡片 */}
+      {currentAnalysis && messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+        <LightAnalysisCard analysis={currentAnalysis} />
+      )}
       
       {/* AI 正在输入指示器 */}
       {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
