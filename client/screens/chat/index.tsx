@@ -149,6 +149,7 @@ function ChatContent() {
       <MultimodalInput
         onSendMessage={handleSendMessage}
         disabled={isLoading}
+        isThinking={isLoading && messages.some(m => m.role === 'assistant' && m.content.startsWith('【思考中'))}
       />
 
       {/* 角色选择器 */}
