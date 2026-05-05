@@ -16,6 +16,8 @@ import { Screen } from '@/components/Screen';
 import {
   RoleSelector,
   RoleIntroModal,
+  RoleDetailModal,
+  RolePickerModal,
   RoleHeader,
   MessageList,
   MultimodalInput,
@@ -28,6 +30,7 @@ function ChatContent() {
     currentRole,
     messages,
     sessions,
+    roles,
     sendMessage,
     isLoading,
     createNewChat,
@@ -37,6 +40,8 @@ function ChatContent() {
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
   const [introModalVisible, setIntroModalVisible] = useState(false);
+  const [roleDetailVisible, setRoleDetailVisible] = useState(false);
+  const [rolePickerVisible, setRolePickerVisible] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
   // 处理发送消息（由 ChatContext 统一处理 API 调用）
@@ -70,8 +75,8 @@ function ChatContent() {
 
       {/* 角色头部 */}
       <RoleHeader
-        onSelectRole={() => setRoleSelectorVisible(true)}
-        onShowIntro={() => setIntroModalVisible(true)}
+        onShowRolePicker={() => setRolePickerVisible(true)}
+        onShowRoleDetail={() => setRoleDetailVisible(true)}
         onShowHistory={() => setShowHistory(true)}
         onNewChat={() => createNewChat()}
         hasHistory={sessions.length > 0}
@@ -162,6 +167,25 @@ function ChatContent() {
         visible={introModalVisible}
         role={currentRole}
         onClose={() => setIntroModalVisible(false)}
+      />
+
+      {/* 角色详情弹窗 */}
+      <RoleDetailModal
+        visible={roleDetailVisible}
+        role={currentRole}
+        onClose={() => setRoleDetailVisible(false)}
+      />
+
+      {/* 角色选择弹窗 */}
+      <RolePickerModal
+        visible={rolePickerVisible}
+        roles={roles}
+        currentRole={currentRole}
+        onSelectRole={(role) => {
+          // 选择角色后创建新对话
+          createNewChat(role);
+        }}
+        onClose={() => setRolePickerVisible(false)}
       />
     </Screen>
   );
