@@ -16,6 +16,7 @@ export interface ChatContextType {
   sessions: ChatSession[];
   isLoading: boolean;
   error: string | null;
+  thinking: string; // AI 思考内容
   clearError: () => void;
   createNewChat: () => Promise<void>;
   loadSession: (session: ChatSession) => void;
@@ -95,6 +96,7 @@ const emptyContext: ChatContextType = {
   sessions: [],
   isLoading: false,
   error: null,
+  thinking: '',
   clearError: () => {},
   createNewChat: async () => {},
   loadSession: () => {},
@@ -119,6 +121,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [currentSession, setCurrentSession] = useState<ChatSession | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [thinking, setThinking] = useState(''); // AI 思考内容
 
   // 保存定时器
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -237,7 +240,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         currentRole.systemPrompt,
         newMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
         currentRole.name,
+        // 实际回复内容的回调
         (chunk: string) => {
+          setThinking(''); // 清空思考内容
           setMessages(prev => {
             const lastMsg = prev[prev.length - 1];
             if (lastMsg && lastMsg.role === 'assistant') {
@@ -249,6 +254,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             }
             return prev;
           });
+        },
+        // 思考内容的回调
+        (thinkingChunk: string) => {
+          setThinking(prev => prev + thinkingChunk);
         }
       );
       
@@ -262,6 +271,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setError(error.message || '发送失败，请稍后再试');
     } finally {
       setIsLoading(false);
+      setThinking(''); // 清空思考内容
     }
   }, [messages, currentRole, currentSession, debouncedSaveMessages]);
 
@@ -278,6 +288,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         sessions,
         isLoading,
         error,
+        thinking,
         clearError: () => setError(null),
         createNewChat,
         loadSession,

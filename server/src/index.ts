@@ -191,9 +191,18 @@ app.post('/api/v1/chat/stream', async (req, res) => {
           } else {
             try {
               const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content;
+              const delta = parsed.choices?.[0]?.delta || {};
+              
+              // 处理思考内容（如果有）
+              const thinkingContent = delta.thinking_content || delta.reasoning_content;
+              if (thinkingContent) {
+                res.write(`data: ${JSON.stringify({ type: 'thinking', content: thinkingContent })}\n\n`);
+              }
+              
+              // 处理实际回复内容
+              const content = delta.content;
               if (content) {
-                res.write(`data: ${JSON.stringify({ content })}\n\n`);
+                res.write(`data: ${JSON.stringify({ type: 'content', content })}\n\n`);
               }
             } catch (e) {
               // 忽略解析错误

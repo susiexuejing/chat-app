@@ -5,14 +5,16 @@
 
 import React, { memo } from 'react';
 import { View, Text, Image } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { ChatMessage } from '../types';
 import { useChat } from '../contexts/ChatContext';
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  thinking?: string; // 思考内容
 }
 
-function MessageBubbleComponent({ message }: MessageBubbleProps) {
+function MessageBubbleComponent({ message, thinking }: MessageBubbleProps) {
   const { currentRole } = useChat();
   const isUser = message.role === 'user';
   
@@ -74,6 +76,21 @@ function MessageBubbleComponent({ message }: MessageBubbleProps) {
             {message.content}
           </Text>
         </View>
+        
+        {/* 思考过程（可折叠显示） */}
+        {thinking && (
+          <View className="mt-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-700/30">
+            <View className="flex-row items-center mb-1">
+              <Ionicons name="bulb-outline" size={12} className="text-amber-600 dark:text-amber-400 mr-1" />
+              <Text className="text-xs text-amber-600 dark:text-amber-400">
+                正在思考...
+              </Text>
+            </View>
+            <Text className="text-xs text-gray-500 dark:text-gray-400 italic leading-relaxed">
+              {thinking.slice(-200)} {/* 显示最后200字 */}
+            </Text>
+          </View>
+        )}
         
         {/* 时间戳 */}
         <Text className="text-xs text-gray-400 mt-1 px-1">

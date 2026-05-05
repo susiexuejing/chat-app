@@ -59,11 +59,12 @@ export async function chatWithDashScope(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   roleName: string,
   onChunk?: (text: string) => void,
+  onThinkingChunk?: (text: string) => void,
 ): Promise<void> {
   if (Platform.OS === 'web') {
-    await chatWeb(systemPrompt, messages, roleName, onChunk);
+    await chatWeb(systemPrompt, messages, roleName, onChunk, onThinkingChunk);
   } else {
-    await chatNative(systemPrompt, messages, roleName, onChunk);
+    await chatNative(systemPrompt, messages, roleName, onChunk, onThinkingChunk);
   }
 }
 
@@ -75,6 +76,7 @@ async function chatWeb(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   roleName: string,
   onChunk?: (text: string) => void,
+  onThinkingChunk?: (text: string) => void,
 ): Promise<void> {
   try {
     const response = await fetch(STREAM_API_URL, {
@@ -119,8 +121,13 @@ async function chatWeb(
           }
           try {
             const parsed = JSON.parse(data);
-            if (parsed.content) {
+            // 处理回复内容
+            if (parsed.type === 'content' && parsed.content) {
               onChunk?.(parsed.content);
+            }
+            // 处理思考内容（可选）
+            if (parsed.type === 'thinking' && parsed.content && onThinkingChunk) {
+              onThinkingChunk(parsed.content);
             }
           } catch (e) {
             // 忽略解析错误
@@ -142,6 +149,7 @@ async function chatNative(
   messages: Array<{ role: 'user' | 'assistant'; content: string }>,
   roleName: string,
   onChunk?: (text: string) => void,
+  onThinkingChunk?: (text: string) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!RNSSE) {
@@ -177,8 +185,13 @@ async function chatNative(
 
       try {
         const parsed = JSON.parse(event.data);
-        if (parsed.content) {
+        // 处理回复内容
+        if (parsed.type === 'content' && parsed.content) {
           onChunk?.(parsed.content);
+        }
+        // 处理思考内容（可选）
+        if (parsed.type === 'thinking' && parsed.content && onThinkingChunk) {
+          onThinkingChunk(parsed.content);
         }
       } catch (e) {
         // 忽略解析错误
