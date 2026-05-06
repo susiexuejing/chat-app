@@ -18,11 +18,13 @@ app.get('/api/v1/health', (req, res) => {
 
 /**
  * 百炼 API 配置
- * 文档: https://help.aliyun.com/zh/model-studio/qwen-omni
+ * 文档: https://help.aliyun.com/zh/model-studio/role-play
+ * 模型: qwen-plus-character (角色扮演模型，适合心理咨询场景)
  */
-const DASHSCOPE_BASE_URL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
-// 模型选择: qwen3.6-plus (用户有权限) 或 qwen-plus
-const DEFAULT_MODEL = process.env.DASHSCOPE_MODEL || 'qwen3.6-plus';
+// 百炼 API URL - 使用标准 dashscope 端点
+const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+// 模型选择: qwen-plus-character (角色扮演模型，适合心理咨询场景)
+const DEFAULT_MODEL = process.env.DASHSCOPE_MODEL || 'qwen-plus-character';
 
 /**
  * 聊天消息接口（非流式）
@@ -118,6 +120,14 @@ app.post('/api/v1/chat', async (req, res) => {
 app.post('/api/v1/chat/stream', async (req, res) => {
   const { systemPrompt, messages, model } = req.body;
 
+  // 调试日志
+  console.log('=== [DEBUG] 接收到的消息 ===');
+  console.log('messages 数量:', messages?.length);
+  messages?.forEach((m: any, i: number) => {
+    console.log(`消息${i}: role=${m.role}, content=${m.content?.substring(0, 50)}...`);
+  });
+  console.log('=========================');
+
   const apiKey = process.env.DASHSCOPE_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: 'API key not configured' });
@@ -146,6 +156,8 @@ app.post('/api/v1/chat/stream', async (req, res) => {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
+        // 百炼 API 可能需要 x-api-key header
+        'x-api-key': apiKey,
       },
       body: JSON.stringify({
         model: selectedModel,
