@@ -124,17 +124,17 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }}
     >
-      {/* 遍历消息，在用户消息后插入轻量分析卡片 */}
+      {/* 遍历消息 */}
       {messages.map((message: ChatMessage, index: number) => {
-        const isLastMessage = index === messages.length - 1;
-        const isUserMessage = message.role === 'user';
+        const isCurrentUserMessage = message.role === 'user';
+        const isNextMessageAI = index < messages.length - 1 && messages[index + 1]?.role === 'assistant';
         
         return (
           <React.Fragment key={message.id}>
             <MessageBubble message={message} />
             
-            {/* 用户消息后立即显示轻量分析卡片 */}
-            {isUserMessage && currentAnalysis && isLastMessage && (
+            {/* 用户消息后立即显示轻量分析卡片（当下一条是AI消息时） */}
+            {isCurrentUserMessage && isNextMessageAI && currentAnalysis && (
               <LightAnalysisCard analysis={currentAnalysis} />
             )}
           </React.Fragment>
