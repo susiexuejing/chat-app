@@ -16,7 +16,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ onShowIntro }: MessageListProps) {
-  const { messages, currentRole, lightAnalysis } = useChat();
+  const { messages, currentRole, lightAnalysis, isLoading } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
   const [isAITyping, setIsAITyping] = React.useState(false);
   const [currentAnalysis, setCurrentAnalysis] = React.useState<AnalysisResult | null>(null);
@@ -28,16 +28,16 @@ export function MessageList({ onShowIntro }: MessageListProps) {
     }
   }, [lightAnalysis]);
 
-  // 当 AI 开始回复时，隐藏分析卡片
+  // 当 AI 回复完成时，隐藏分析卡片
   React.useEffect(() => {
-    if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      // 如果最后一条是 assistant 且有内容，说明 AI 开始回复了
-      if (lastMsg.role === 'assistant' && lastMsg.content && lastMsg.content.length > 0) {
+    if (!isLoading && currentAnalysis) {
+      // 延迟清除，让用户看到分析结果
+      const timer = setTimeout(() => {
         setCurrentAnalysis(null);
-      }
+      }, 3000); // 显示3秒后消失
+      return () => clearTimeout(timer);
     }
-  }, [messages.length, messages]);
+  }, [isLoading]);
 
   // 自动滚动到底部
   useEffect(() => {
