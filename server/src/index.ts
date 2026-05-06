@@ -67,8 +67,8 @@ app.post('/api/v1/chat', async (req, res) => {
         model: selectedModel,
         messages: chatMessages,
         stream: false,
-        // 限制输出长度，加快响应速度
-        max_tokens: 250,
+        // 适当限制输出长度
+        max_tokens: 800,
         // 禁用思考过程
         extra_body: {
           // 禁用思考过程
