@@ -89,7 +89,8 @@ interface ChatProviderProps {
 export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProviderProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [currentRole, setCurrentRole] = useState<PsychologistRole | null>(null);
+  // 默认选择第一个角色（聪明狐狸）
+  const [currentRole, setCurrentRole] = useState<PsychologistRole | null>(DEFAULT_ROLES[0]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isThinking, setIsThinking] = useState(false);

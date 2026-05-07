@@ -89,20 +89,6 @@ export function RoleHeader({
 
         {/* 右侧按钮组 */}
         <View className="flex-row items-center">
-          {/* 中间：了解+角色名称，点击弹出角色详情（移到右侧） */}
-          <TouchableOpacity
-            onPress={onShowRoleDetail}
-            className="px-3 py-2 rounded-full mr-2"
-            style={{ backgroundColor: themeColor + '15' }}
-          >
-            <Text
-              className="text-sm font-medium"
-              style={{ color: themeColor }}
-            >
-              了解 {currentRole?.name}
-            </Text>
-          </TouchableOpacity>
-
           {/* 历史按钮 */}
           {hasHistory && (
             <TouchableOpacity
