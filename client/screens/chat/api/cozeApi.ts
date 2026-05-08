@@ -18,14 +18,12 @@ function getBackendUrl(): string {
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // 如果是云端域名，使用 https
-    if (hostname.includes('coze')) {
+    // 如果是生产环境域名，直接使用
+    if (hostname === 'chat.douhaoyu.cn' || hostname === '8.145.45.174') {
       return `${protocol}//${hostname}`;
     }
   }
-  // 3. 备用云端域名
-  const cloudDomain = 'https://71ec546d-7bf0-4452-a60b-790bde3c6291.dev.coze.site';
-  // 4. 默认 localhost
+  // 3. 默认 localhost
   return 'http://localhost:9091';
 }
 
