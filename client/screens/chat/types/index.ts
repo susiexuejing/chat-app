@@ -4,6 +4,13 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   isThinking?: boolean;
+  // 深度分析结果（6个角色视角）
+  deepAnalysis?: {
+    [roleName: string]: {
+      analysis: string;
+      insight: string;
+    };
+  };
 }
 
 export interface ChatSession {

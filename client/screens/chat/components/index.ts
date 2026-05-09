@@ -12,3 +12,4 @@ export { MessageList } from './MessageList';
 export { MultimodalInput } from './MultimodalInput';
 export { HistoryList } from './HistoryList';
 export { LightAnalysisCard } from './LightAnalysisCard';
+export { DeepAnalysisCard } from './DeepAnalysisCard';

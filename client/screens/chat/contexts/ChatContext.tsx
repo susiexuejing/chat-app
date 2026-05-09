@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
 import { ChatMessage, ChatSession, LightAnalysisResult } from '../types';
 import { analyzeText } from '../utils/textAnalyzer';
-import { chatWithDashScope } from '../api/cozeApi';
+import { chatWithDashScope, chatCombined, DeepAnalysis } from '../api/cozeApi';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -212,6 +212,8 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
       role: 'assistant',
       content: '',
       timestamp: Date.now(),
+      // 预留给深度分析结果
+      deepAnalysis: undefined,
     };
 
     setMessages(prev => [...prev, aiMsg]);
@@ -219,8 +221,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
     setIsThinking(false);
     setThinkingContent('');
 
-    let fullContent = '';
-    let thinkingText = '';
+    let lightContent = '';
 
     try {
       // Get current messages using callback to avoid stale closure
@@ -230,27 +231,33 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         return prev;
       });
 
-      await chatWithDashScope(
-        currentRole.systemPrompt,
+      // 使用组合分析接口：轻量共情 + 深度分析
+      await chatCombined(
         currentMessages.slice(0, -1).map(m => ({
           role: m.role as 'user' | 'assistant',
           content: m.content,
         })),
-        currentRole.name,
         (content) => {
-          // onChunk - content callback
-          fullContent += content;
+          // 轻量分析结果（立即显示）
+          lightContent += content;
           setMessages(prev =>
             prev.map(m =>
-              m.id === aiMsgId ? { ...m, content: fullContent } : m
+              m.id === aiMsgId ? { ...m, content: lightContent } : m
             )
           );
         },
-        (thinking) => {
-          // onThinkingChunk - thinking callback
-          thinkingText += thinking;
+        (content) => {
+          // 深度分析流式内容（可以显示加载状态）
           setIsThinking(true);
-          setThinkingContent(thinkingText);
+        },
+        (analysis: DeepAnalysis) => {
+          // 深度分析完整结果
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === aiMsgId ? { ...m, deepAnalysis: analysis } : m
+            )
+          );
+          setIsThinking(false);
         }
       );
 
@@ -263,7 +270,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         setSessions(prev => {
           const updated = prev.map(s => {
             if (s.id === currentSessionId) {
-              const updatedMessages = [...s.messages, userMsg, { ...aiMsg, content: fullContent }];
+              const updatedMessages = [...s.messages, userMsg, { ...aiMsg, content: lightContent }];
               return { ...s, messages: updatedMessages, updatedAt: Date.now() };
             }
             return s;

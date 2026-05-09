@@ -32,6 +32,11 @@ const STREAM_API_URL = BACKEND_BASE_URL
   ? `${BACKEND_BASE_URL}/api/v1/chat/stream` 
   : '/api/v1/chat/stream';
 
+// 组合分析接口（轻量 + 深度）
+const COMBINED_API_URL = BACKEND_BASE_URL 
+  ? `${BACKEND_BASE_URL}/api/v1/chat/combined` 
+  : '/api/v1/chat/combined';
+
 export interface ChatRequest {
   role: string;
   systemPrompt: string;
@@ -237,4 +242,176 @@ export async function chatWithDashScopeSync(
 
   const data = await response.json();
   return data.content || data.response || '';
+}
+
+// 深度分析结果类型
+export interface DeepAnalysis {
+  [roleName: string]: {
+    analysis: string;
+    insight: string;
+  };
+}
+
+/**
+ * 组合分析接口（轻量 + 深度）
+ * Web 环境实现
+ */
+export async function chatCombined(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  onLightChunk?: (text: string) => void,
+  onDeepChunk?: (text: string) => void,
+  onDeepAnalysis?: (analysis: DeepAnalysis) => void,
+): Promise<void> {
+  if (Platform.OS === 'web') {
+    await chatCombinedWeb(messages, onLightChunk, onDeepChunk, onDeepAnalysis);
+  } else {
+    await chatCombinedNative(messages, onLightChunk, onDeepChunk, onDeepAnalysis);
+  }
+}
+
+async function chatCombinedWeb(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  onLightChunk?: (text: string) => void,
+  onDeepChunk?: (text: string) => void,
+  onDeepAnalysis?: (analysis: DeepAnalysis) => void,
+): Promise<void> {
+  try {
+    // 获取最后一条用户消息用于深度分析
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+
+    const response = await fetch(COMBINED_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        userMessage: lastUserMessage,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error('No response body');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6);
+          if (data === '[DONE]') {
+            return;
+          }
+          try {
+            const parsed = JSON.parse(data);
+            
+            // 轻量分析结果
+            if (parsed.type === 'light' && parsed.content) {
+              onLightChunk?.(parsed.content);
+            }
+            
+            // 深度分析流式内容
+            if (parsed.type === 'deep' && parsed.content) {
+              onDeepChunk?.(parsed.content);
+            }
+            
+            // 深度分析完整结果（JSON格式）
+            if (parsed.type === 'deep' && parsed.analysis) {
+              onDeepAnalysis?.(parsed.analysis);
+            }
+          } catch (e) {
+            // 忽略解析错误
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Combined chat error:', error);
+    throw error;
+  }
+}
+
+async function chatCombinedNative(
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+  onLightChunk?: (text: string) => void,
+  onDeepChunk?: (text: string) => void,
+  onDeepAnalysis?: (analysis: DeepAnalysis) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!RNSSE) {
+      reject(new Error('react-native-sse not available'));
+      return;
+    }
+
+    const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+
+    const sse = new RNSSE(COMBINED_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages,
+        userMessage: lastUserMessage,
+      }),
+    });
+
+    const timeout = setTimeout(() => {
+      sse.close();
+      reject(new Error('Request timeout'));
+    }, 180000); // 3分钟超时（深度分析需要更长时间）
+
+    sse.addEventListener('message', (event: any) => {
+      if (event.data === '[DONE]') {
+        clearTimeout(timeout);
+        sse.close();
+        resolve();
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(event.data);
+        
+        if (parsed.type === 'light' && parsed.content) {
+          onLightChunk?.(parsed.content);
+        }
+        
+        if (parsed.type === 'deep' && parsed.content) {
+          onDeepChunk?.(parsed.content);
+        }
+        
+        if (parsed.type === 'deep' && parsed.analysis) {
+          onDeepAnalysis?.(parsed.analysis);
+        }
+      } catch (e) {
+        // 忽略解析错误
+      }
+    });
+
+    sse.addEventListener('error', (error: any) => {
+      clearTimeout(timeout);
+      sse.close();
+      reject(new Error(error.message || 'SSE connection error'));
+    });
+
+    sse.addEventListener('close', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
 }

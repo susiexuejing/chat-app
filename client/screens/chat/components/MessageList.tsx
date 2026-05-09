@@ -7,6 +7,7 @@ import React, { useRef, useEffect } from 'react';
 import { View, ScrollView, Text, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { MessageBubble } from './MessageBubble';
 import { LightAnalysisCard } from './LightAnalysisCard';
+import { DeepAnalysisCard } from './DeepAnalysisCard';
 import { useChat } from '../contexts/ChatContext';
 import { ChatMessage, AnalysisResult } from '../types';
 import { FontAwesome6 } from '@expo/vector-icons';
@@ -136,6 +137,11 @@ export function MessageList({ onShowIntro }: MessageListProps) {
             {/* 用户消息后立即显示轻量分析卡片（当下一条是AI消息时） */}
             {isCurrentUserMessage && isNextMessageAI && currentAnalysis && (
               <LightAnalysisCard analysis={currentAnalysis} />
+            )}
+
+            {/* AI 消息后显示深度分析卡片 */}
+            {!isCurrentUserMessage && message.deepAnalysis && (
+              <DeepAnalysisCard analysis={message.deepAnalysis} />
             )}
           </React.Fragment>
         );
