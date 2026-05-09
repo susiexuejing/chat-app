@@ -100,23 +100,41 @@ async function callDashScope(
 /**
  * 构建深度分析的角色系统提示词
  */
-function buildDeepAnalysisPrompt(userMessage: string, lightAnalysis: string): string {
-  const rolesIntro = PSYCHOLOGIST_ROLES.map(role => {
-    return `${role.name}（${role.therapyType}）：
-- 人设：${role.personalBackground.personalityTraits.join('、')}
-- 核心方法：${role.coreValues.emotionalApproach}
-- 风格：${role.emotionalResponse.reactionPattern}`;
+function buildDeepAnalysisPrompt(userMessage: string, lightAnalysis: string, messagesHistory: Array<{role: string; content: string}>): string {
+  // 使用每个角色完整的 systemPrompt 构建详细提示词
+  const rolesSystemPrompts = PSYCHOLOGIST_ROLES.map(role => {
+    return `【${role.name}（${role.therapyType}）】
+背景：${role.professionalBackground.education}
+经历：${role.personalBackground.lifeExperience}
+个性：${role.personalBackground.personalityTraits.join('、')}
+核心理念：${role.coreValues.psychologyConcept}
+处理方式：${role.coreValues.emotionalApproach}
+反应风格：${role.emotionalResponse.reactionPattern}
+经典语录：${role.classicQuotes.join('；')}
+人设设定：${role.systemPrompt}`;
   }).join('\n\n');
+
+  // 构建对话历史摘要（用于给深度分析提供上下文）
+  const conversationHistory = messagesHistory
+    .filter(m => m.role === 'user' || m.role === 'assistant')
+    .slice(-6) // 只保留最近6条消息
+    .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
+    .join('\n');
 
   return `【深度心理分析任务】
 
-用户输入：${userMessage}
+【对话历史】
+${conversationHistory}
 
-轻量共情分析结果：${lightAnalysis}
+【用户最新输入】
+${userMessage}
+
+【轻量共情分析结果】
+${lightAnalysis}
 
 请从以下6个心理治疗学派视角，对用户进行深度分析：
 
-${rolesIntro}
+${rolesSystemPrompts}
 
 【输出格式】
 请按以下JSON格式输出（只需要输出JSON，不要其他内容）：
@@ -132,7 +150,8 @@ ${rolesIntro}
 【要求】
 - 每个角色的分析控制在50字以内
 - 洞察要精准、有启发性
-- 从各自学派的专业角度切入`;
+- 从各自学派的专业角度切入
+- 分析要结合轻量共情分析的结果，不要脱离上下文`;
 }
 
 /**
@@ -265,7 +284,7 @@ app.post('/api/v1/chat/light/stream', async (req, res) => {
  */
 app.post('/api/v1/chat/deep', async (req, res) => {
   try {
-    const { userMessage, lightAnalysis } = req.body;
+    const { userMessage, lightAnalysis, messagesHistory } = req.body;
 
     if (!API_KEY_DEEP) {
       return res.status(500).json({ error: 'Deep model API key not configured' });
@@ -274,14 +293,16 @@ app.post('/api/v1/chat/deep', async (req, res) => {
     console.log(`[Deep Analysis] Using model: ${MODELS.DEEP}`);
 
     // 构建深度分析提示词
-    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis);
+    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
 
-    const chatMessages = [
+    const deepMessages = [
       { role: 'system', content: systemPrompt },
+      // 添加轻量分析结果作为补充上下文
+      ...(lightAnalysis ? [{ role: 'assistant' as const, content: `【轻量共情分析】${lightAnalysis}` }] : []),
       { role: 'user', content: '请根据上述信息进行深度心理分析。' },
     ];
 
-    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, chatMessages, false, 2000);
+    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -316,7 +337,7 @@ app.post('/api/v1/chat/deep', async (req, res) => {
  * POST /api/v1/chat/deep/stream
  */
 app.post('/api/v1/chat/deep/stream', async (req, res) => {
-  const { userMessage, lightAnalysis } = req.body;
+  const { userMessage, lightAnalysis, messagesHistory } = req.body;
 
   if (!API_KEY_DEEP) {
     res.write(`data: ${JSON.stringify({ error: 'Deep model API key not configured' })}\n\n`);
@@ -333,13 +354,16 @@ app.post('/api/v1/chat/deep/stream', async (req, res) => {
   try {
     console.log(`[Deep Analysis Stream] Using model: ${MODELS.DEEP}`);
 
-    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis);
-    const chatMessages = [
+    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
+    
+    // 把轻量分析结果作为 assistant 消息加入上下文
+    const deepMessages = [
       { role: 'system', content: systemPrompt },
+      ...(lightAnalysis ? [{ role: 'assistant' as const, content: `【轻量共情分析】${lightAnalysis}` }] : []),
       { role: 'user', content: '请根据上述信息进行深度心理分析。' },
     ];
 
-    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, chatMessages, true, 2000);
+    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -426,7 +450,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     // 阶段1：轻量共情分析（立即返回）
     console.log(`[Combined] Stage 1: Light Analysis`);
     
-    const recentMessages = messages.slice(-2);
+    const recentMessages = messages.slice(-4); // 取最近4条消息
     const lightMessages = [
       { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
       ...recentMessages.map((m: { role: string; content: string }) => ({
@@ -454,9 +478,19 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     if (API_KEY_DEEP) {
       console.log(`[Combined] Stage 2: Deep Analysis`);
       
-      const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent);
+      // 构建深度分析提示词，传入完整消息历史
+      const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
+      
+      // 把轻量分析结果作为 assistant 消息加入上下文
       const deepMessages = [
         { role: 'system', content: systemPrompt },
+        // 添加对话历史作为上下文
+        ...messages.slice(-6).map((m: { role: string; content: string }) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
+        // 添加轻量分析结果作为补充上下文
+        { role: 'assistant', content: `【轻量共情分析】${lightContent}` },
         { role: 'user', content: '请根据上述信息进行深度心理分析。' },
       ];
 
