@@ -18,8 +18,9 @@ function getBackendUrl(): string {
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    // 如果是生产环境域名，直接使用
-    if (hostname === 'chat.douhaoyu.cn' || hostname === '8.145.45.174') {
+    // 如果是已知域名，直接使用
+    const knownDomains = ['chat.douhaoyu.cn', 'dev.douhaoyu.cn', '8.145.45.174', 'localhost'];
+    if (knownDomains.includes(hostname)) {
       return `${protocol}//${hostname}`;
     }
   }
