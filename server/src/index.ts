@@ -20,7 +20,7 @@ app.get('/api/v1/health', (req, res) => {
  * 百炼 API 配置
  * 文档: https://help.aliyun.com/zh/model-studio/role-play
  */
-const DASHSCOPE_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE_URL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
 
 // 模型配置
 const MODELS = {
