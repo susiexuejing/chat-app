@@ -1,7 +1,10 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-dotenv.config(); // 加载 .env 环境变量
+
+// 调试：打印环境变量
+console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
+console.log('DASHSCOPE_API_KEY_DEEP:', process.env.DASHSCOPE_API_KEY_DEEP ? 'SET' : 'NOT SET');
+// 环境变量由 PM2 通过 ecosystem.config.cjs 传递，无需 dotenv
 
 const app = express();
 const port = process.env.PORT || 9091;
