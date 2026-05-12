@@ -448,6 +448,10 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     return res.status(500).json({ error: 'Light model API key not configured' });
   }
 
+  if (!messages) {
+    return res.status(400).json({ error: 'messages is required' });
+  }
+
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
@@ -486,10 +490,8 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     if (API_KEY_DEEP) {
       console.log(`[Combined] Stage 2: Deep Analysis`);
       
-      // 构建深度分析提示词，传入完整消息历史
       const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
       
-      // 把轻量分析结果作为 assistant 消息加入上下文
       const deepMessages = [
         { role: 'system', content: systemPrompt },
         // 添加对话历史作为上下文
