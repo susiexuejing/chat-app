@@ -19,8 +19,14 @@ app.get('/api/v1/health', (req, res) => {
 /**
  * 百炼 API 配置
  * 文档: https://help.aliyun.com/zh/model-studio/role-play
+ * 注意：两个模型使用不同的 Base URL
  */
-const DASHSCOPE_BASE_URL = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
+
+// 轻量分析 Base URL（qwen-flash-character）
+const DASHSCOPE_BASE_URL_LIGHT = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+
+// 深度分析 Base URL（qwen3.6-plus）
+const DASHSCOPE_BASE_URL_DEEP = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
 
 // 模型配置
 const MODELS = {
@@ -70,15 +76,17 @@ import { PSYCHOLOGIST_ROLES } from './roles/psychologistRoles';
 
 /**
  * 调用百炼 API（通用）
+ * @param baseUrl - API Base URL（轻量用 dashscope，深度用 token-plan）
  */
 async function callDashScope(
+  baseUrl: string,
   apiKey: string,
   model: string,
   messages: Array<{ role: string; content: string }>,
   stream: boolean = false,
   maxTokens: number = 500
 ): Promise<Response> {
-  const response = await fetch(`${DASHSCOPE_BASE_URL}/chat/completions`, {
+  const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
@@ -179,7 +187,7 @@ app.post('/api/v1/chat/light', async (req, res) => {
 
     console.log(`[Light Analysis] Using model: ${MODELS.LIGHT}`);
 
-    const response = await callDashScope(API_KEY_LIGHT, MODELS.LIGHT, chatMessages, false, 150);
+    const response = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, chatMessages, false, 150);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -226,7 +234,7 @@ app.post('/api/v1/chat/light/stream', async (req, res) => {
   try {
     console.log(`[Light Analysis Stream] Using model: ${MODELS.LIGHT}`);
 
-    const response = await callDashScope(API_KEY_LIGHT, MODELS.LIGHT, chatMessages, true, 150);
+    const response = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, chatMessages, true, 150);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -302,7 +310,7 @@ app.post('/api/v1/chat/deep', async (req, res) => {
       { role: 'user', content: '请根据上述信息进行深度心理分析。' },
     ];
 
-    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
+    const response = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -363,7 +371,7 @@ app.post('/api/v1/chat/deep/stream', async (req, res) => {
       { role: 'user', content: '请根据上述信息进行深度心理分析。' },
     ];
 
-    const response = await callDashScope(API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
+    const response = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -459,7 +467,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
       })),
     ];
 
-    const lightResponse = await callDashScope(API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
+    const lightResponse = await callDashScope(DASHSCOPE_BASE_URL_LIGHT, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
 
     if (!lightResponse.ok) {
       const errorData = await lightResponse.json().catch(() => ({}));
@@ -494,7 +502,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
         { role: 'user', content: '请根据上述信息进行深度心理分析。' },
       ];
 
-      const deepResponse = await callDashScope(API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
+      const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
 
       if (deepResponse.ok) {
         const deepData = await deepResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
