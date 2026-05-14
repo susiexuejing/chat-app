@@ -112,23 +112,18 @@ async function callDashScope(
  * 构建深度分析的角色系统提示词
  */
 function buildDeepAnalysisPrompt(userMessage: string, lightAnalysis: string, messagesHistory: Array<{role: string; content: string}>): string {
-  // 使用每个角色完整的 systemPrompt 构建详细提示词
+  // 简化版：每个角色只发送核心信息
   const rolesSystemPrompts = PSYCHOLOGIST_ROLES.map(role => {
     return `【${role.name}（${role.therapyType}）】
-背景：${role.professionalBackground.education}
-经历：${role.personalBackground.lifeExperience}
-个性：${role.personalBackground.personalityTraits.join('、')}
 核心理念：${role.coreValues.psychologyConcept}
 处理方式：${role.coreValues.emotionalApproach}
-反应风格：${role.emotionalResponse.reactionPattern}
-经典语录：${role.classicQuotes.join('；')}
-人设设定：${role.systemPrompt}`;
+人设：${role.systemPrompt}`;
   }).join('\n\n');
 
-  // 构建对话历史摘要（用于给深度分析提供上下文）
+  // 构建对话历史摘要（减少到最近3条消息）
   const conversationHistory = messagesHistory
     .filter(m => m.role === 'user' || m.role === 'assistant')
-    .slice(-6) // 只保留最近6条消息
+    .slice(-3) // 只保留最近3条消息
     .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
     .join('\n');
 
@@ -176,15 +171,11 @@ function buildSingleRoleAnalysisPrompt(roleName: string): string {
     return '';
   }
   
+  // 简化版 Prompt，减少 token 数量以加快响应速度
   return `【${role.name}（${role.therapyType}）】
-背景：${role.professionalBackground.education}
-经历：${role.personalBackground.lifeExperience}
-个性：${role.personalBackground.personalityTraits.join('、')}
 核心理念：${role.coreValues.psychologyConcept}
 处理方式：${role.coreValues.emotionalApproach}
-反应风格：${role.emotionalResponse.reactionPattern}
-经典语录：${role.classicQuotes.join('；')}
-人设设定：${role.systemPrompt}`;
+人设：${role.systemPrompt}`;
 }
 
 /**
@@ -484,41 +475,18 @@ app.post('/api/v1/chat/combined', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
 
   try {
-    // 先并行获取：轻量分析 + 深度分析（用于整合）
-    const [lightResponse, deepAnalysisResult] = await Promise.all([
-      // 轻量共情分析
-      (async () => {
-        const recentMessages = messages.slice(-4);
-        const lightMessages = [
-          { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
-          ...recentMessages.map((m: { role: string; content: string }) => ({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content,
-          })),
-        ];
-        return await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
-      })(),
-      // 深度分析（用于获取6个角色的视角）
-      (async () => {
-        if (!API_KEY_DEEP) return null;
-        // 总是分析所有6个角色用于 light 回复
-        const systemPrompt = buildDeepAnalysisPrompt(userMessage, '', messages);
-        const deepMessages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: '请根据上述信息进行深度心理分析。' },
-        ];
-        const response = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 800);
-        if (!response.ok) return null;
-        const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-        const content = data.choices?.[0]?.message?.content || '';
-        try {
-          return JSON.parse(content);
-        } catch {
-          return null;
-        }
-      })(),
-    ]);
-
+    // 阶段1：轻量分析（快速，先发送）
+    const recentMessages = messages.slice(-4);
+    const lightMessages = [
+      { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
+      ...recentMessages.map((m: { role: string; content: string }) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      })),
+    ];
+    
+    const lightResponse = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
+    
     if (!lightResponse.ok) {
       const errorData = await lightResponse.json().catch(() => ({}));
       res.write(`data: ${JSON.stringify({ error: 'Light analysis failed', details: errorData })}\n\n`);
@@ -529,20 +497,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     const lightData = await lightResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
     let lightContent = lightData.choices?.[0]?.message?.content || '';
 
-    // 如果有深度分析结果，整合6个角色的简短视角到 light 回复
-    if (deepAnalysisResult) {
-      const rolesShortViews = Object.entries(deepAnalysisResult)
-        .map(([role, data]) => {
-          const analysis = (data as any)?.analysis || '';
-          const shortView = analysis.length > 80 ? analysis.substring(0, 80) + '...' : analysis;
-          return `【${role}】：${shortView}`;
-        })
-        .join('\n');
-      
-      lightContent += `\n\n💭 各角色视角：\n${rolesShortViews}`;
-    }
-
-    // 发送整合后的轻量分析结果
+    // 发送轻量分析结果（用户先看到这个）
     res.write(`data: ${JSON.stringify({ type: 'light', content: lightContent })}\n\n`);
 
     // 阶段2：深度分析（流式返回给前端）
