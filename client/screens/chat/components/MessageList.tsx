@@ -141,7 +141,10 @@ export function MessageList({ onShowIntro }: MessageListProps) {
 
             {/* AI 消息后显示深度分析卡片 */}
             {!isCurrentUserMessage && message.deepAnalysis && (
-              <DeepAnalysisCard analysis={message.deepAnalysis} />
+              <>
+                <Text style={{color: 'red', fontSize: 10}}>[DEBUG] Rendering DeepAnalysisCard</Text>
+                <DeepAnalysisCard analysis={message.deepAnalysis} />
+              </>
             )}
           </React.Fragment>
         );

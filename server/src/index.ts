@@ -166,6 +166,28 @@ ${rolesSystemPrompts}
 }
 
 /**
+ * 构建单个角色的深度分析提示词
+ * @param roleName 角色名称
+ */
+function buildSingleRoleAnalysisPrompt(roleName: string): string {
+  const role = PSYCHOLOGIST_ROLES.find(r => r.name === roleName);
+  if (!role) {
+    // 如果找不到角色，返回空提示词
+    return '';
+  }
+  
+  return `【${role.name}（${role.therapyType}）】
+背景：${role.professionalBackground.education}
+经历：${role.personalBackground.lifeExperience}
+个性：${role.personalBackground.personalityTraits.join('、')}
+核心理念：${role.coreValues.psychologyConcept}
+处理方式：${role.coreValues.emotionalApproach}
+反应风格：${role.emotionalResponse.reactionPattern}
+经典语录：${role.classicQuotes.join('；')}
+人设设定：${role.systemPrompt}`;
+}
+
+/**
  * 轻量共情分析接口
  * POST /api/v1/chat/light
  * 快速返回共情回复
@@ -445,7 +467,7 @@ app.post('/api/v1/chat/deep/stream', async (req, res) => {
  * 先返回轻量分析，再并行触发深度分析
  */
 app.post('/api/v1/chat/combined', async (req, res) => {
-  const { messages, userMessage } = req.body;
+  const { messages, userMessage, targetRole } = req.body;
 
   if (!API_KEY_LIGHT) {
     return res.status(500).json({ error: 'Light model API key not configured' });
@@ -491,38 +513,61 @@ app.post('/api/v1/chat/combined', async (req, res) => {
 
     // 阶段2：深度分析（并行触发）
     if (API_KEY_DEEP) {
-      console.log(`[Combined] Stage 2: Deep Analysis`);
+      console.log(`[Combined] Stage 2: Deep Analysis${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
       
-      const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
+      let systemPrompt: string;
+      let userPrompt: string;
       
-      const deepMessages = [
-        { role: 'system', content: systemPrompt },
-        // 添加对话历史作为上下文
-        ...messages.slice(-6).map((m: { role: string; content: string }) => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-        })),
-        // 添加轻量分析结果作为补充上下文
-        { role: 'assistant', content: `【轻量共情分析】${lightContent}` },
-        { role: 'user', content: '请根据上述信息进行深度心理分析。' },
-      ];
+      if (targetRole) {
+        // 只分析指定角色
+        systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
+        if (!systemPrompt) {
+          console.log(`[Combined] Role not found: ${targetRole}, skipping deep analysis`);
+        } else {
+          userPrompt = `你扮演的是【${targetRole}】角色。请根据上述轻量共情分析结果，对用户的最新输入进行深度心理分析。
+用户最新输入：${userMessage}
+请输出JSON格式：
+{ "${targetRole}": { "analysis": "分析内容", "insight": "关键洞察" } }`;
+        }
+      } else {
+        // 分析所有6个角色
+        systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
+        userPrompt = '请根据上述信息进行深度心理分析。';
+      }
+      
+      // 如果没有有效的 systemPrompt，跳过深度分析
+      if (!systemPrompt) {
+        console.log(`[Combined] Skipping deep analysis: no valid system prompt`);
+      } else {
+        const deepMessages = [
+          { role: 'system', content: systemPrompt },
+          // 添加对话历史作为上下文
+          ...messages.slice(-6).map((m: { role: string; content: string }) => ({
+            role: m.role === 'assistant' ? 'assistant' : 'user',
+            content: m.content,
+          })),
+          // 添加轻量分析结果作为补充上下文
+          { role: 'assistant', content: `【轻量共情分析】${lightContent}` },
+          { role: 'user', content: userPrompt },
+        ];
 
-      const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
+        const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
 
-      if (deepResponse.ok) {
-        const deepData = await deepResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
-        let deepContent = deepData.choices?.[0]?.message?.content || '';
+        if (deepResponse.ok) {
+          const deepData = await deepResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
+          let deepContent = deepData.choices?.[0]?.message?.content || '';
 
-        // 尝试解析 JSON
-        try {
-          const jsonMatch = deepContent.match(/```(?:json)?\s*([\s\S]*?)```/) || deepContent.match(/(\{[\s\S]*\})/);
-          if (jsonMatch) {
-            deepContent = jsonMatch[1];
+          // 尝试解析 JSON
+          try {
+            const jsonMatch = deepContent.match(/```(?:json)?\s*([\s\S]*?)```/) || deepContent.match(/(\{[\s\S]*\})/);
+            if (jsonMatch) {
+              deepContent = jsonMatch[1];
+            }
+            const parsed = JSON.parse(deepContent);
+            res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed })}\n\n`);
+          } catch (e) {
+            res.write(`data: ${JSON.stringify({ type: 'deep', content: deepContent })}\n\n`);
           }
-          const parsed = JSON.parse(deepContent);
-          res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed })}\n\n`);
-        } catch (e) {
-          res.write(`data: ${JSON.stringify({ type: 'deep', content: deepContent })}\n\n`);
         }
       }
     }

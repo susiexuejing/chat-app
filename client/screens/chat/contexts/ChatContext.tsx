@@ -231,7 +231,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         return prev;
       });
 
-      // 使用组合分析接口：轻量共情 + 深度分析
+      // 使用组合分析接口：轻量共情 + 深度分析（只分析当前选中的角色）
       await chatCombined(
         currentMessages.slice(0, -1).map(m => ({
           role: m.role as 'user' | 'assistant',
@@ -252,13 +252,19 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         },
         (analysis: DeepAnalysis) => {
           // 深度分析完整结果
-          setMessages(prev =>
-            prev.map(m =>
+          console.log('[DEBUG] Received deepAnalysis, aiMsgId:', aiMsgId);
+          console.log('[DEBUG] Analysis keys:', Object.keys(analysis || {}));
+          setMessages(prev => {
+            console.log('[DEBUG] Current messages IDs:', prev.map(m => m.id));
+            const result = prev.map(m =>
               m.id === aiMsgId ? { ...m, deepAnalysis: analysis } : m
-            )
-          );
+            );
+            console.log('[DEBUG] After setMessages, result has deepAnalysis:', result.find(m => m.id === aiMsgId)?.deepAnalysis ? 'YES' : 'NO');
+            return result;
+          });
           setIsThinking(false);
-        }
+        },
+        currentRole?.name // 只分析当前选中的角色
       );
 
       setIsLoading(false);

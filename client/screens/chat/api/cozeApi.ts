@@ -262,9 +262,10 @@ export async function chatCombined(
   onLightChunk?: (text: string) => void,
   onDeepChunk?: (text: string) => void,
   onDeepAnalysis?: (analysis: DeepAnalysis) => void,
+  targetRole?: string, // 指定角色，只返回该角色的深度分析
 ): Promise<void> {
   if (Platform.OS === 'web') {
-    await chatCombinedWeb(messages, onLightChunk, onDeepChunk, onDeepAnalysis);
+    await chatCombinedWeb(messages, onLightChunk, onDeepChunk, onDeepAnalysis, targetRole);
   } else {
     await chatCombinedNative(messages, onLightChunk, onDeepChunk, onDeepAnalysis);
   }
@@ -275,10 +276,21 @@ async function chatCombinedWeb(
   onLightChunk?: (text: string) => void,
   onDeepChunk?: (text: string) => void,
   onDeepAnalysis?: (analysis: DeepAnalysis) => void,
+  targetRole?: string, // 指定角色，只返回该角色的深度分析
 ): Promise<void> {
   try {
     // 获取最后一条用户消息用于深度分析
     const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')?.content || '';
+
+    const requestBody: Record<string, unknown> = {
+      messages,
+      userMessage: lastUserMessage,
+    };
+    
+    // 如果指定了角色，只分析该角色
+    if (targetRole) {
+      requestBody.targetRole = targetRole;
+    }
 
     const response = await fetch(COMBINED_API_URL, {
       method: 'POST',
