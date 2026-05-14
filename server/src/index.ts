@@ -768,9 +768,3 @@ app.listen(port, () => {
   console.log(`Light Model: ${MODELS.LIGHT}`);
   console.log(`Deep Model: ${MODELS.DEEP}`);
 });
-
-// Default export for compatibility
-Object.defineProperty(app, '__esModule', { value: true });
-app['default'] = app;
-module.exports = app;
-module.exports.default = app;

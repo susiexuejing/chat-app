@@ -10,13 +10,13 @@ try {
     entryPoints: ['src/index.ts'],
     bundle: true,
     platform: 'node',
+    target: 'node18',
     format: 'cjs',
     outdir: 'dist',
     external: externalList,
     banner: {
-      js: '"use strict";Object.defineProperty(exports, "__esModule", { value: true });',
+      js: '"use strict";',
     },
-    inject: ['./shim.js'],
   });
   console.log('⚡ Build complete!');
 } catch (e) {
