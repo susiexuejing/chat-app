@@ -188,18 +188,16 @@ function buildSingleRoleAnalysisPrompt(roleName: string): string {
   }
   
   // 简化版 Prompt，减少 token 数量以加快响应速度
-  return `【${role.name}（${role.therapyType}）】
-核心理念：${role.coreValues.psychologyConcept}
-处理方式：${role.coreValues.emotionalApproach}
-人设：${role.systemPrompt}
-
-请基于以上角色设定，对用户的心理状态进行深度分析。
-请按以下JSON格式返回（只返回JSON，不要有其他内容）：
-{
-  "${role.name}": {
-    "analysis": "分析内容..."
-  }
-}`;
+  const prompt = '【' + role.name + '（' + role.therapyType + '）】\n' +
+    '核心理念：' + role.coreValues.psychologyConcept + '\n' +
+    '处理方式：' + role.coreValues.emotionalApproach + '\n' +
+    '人设：' + role.systemPrompt + '\n\n' +
+    '请基于以上角色设定，对用户的心理状态进行深度分析。\n' +
+    '请按以下JSON格式返回（只返回JSON，不要有其他内容）：\n' +
+    '{"' + role.name + '": {"analysis": "分析内容..."}}';
+  
+  return prompt;
+}
 
 /**
  * 轻量共情分析接口
