@@ -206,21 +206,29 @@ function buildSingleRoleAnalysisPrompt(roleName: string): string {
  */
 app.post('/api/v1/chat/light', async (req, res) => {
   try {
-    const { messages } = req.body;
+    const { messages, userMessage } = req.body;
 
     if (!API_KEY_LIGHT) {
       return res.status(500).json({ error: 'Light model API key not configured' });
     }
 
-    // 构建消息：只取最后1-2条用户消息
-    const recentMessages = messages.slice(-2);
-    const chatMessages = [
-      { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
-      ...recentMessages.map((m: { role: string; content: string }) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-    ];
+    // 优先使用 userMessage，确保回复与当前问题相关
+    let chatMessages;
+    if (userMessage) {
+      chatMessages = [
+        { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
+        { role: 'user', content: userMessage },
+      ];
+    } else {
+      const recentMessages = messages.slice(-2);
+      chatMessages = [
+        { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
+        ...recentMessages.map((m: { role: string; content: string }) => ({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: m.content,
+        })),
+      ];
+    }
 
     console.log(`[Light Analysis] Using model: ${MODELS.LIGHT}`);
 
@@ -247,20 +255,29 @@ app.post('/api/v1/chat/light', async (req, res) => {
  * POST /api/v1/chat/light/stream
  */
 app.post('/api/v1/chat/light/stream', async (req, res) => {
-  const { messages } = req.body;
+  const { messages, userMessage } = req.body;
 
   if (!API_KEY_LIGHT) {
     return res.status(500).json({ error: 'Light model API key not configured' });
   }
 
-  const recentMessages = messages.slice(-2);
-  const chatMessages = [
-    { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
-    ...recentMessages.map((m: { role: string; content: string }) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
-  ];
+  // 优先使用 userMessage，确保回复与当前问题相关
+  let chatMessages;
+  if (userMessage) {
+    chatMessages = [
+      { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
+      { role: 'user', content: userMessage },
+    ];
+  } else {
+    const recentMessages = messages.slice(-2);
+    chatMessages = [
+      { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
+      ...recentMessages.map((m: { role: string; content: string }) => ({
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        content: m.content,
+      })),
+    ];
+  }
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
