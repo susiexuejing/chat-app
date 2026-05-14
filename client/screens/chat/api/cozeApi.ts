@@ -292,67 +292,74 @@ async function chatCombinedWeb(
       requestBody.targetRole = targetRole;
     }
 
-    const response = await fetch(COMBINED_API_URL, {
+    // 并行调用 Light 流式接口和 Deep 接口
+    const lightPromise = fetch(LIGHT_STREAM_API_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages }),
+    });
+
+    const deepPromise = fetch(DEEP_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages,
         userMessage: lastUserMessage,
-        ...(targetRole && { targetRole }), // 如果指定了角色，只分析该角色
+        ...(targetRole && { role: targetRole }),
       }),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `HTTP ${response.status}`);
+    // 处理 Light 流式响应
+    const lightResponse = await lightPromise;
+    if (!lightResponse.ok) {
+      throw new Error(`Light API error: ${lightResponse.status}`);
     }
 
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error('No response body');
-    }
+    const lightReader = lightResponse.body?.getReader();
+    if (lightReader) {
+      const decoder = new TextDecoder();
+      let buffer = '';
 
-    const decoder = new TextDecoder();
-    let buffer = '';
+      while (true) {
+        const { done, value } = await lightReader.read();
+        if (done) break;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            return;
-          }
-          try {
-            const parsed = JSON.parse(data);
-            
-            // 轻量分析结果
-            if (parsed.type === 'light' && parsed.content) {
-              onLightChunk?.(parsed.content);
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              break;
             }
-            
-            // 深度分析流式内容
-            if (parsed.type === 'deep' && parsed.content) {
-              onDeepChunk?.(parsed.content);
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === 'light' && parsed.content) {
+                onLightChunk?.(parsed.content);
+              }
+              if (parsed.error) {
+                console.error('Light stream error:', parsed.error);
+              }
+            } catch (e) {
+              // 忽略解析错误
             }
-            
-            // 深度分析完整结果（JSON格式）
-            if (parsed.type === 'deep' && parsed.analysis) {
-              onDeepAnalysis?.(parsed.analysis);
-            }
-          } catch (e) {
-            // 忽略解析错误
           }
         }
       }
+    }
+
+    // 等待 Deep 分析完成
+    const deepResponse = await deepPromise;
+    if (!deepResponse.ok) {
+      const errorData = await deepResponse.json().catch(() => ({}));
+      throw new Error(errorData.error || `Deep API error: ${deepResponse.status}`);
+    }
+
+    const deepData = await deepResponse.json();
+    if (deepData.analysis) {
+      onDeepAnalysis?.(deepData.analysis);
     }
   } catch (error) {
     console.error('Combined chat error:', error);
