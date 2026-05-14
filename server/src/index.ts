@@ -769,4 +769,5 @@ app.listen(port, () => {
   console.log(`Deep Model: ${MODELS.DEEP}`);
 });
 
-export default app;
+// CommonJS export for PM2
+export = app;

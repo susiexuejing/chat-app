@@ -10,10 +10,12 @@ try {
     entryPoints: ['src/index.ts'],
     bundle: true,
     platform: 'node',
-    format: 'esm',
-    outExtension: { '.js': '.mjs' },
+    format: 'cjs',
     outdir: 'dist',
     external: externalList,
+    banner: {
+      js: '"use strict";',
+    },
   });
   console.log('⚡ Build complete!');
 } catch (e) {
