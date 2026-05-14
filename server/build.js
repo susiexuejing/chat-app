@@ -11,6 +11,7 @@ try {
     bundle: true,
     platform: 'node',
     format: 'esm',
+    outExtension: { '.js': '.mjs' },
     outdir: 'dist',
     external: externalList,
   });
