@@ -26,7 +26,7 @@ app.get('/api/v1/health', (req, res) => {
  */
 
 // 轻量分析 Base URL（qwen-flash-character）
-const DASHSCOPE_BASE_URL_LIGHT = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const DASHSCOPE_BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // 深度分析 Base URL（qwen3.6-plus）
 const DASHSCOPE_BASE_URL_DEEP = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
@@ -496,7 +496,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
             content: m.content,
           })),
         ];
-        return await callDashScope(DASHSCOPE_BASE_URL_LIGHT, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
+        return await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
       })(),
       // 深度分析（用于获取6个角色的视角）
       (async () => {
