@@ -507,13 +507,10 @@ app.post('/api/v1/chat/combined', async (req, res) => {
 
   try {
     // 阶段1：轻量分析（快速，先发送）
-    const recentMessages = messages.slice(-4);
+    // 直接使用 userMessage，确保回复与当前问题相关
     const lightMessages = [
       { role: 'system', content: LIGHT_ANALYSIS_PROMPT },
-      ...recentMessages.map((m: { role: string; content: string }) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
+      { role: 'user', content: userMessage || '' },
     ];
     
     const lightResponse = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, true, 1500);
