@@ -300,6 +300,7 @@ async function chatCombinedWeb(
       body: JSON.stringify({
         messages,
         userMessage: lastUserMessage,
+        ...(targetRole && { targetRole }), // 如果指定了角色，只分析该角色
       }),
     });
 
