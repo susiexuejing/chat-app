@@ -11,12 +11,9 @@ try {
     bundle: true,
     platform: 'node',
     target: 'node18',
-    format: 'cjs',
+    format: 'esm',
     outdir: 'dist',
     external: externalList,
-    banner: {
-      js: '"use strict";',
-    },
   });
   console.log('⚡ Build complete!');
 } catch (e) {
