@@ -516,7 +516,7 @@ app.post('/api/v1/chat/combined', async (req, res) => {
       })),
     ];
     
-    const lightResponse = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, false, 150);
+    const lightResponse = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, true, 1500);
     
     if (!lightResponse.ok) {
       const errorData = await lightResponse.json().catch(() => ({}));
@@ -525,8 +525,39 @@ app.post('/api/v1/chat/combined', async (req, res) => {
       return;
     }
 
-    const lightData = await lightResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
-    let lightContent = lightData.choices?.[0]?.message?.content || '';
+    // 流式读取 Light 响应
+    let lightContent = '';
+    const lightReader = lightResponse.body?.getReader();
+    const lightDecoder = new TextDecoder();
+    
+    if (lightReader) {
+      try {
+        while (true) {
+          const { done, value } = await lightReader.read();
+          if (done) break;
+          const chunk = lightDecoder.decode(value, { stream: true });
+          // 解析 SSE 格式: data: {...}
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data && data !== '[DONE]') {
+                try {
+                  const parsed = JSON.parse(data);
+                  const content = parsed.choices?.[0]?.delta?.content || '';
+                  if (content) {
+                    lightContent += content;
+                    res.write(`data: ${JSON.stringify({ type: 'light', content })}\n\n`);
+                  }
+                } catch {}
+              }
+            }
+          }
+        }
+      } finally {
+        lightReader.releaseLock();
+      }
+    }
 
     // 发送轻量分析结果（用户先看到这个）
     res.write(`data: ${JSON.stringify({ type: 'light', content: lightContent })}\n\n`);
