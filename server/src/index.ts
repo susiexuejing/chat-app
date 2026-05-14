@@ -768,6 +768,3 @@ app.listen(port, () => {
   console.log(`Light Model: ${MODELS.LIGHT}`);
   console.log(`Deep Model: ${MODELS.DEEP}`);
 });
-
-// CommonJS export for PM2
-export = app;
