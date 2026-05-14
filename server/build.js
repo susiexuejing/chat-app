@@ -14,8 +14,9 @@ try {
     outdir: 'dist',
     external: externalList,
     banner: {
-      js: '"use strict";',
+      js: '"use strict";Object.defineProperty(exports, "__esModule", { value: true });',
     },
+    inject: ['./shim.js'],
   });
   console.log('⚡ Build complete!');
 } catch (e) {
