@@ -324,16 +324,21 @@ app.post('/api/v1/chat/light/stream', async (req, res) => {
  */
 app.post('/api/v1/chat/deep', async (req, res) => {
   try {
-    const { userMessage, lightAnalysis, messagesHistory } = req.body;
+    const { userMessage, lightAnalysis, messagesHistory, targetRole } = req.body;
 
     if (!API_KEY_DEEP) {
       return res.status(500).json({ error: 'Deep model API key not configured' });
     }
 
-    console.log(`[Deep Analysis] Using model: ${MODELS.DEEP}`);
+    console.log(`[Deep Analysis] Using model: ${MODELS.DEEP}${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
 
     // 构建深度分析提示词
-    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
+    let systemPrompt;
+    if (targetRole) {
+      systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
+    } else {
+      systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
+    }
 
     const deepMessages = [
       { role: 'system', content: systemPrompt },
@@ -377,7 +382,7 @@ app.post('/api/v1/chat/deep', async (req, res) => {
  * POST /api/v1/chat/deep/stream
  */
 app.post('/api/v1/chat/deep/stream', async (req, res) => {
-  const { userMessage, lightAnalysis, messagesHistory } = req.body;
+  const { userMessage, lightAnalysis, messagesHistory, targetRole } = req.body;
 
   if (!API_KEY_DEEP) {
     res.write(`data: ${JSON.stringify({ error: 'Deep model API key not configured' })}\n\n`);
@@ -392,9 +397,14 @@ app.post('/api/v1/chat/deep/stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
 
   try {
-    console.log(`[Deep Analysis Stream] Using model: ${MODELS.DEEP}`);
+    console.log(`[Deep Analysis Stream] Using model: ${MODELS.DEEP}${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
 
-    const systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
+    let systemPrompt;
+    if (targetRole) {
+      systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
+    } else {
+      systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
+    }
     
     // 把轻量分析结果作为 assistant 消息加入上下文
     const deepMessages = [
