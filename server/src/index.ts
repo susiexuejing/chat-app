@@ -556,22 +556,55 @@ app.post('/api/v1/chat/combined', async (req, res) => {
           { role: 'user', content: userPrompt },
         ];
 
-        const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
+        const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
 
         if (deepResponse.ok) {
-          const deepData = await deepResponse.json() as { choices?: Array<{ message?: { content?: string } }> };
-          let deepContent = deepData.choices?.[0]?.message?.content || '';
+          // Deep 分析使用流式返回
+          const reader = deepResponse.body?.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let fullContent = '';
 
-          // 尝试解析 JSON
-          try {
-            const jsonMatch = deepContent.match(/```(?:json)?\s*([\s\S]*?)```/) || deepContent.match(/(\{[\s\S]*\})/);
-            if (jsonMatch) {
-              deepContent = jsonMatch[1];
+          while (true) {
+            const { done, value } = await reader!.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                const data = line.slice(6);
+                if (data === '[DONE]') {
+                  // Deep 分析完成，尝试解析 JSON
+                  try {
+                    const jsonMatch = fullContent.match(/```(?:json)?\s*([\s\S]*?)```/) || fullContent.match(/(\{[\s\S]*\})/);
+                    if (jsonMatch) {
+                      const parsed = JSON.parse(jsonMatch[1]);
+                      res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed, done: true })}\n\n`);
+                    } else {
+                      res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
+                    }
+                  } catch (e) {
+                    res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
+                  }
+                } else {
+                  try {
+                    const parsed = JSON.parse(data);
+                    const delta = parsed.choices?.[0]?.delta || {};
+                    const content = delta.content;
+                    if (content) {
+                      fullContent += content;
+                      // Deep 内容使用 content 字段，逐字流式发送
+                      res.write(`data: ${JSON.stringify({ type: 'deep', content })}\n\n`);
+                    }
+                  } catch (e) {
+                    // 忽略解析错误
+                  }
+                }
+              }
             }
-            const parsed = JSON.parse(deepContent);
-            res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed })}\n\n`);
-          } catch (e) {
-            res.write(`data: ${JSON.stringify({ type: 'deep', content: deepContent })}\n\n`);
           }
         }
       }

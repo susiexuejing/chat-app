@@ -18,6 +18,7 @@ interface ChatContextValue {
   lightAnalysis: LightAnalysisResult | null;
   inputText: string;
   showRoleIntro: boolean;
+  deepThinkingContent: string; // Deep 分析流式思考内容
   roles: PsychologistRole[];
   onSelectRole?: (role: PsychologistRole) => void;
   onShowIntro?: () => void;
@@ -50,6 +51,7 @@ export const ChatContext = createContext<ChatContextValue>({
   lightAnalysis: null,
   inputText: '',
   showRoleIntro: false,
+  deepThinkingContent: '',
   roles: DEFAULT_ROLES,
   onSelectRole: undefined,
   onShowIntro: undefined,
@@ -100,6 +102,8 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
   const [lightAnalysis, setLightAnalysis] = useState<LightAnalysisResult | null>(null);
   const [inputText, setInputText] = useState('');
   const [showRoleIntro, setShowRoleIntro] = useState(false);
+  // Deep 分析流式思考内容（用于打字机效果）
+  const [deepThinkingContent, setDeepThinkingContent] = useState('');
   const roles = DEFAULT_ROLES;
 
   const currentSession = sessions.find(s => s.id === currentSessionId) || null;
@@ -200,6 +204,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
 
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
+    setDeepThinkingContent(''); // 清理之前的 Deep 思考内容
 
     // Perform light analysis immediately
     const analysis = analyzeText(userMessage);
@@ -247,7 +252,8 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
           );
         },
         (content) => {
-          // 深度分析流式内容（可以显示加载状态）
+          // 深度分析流式内容（显示打字机效果）
+          setDeepThinkingContent(prev => prev + content);
           setIsThinking(true);
         },
         (analysis: DeepAnalysis) => {
@@ -270,6 +276,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
       setIsLoading(false);
       setIsThinking(false);
       setThinkingContent('');
+      setDeepThinkingContent(''); // 清理 Deep 思考内容
 
       // Save to session if message count >= 1
       if (currentSessionId) {
@@ -311,6 +318,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         inputText,
         showRoleIntro,
         roles,
+        deepThinkingContent,
         onSelectRole,
         onShowIntro,
         setShowRoleIntro,

@@ -38,6 +38,16 @@ const COMBINED_API_URL = BACKEND_BASE_URL
   ? `${BACKEND_BASE_URL}/api/v1/chat/combined` 
   : '/api/v1/chat/combined';
 
+// Light 流式接口
+const LIGHT_STREAM_API_URL = BACKEND_BASE_URL
+  ? `${BACKEND_BASE_URL}/api/v1/chat/light/stream`
+  : '/api/v1/chat/light/stream';
+
+// Deep 流式接口
+const DEEP_STREAM_API_URL = BACKEND_BASE_URL
+  ? `${BACKEND_BASE_URL}/api/v1/chat/deep/stream`
+  : '/api/v1/chat/deep/stream';
+
 export interface ChatRequest {
   role: string;
   systemPrompt: string;
@@ -292,74 +302,130 @@ async function chatCombinedWeb(
       requestBody.targetRole = targetRole;
     }
 
-    // 并行调用 Light 流式接口和 Deep 接口
+    // 并行调用 Light 流式接口和 Deep 流式接口
     const lightPromise = fetch(LIGHT_STREAM_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages }),
     });
 
-    const deepPromise = fetch(DEEP_API_URL, {
+    const deepPromise = fetch(DEEP_STREAM_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages,
         userMessage: lastUserMessage,
-        ...(targetRole && { role: targetRole }),
+        ...(targetRole && { targetRole }),
       }),
     });
 
+    // 并行处理 Light 和 Deep 流式响应
+    let lightComplete = false;
+    let deepComplete = false;
+    let deepFullContent = '';
+    let deepAnalysisData: DeepAnalysis | null = null;
+
     // 处理 Light 流式响应
-    const lightResponse = await lightPromise;
-    if (!lightResponse.ok) {
-      throw new Error(`Light API error: ${lightResponse.status}`);
-    }
+    const processLightResponse = async () => {
+      const lightResponse = await lightPromise;
+      if (!lightResponse.ok) {
+        throw new Error(`Light API error: ${lightResponse.status}`);
+      }
 
-    const lightReader = lightResponse.body?.getReader();
-    if (lightReader) {
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const lightReader = lightResponse.body?.getReader();
+      if (lightReader) {
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-      while (true) {
-        const { done, value } = await lightReader.read();
-        if (done) break;
+        while (!lightComplete) {
+          const { done, value } = await lightReader.read();
+          if (done) {
+            lightComplete = true;
+            break;
+          }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') {
-              break;
-            }
-            try {
-              const parsed = JSON.parse(data);
-              if (parsed.type === 'light' && parsed.content) {
-                onLightChunk?.(parsed.content);
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                lightComplete = true;
+                break;
               }
-              if (parsed.error) {
-                console.error('Light stream error:', parsed.error);
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.type === 'light' && parsed.content) {
+                  onLightChunk?.(parsed.content);
+                }
+              } catch (e) {
+                // 忽略解析错误
               }
-            } catch (e) {
-              // 忽略解析错误
             }
           }
         }
       }
-    }
+    };
 
-    // 等待 Deep 分析完成
-    const deepResponse = await deepPromise;
-    if (!deepResponse.ok) {
-      const errorData = await deepResponse.json().catch(() => ({}));
-      throw new Error(errorData.error || `Deep API error: ${deepResponse.status}`);
-    }
+    // 处理 Deep 流式响应
+    const processDeepResponse = async () => {
+      const deepResponse = await deepPromise;
+      if (!deepResponse.ok) {
+        const errorData = await deepResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `Deep API error: ${deepResponse.status}`);
+      }
 
-    const deepData = await deepResponse.json();
-    if (deepData.analysis) {
-      onDeepAnalysis?.(deepData.analysis);
+      const deepReader = deepResponse.body?.getReader();
+      if (deepReader) {
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!deepComplete) {
+          const { done, value } = await deepReader.read();
+          if (done) {
+            deepComplete = true;
+            break;
+          }
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') {
+                deepComplete = true;
+                break;
+              }
+              try {
+                const parsed = JSON.parse(data);
+                // Deep 流式内容
+                if (parsed.type === 'deep' && parsed.content) {
+                  onDeepChunk?.(parsed.content);
+                  deepFullContent += parsed.content;
+                }
+                // Deep 分析完整结果
+                if (parsed.type === 'deep' && parsed.analysis) {
+                  deepAnalysisData = parsed.analysis;
+                }
+              } catch (e) {
+                // 忽略解析错误
+              }
+            }
+          }
+        }
+      }
+    };
+
+    // 并行执行 Light 和 Deep 处理
+    await Promise.all([processLightResponse(), processDeepResponse()]);
+
+    // Deep 分析完成后回调
+    if (deepAnalysisData) {
+      onDeepAnalysis?.(deepAnalysisData);
     }
   } catch (error) {
     console.error('Combined chat error:', error);

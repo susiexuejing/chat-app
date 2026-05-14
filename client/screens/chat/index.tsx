@@ -36,6 +36,7 @@ function ChatContent() {
     createNewChat,
     error,
     clearError,
+    deepThinkingContent,
   } = useChat();
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
@@ -86,8 +87,25 @@ function ChatContent() {
       <View className="flex-1">
         <MessageList onShowIntro={() => setIntroModalVisible(true)} />
         
-        {/* 加载指示器 */}
-        {isLoading && (
+        {/* Deep 分析流式内容显示 */}
+        {deepThinkingContent && (
+          <View className="absolute bottom-24 left-4 right-4">
+            <View className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-2xl p-4">
+              <View className="flex-row items-center mb-2">
+                <ActivityIndicator size="small" color="#8B5CF6" />
+                <Text className="ml-2 text-sm font-medium text-purple-700 dark:text-purple-300">
+                  深度分析中...
+                </Text>
+              </View>
+              <Text className="text-xs text-purple-600 dark:text-purple-400" numberOfLines={3}>
+                {deepThinkingContent}
+              </Text>
+            </View>
+          </View>
+        )}
+        
+        {/* 加载指示器（仅在没有 Deep 思考内容时显示） */}
+        {isLoading && !deepThinkingContent && (
           <View className="absolute bottom-24 left-0 right-0 items-center">
             <View className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-full flex-row items-center">
               <ActivityIndicator size="small" color="#8B5CF6" />
