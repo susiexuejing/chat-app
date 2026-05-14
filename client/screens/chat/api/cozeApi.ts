@@ -306,7 +306,7 @@ async function chatCombinedWeb(
     const lightPromise = fetch(LIGHT_STREAM_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify({ messages, ...(targetRole && { targetRole }) }),
     });
 
     const deepPromise = fetch(DEEP_STREAM_API_URL, {
