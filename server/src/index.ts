@@ -19,6 +19,15 @@ app.get('/api/v1/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
+// 调试端点：查看上次发送给 AI 的完整 payload
+app.get('/api/v1/debug/last-prompt', (req, res) => {
+  res.status(200).json({
+    light: lastPrompts.light,
+    deep: lastPrompts.deep,
+    note: '这是最近一次调用 AI 时发送的完整 messages。发送新消息后会刷新。'
+  });
+});
+
 /**
  * 百炼 API 配置
  * 文档: https://help.aliyun.com/zh/model-studio/role-play
@@ -100,6 +109,9 @@ import { PSYCHOLOGIST_ROLES } from './roles/psychologistRoles';
  * 调用百炼 API（通用）
  * @param baseUrl - API Base URL（轻量用 dashscope，深度用 token-plan）
  */
+// 记录每次调用的完整 prompt（用于调试）
+const lastPrompts: { light: any; deep: any } = { light: null, deep: null };
+
 async function callDashScope(
   baseUrl: string,
   apiKey: string,
@@ -108,6 +120,20 @@ async function callDashScope(
   stream: boolean = false,
   maxTokens: number = 500
 ): Promise<Response> {
+  // 记录完整 messages 到日志和调试变量
+  const isLight = model === MODELS.LIGHT;
+  const type = isLight ? 'Light' : 'Deep';
+  if (isLight) {
+    lastPrompts.light = { model, messages: JSON.parse(JSON.stringify(messages)) };
+  } else {
+    lastPrompts.deep = { model, messages: JSON.parse(JSON.stringify(messages)) };
+  }
+  console.log(`\n========== [${type}] 发送给 AI 的完整 Payload ==========`);
+  for (const msg of messages) {
+    console.log(`--- role: ${msg.role} ---`);
+    console.log(msg.content.substring(0, 500) + (msg.content.length > 500 ? '...' : ''));
+  }
+  console.log(`========== [${type}] Payload 结束 ==========\n`);
   const response = await fetch(`${baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
