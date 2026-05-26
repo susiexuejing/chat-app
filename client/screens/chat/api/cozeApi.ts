@@ -225,6 +225,130 @@ async function chatNative(
   });
 }
 
+// ─── 新架构：前端流 + 百炼深度分析 ─────────────────────────
+
+export interface FrontFlowItem {
+  delay: number;  // 秒
+  text: string;
+}
+
+export interface ChatStartResponse {
+  sessionId: string;
+  emotionTag: string;
+  eventKeyword: string;
+  frontFlow: FrontFlowItem[];
+}
+
+/**
+ * 接口 1：即时返回前端流
+ * POST /api/v1/chat/start
+ */
+export async function chatStart(roleId: string, message: string): Promise<ChatStartResponse> {
+  const BASE = getBackendUrl();
+  const response = await fetch(`${BASE}/api/v1/chat/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ roleId, message }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => '');
+    throw new Error(`chatStart failed (${response.status}): ${text}`);
+  }
+  return response.json();
+}
+
+/**
+ * 接口 2：获取百炼流式结果
+ * GET /api/v1/chat/stream?sessionId=xxx
+ * 
+ * @param sessionId - chatStart 返回的 sessionId
+ * @param onChunk - 每段文本回调
+ * @param onDone - 流结束回调
+ */
+export function chatStream(
+  sessionId: string,
+  callbacks: {
+    onChunk?: (text: string) => void;
+    onDone?: () => void;
+    onError?: (err: Error) => void;
+  },
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const BASE = getBackendUrl();
+    const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
+
+    // Web 端和 RN 端统一使用 fetch SSE
+    if (Platform.OS === 'web') {
+      fetch(url)
+        .then(async (response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error('No reader available');
+          }
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith('data: ')) continue;
+              const data = trimmed.slice(6);
+              if (data === '[DONE]') {
+                callbacks.onDone?.();
+                resolve();
+                return;
+              }
+              callbacks.onChunk?.(data);
+            }
+          }
+          callbacks.onDone?.();
+          resolve();
+        })
+        .catch((err) => {
+          callbacks.onError?.(err);
+          reject(err);
+        });
+    } else {
+      // RN 端使用 react-native-sse
+      import('react-native-sse').then((mod) => {
+        const RNSSE = mod.default;
+        const sse = new RNSSE(url, {
+          headers: { 'Accept': 'text/event-stream' },
+        });
+        sse.addEventListener('message', (event: any) => {
+          if (event.data === '[DONE]') {
+            sse.close();
+            callbacks.onDone?.();
+            resolve();
+            return;
+          }
+          callbacks.onChunk?.(event.data);
+        });
+        sse.addEventListener('error', (error: any) => {
+          sse.close();
+          const err = new Error(error.message || 'stream error');
+          callbacks.onError?.(err);
+          reject(err);
+        });
+        sse.addEventListener('close', () => {
+          callbacks.onDone?.();
+          resolve();
+        });
+      });
+    }
+  });
+}
+
 /**
  * 新版：一次调用，只发选中角色，返回结构化 JSON（reply + light_analysis + deep_analysis + next_step）
  * 服务端文件：server/src/index.ts

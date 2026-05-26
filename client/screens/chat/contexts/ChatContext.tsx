@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
 import { ChatMessage, ChatSession, LightAnalysisResult, DeepAnalysisData } from '../types';
 import { analyzeText } from '../utils/textAnalyzer';
-import { chatWithDashScope, chatCombined, chatAnalyze } from '../api/cozeApi';
+import { chatWithDashScope, chatCombined, chatStart, chatStream, FrontFlowItem, ChatStartResponse } from '../api/cozeApi';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -192,8 +192,15 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
     setError(null);
   }, []);
 
+  // 存储前一次请求的 flowTimers，以便新消息发送时清理
+  const flowTimersRef = React.useRef<NodeJS.Timeout[]>([]);
+
   const sendMessage = useCallback(async (userMessage: string) => {
     if (!currentRole || !userMessage.trim()) return;
+
+    // 清理之前的 flowTimers（如果用户快速连续发送）
+    flowTimersRef.current.forEach(t => clearTimeout(t));
+    flowTimersRef.current = [];
 
     const userMsg: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -204,102 +211,119 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
 
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
-    setDeepThinkingContent(''); // 清理之前的 Deep 思考内容
-
-    // Perform light analysis immediately
-    const analysis = analyzeText(userMessage);
-    setLightAnalysis(analysis);
-
-    // Add a placeholder for AI response
-    const aiMsgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const aiMsg: ChatMessage = {
-      id: aiMsgId,
-      role: 'assistant',
-      content: '',
-      timestamp: Date.now(),
-      // 预留给深度分析结果
-      deepAnalysis: undefined,
-    };
-
-    setMessages(prev => [...prev, aiMsg]);
+    setDeepThinkingContent('');
+    setError(null);
     setIsLoading(true);
-    setIsThinking(false);
-    setThinkingContent('');
-
-    let lightContent = '';
 
     try {
-      // Get current messages using callback to avoid stale closure
-      let currentMessages: ChatMessage[] = [];
-      setMessages(prev => {
-        currentMessages = [...prev];
-        return prev;
-      });
-
-      // 使用新版分析接口：一次调用，只发选中角色人设
-      await chatAnalyze(
-        userMessage,
-        currentRole?.name || '聪明狐狸',
-        {
-          onLightChunk: (chunk) => {
-            // reply 渐进显示
-            lightContent = chunk;
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === aiMsgId ? { ...m, content: lightContent } : m
-              )
-            );
-          },
-          onDeepChunk: (chunk) => {
-            // deep_analysis 流式显示
-            setDeepThinkingContent(chunk);
-            setIsThinking(true);
-          },
-          onComplete: (result) => {
-            // 完整解析结果
-            const deepAnalysis: DeepAnalysisData = result.deep_analysis || {};
-            setMessages(prev =>
-              prev.map(m =>
-                m.id === aiMsgId ? { ...m, deepAnalysis } : m
-              )
-            );
-            setIsThinking(false);
-          },
-          onError: (error) => {
-            console.error('[chatAnalyze] Error:', error);
-            setIsLoading(false);
-            setIsThinking(false);
-            setError(typeof error === 'string' ? error : error?.message || '连接失败，请重试');
-          }
-        }
+      // ====== 第一阶段：调用 /chat/start 获取前端流 ======
+      const startResponse: ChatStartResponse = await chatStart(
+        currentRole.id,
+        userMessage
       );
 
-      setIsLoading(false);
-      setIsThinking(false);
-      setThinkingContent('');
-      setDeepThinkingContent(''); // 清理 Deep 思考内容
+      const { sessionId, frontFlow } = startResponse;
 
-      // Save to session if message count >= 1
-      if (currentSessionId) {
-        setSessions(prev => {
-          const updated = prev.map(s => {
-            if (s.id === currentSessionId) {
-              const updatedMessages = [...s.messages, userMsg, { ...aiMsg, content: lightContent }];
-              return { ...s, messages: updatedMessages, updatedAt: Date.now() };
-            }
-            return s;
-          });
-          saveSessionsToStorage(updated);
-          return updated;
-        });
+      // ====== 第二阶段：按 delay 播放前端流 ======
+      for (const item of frontFlow) {
+        const timer = setTimeout(() => {
+          const flowMsg: ChatMessage = {
+            id: `flow_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            role: 'assistant',
+            content: item.text,
+            timestamp: Date.now(),
+          };
+          setMessages(prev => [...prev, flowMsg]);
+        }, item.delay * 1000);
+        flowTimersRef.current.push(timer);
       }
+
+      // ====== 第三阶段：前端流播放完毕后，百炼接管 ======
+      const maxDelay = frontFlow.length > 0
+        ? Math.max(...frontFlow.map(f => f.delay), 0)
+        : 0;
+
+      setTimeout(async () => {
+        // 创建百炼回复消息占位
+        const deepMsgId = `deep_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const streamMsg: ChatMessage = {
+          id: deepMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, streamMsg]);
+        setIsThinking(true);
+
+        try {
+          let streamContent = '';
+          await chatStream(sessionId, {
+            onChunk: (chunk) => {
+              // 解析 SSE JSON 数据，提取 content 字段
+              try {
+                const parsed = JSON.parse(chunk);
+                if (parsed.content) {
+                  // 如果是 JSON 结构内容（包含 reply/deep_analysis），显示 reply 部分
+                  let displayText = parsed.content;
+                  try {
+                    const inner = JSON.parse(parsed.content);
+                    if (inner.reply) {
+                      displayText = inner.reply;
+                    }
+                  } catch {}
+                  streamContent = displayText;
+                  setMessages(prev =>
+                    prev.map(m =>
+                      m.id === deepMsgId ? { ...m, content: streamContent } : m
+                    )
+                  );
+                }
+              } catch {
+                // 不是 JSON，直接显示
+                streamContent += chunk;
+                setMessages(prev =>
+                  prev.map(m =>
+                    m.id === deepMsgId ? { ...m, content: streamContent } : m
+                  )
+                );
+              }
+            },
+            onDone: () => {
+              setIsThinking(false);
+              setIsLoading(false);
+              // 保存会话
+              if (currentSessionId) {
+                setSessions(prev => {
+                  const allMsgs: ChatMessage[] = [];
+                  setMessages(m => { allMsgs.push(...m); return m; });
+                  const updated = prev.map(s => {
+                    if (s.id === currentSessionId) {
+                      return { ...s, messages: allMsgs, updatedAt: Date.now() };
+                    }
+                    return s;
+                  });
+                  saveSessionsToStorage(updated);
+                  return updated;
+                });
+              }
+            },
+            onError: (error) => {
+              console.error('[chatStream] Error:', error);
+              setIsThinking(false);
+              setIsLoading(false);
+              setError(typeof error === 'string' ? error : error?.message || '连接失败');
+            }
+          });
+        } catch (streamErr) {
+          setIsThinking(false);
+          setIsLoading(false);
+          setError(streamErr instanceof Error ? streamErr.message : '流式请求失败');
+        }
+      }, maxDelay * 1000 + 2000); // 最后一条前端流结束后 +2秒缓冲
+
     } catch (err) {
       setIsLoading(false);
-      setIsThinking(false);
-      setThinkingContent('');
       setError(err instanceof Error ? err.message : '发送失败');
-
-      setMessages(prev => prev.filter(m => m.id !== aiMsgId));
     }
   }, [currentRole, currentSessionId, saveSessionsToStorage]);
 

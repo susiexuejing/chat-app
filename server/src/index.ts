@@ -1,10 +1,14 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'crypto';
+import { frontFlows } from './flows/frontFlows';
+import type { FrontFlowItem } from './flows/frontFlows';
+import type { EmotionTag, EventTag } from './flows/frontFlows';
+import { recognizeEmotion, recognizeEvent } from './flows/recognizer';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
 console.log('DASHSCOPE_API_KEY_DEEP:', process.env.DASHSCOPE_API_KEY_DEEP ? 'SET' : 'NOT SET');
-// 环境变量由 PM2 通过 ecosystem.config.cjs 传递，无需 dotenv
 
 const app = express();
 const port = process.env.PORT || 9091;
@@ -14,897 +18,318 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-app.get('/api/v1/health', (req, res) => {
-  console.log('Health check success');
-  res.status(200).json({ status: 'ok' });
-});
-
-// 调试端点：查看上次发送给 AI 的完整 payload
-app.get('/api/v1/debug/last-prompt', (req, res) => {
-  res.status(200).json({
-    analyze: lastPrompts.analyze,
-    light: lastPrompts.light,
-    deep: lastPrompts.deep,
-    note: '这是最近一次调用 AI 时发送的完整 messages。发送新消息后会刷新。'
-  });
-});
-
-/**
- * 环境变量与配置声明
- */
+// ============================================================
+// 环境变量
+// ============================================================
 const DASHSCOPE_BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-const API_KEY_LIGHT = process.env.DASHSCOPE_API_KEY || '';
+const API_KEY_LIGHT = process.env.DASHSCOPE_API_KEY || process.env.DASHSCOPE_API_KEY_LIGHT;
+const API_KEY_DEEP = process.env.DASHSCOPE_API_KEY_DEEP;
 
-/**
- * 新版分析 API：用户选谁就只发谁，一次调用返回结构化结果
- */
-app.post('/api/v1/chat/analyze', async (req, res) => {
-  try {
-    const { userMessage, targetRole } = req.body;
-    const startTime = Date.now();
-
-    if (!userMessage) {
-      return res.status(400).json({ error: 'userMessage is required' });
-    }
-
-    // 1. 找到选定角色
-    const selectedRole = PSYCHOLOGIST_ROLES.find(r => r.name === targetRole);
-    if (!selectedRole) {
-      return res.status(400).json({ error: `角色 "${targetRole}" 未找到` });
-    }
-
-    console.log(`[Analyze] 角色=${selectedRole.name}, 消息="${userMessage.substring(0, 50)}..."`);
-
-    // 2. 只发选定角色的 systemPrompt + userMessage
-    const systemPrompt = selectedRole.systemPrompt;
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userMessage },
-    ];
-
-    // 3. 保存到调试端点
-    lastPrompts.analyze = { model: MODELS.LIGHT, messages, temperature: 0.6, max_tokens: 1200 };
-
-    // 4. 设置 SSE 流式输出
-    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
-    res.setHeader('Connection', 'keep-alive');
-
-    // 5. 调用百炼（流式）
-    const apiKey = API_KEY_LIGHT;
-    const baseUrl = DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
-    const response = await callDashScope(baseUrl, apiKey, MODELS.LIGHT, messages, true, 1200);
-
-    if (!response.ok) {
-      const errorData = await response.text().catch(() => 'Unknown error');
-      console.error('[Analyze] API error:', response.status, errorData);
-      res.write(`data: ${JSON.stringify({ error: `AI错误: ${response.status}`, details: errorData })}\n\n`);
-      res.end();
-      return;
-    }
-
-    // 6. 逐块转发流式数据
-    const reader = response.body?.getReader();
-    if (!reader) {
-      res.write(`data: ${JSON.stringify({ error: 'Reader not available' })}\n\n`);
-      res.end();
-      return;
-    }
-
-    const decoder = new TextDecoder();
-    let fullContent = '';
-
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.slice(6).trim();
-            if (dataStr === '[DONE]') continue;
-
-            try {
-              const parsed = JSON.parse(dataStr);
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                fullContent += content;
-                res.write(`data: ${JSON.stringify({ content })}\n\n`);
-              }
-            } catch {
-              // 跳过解析失败的 chunk
-            }
-          }
-        }
-      }
-    } finally {
-      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[Analyze] 完成, 耗时=${duration}s, 总字符=${fullContent.length}`);
-
-      // 尝试解析最终 JSON 结果
-      let parsed = null;
-      try {
-        parsed = JSON.parse(fullContent);
-      } catch {
-        // 如果模型直接返回了文本，尝试提取 JSON 块
-        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          try { parsed = JSON.parse(jsonMatch[0]); } catch {}
-        }
-      }
-
-      res.write(`data: ${JSON.stringify({ done: true, fullContent, parsed })}\n\n`);
-      res.end();
-    }
-  } catch (error) {
-    console.error('[Analyze] Error:', error);
-    res.write(`data: ${JSON.stringify({ error: 'Internal server error' })}\n\n`);
-    res.end();
-  }
-});
-
-/**
- * 百炼 API 配置
- * 文档: https://help.aliyun.com/zh/model-studio/role-play
- * 注意：两个模型使用不同的 Base URL
- */
-
-// 轻量分析 Base URL（qwen-flash-character）
-
-// 深度分析 Base URL（qwen3.6-plus）
-const DASHSCOPE_BASE_URL_DEEP = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
-
-// 模型配置
 const MODELS = {
-  // 轻量分析模型 - 快速共情
-  LIGHT: process.env.DASHSCOPE_MODEL_LIGHT || 'qwen-flash-character-2026-02-26',
-  // 深度分析模型 - 多角色分析
-  DEEP: process.env.DASHSCOPE_MODEL_DEEP || 'qwen3.6-plus',
-  // 默认角色扮演模型
-  DEFAULT: process.env.DASHSCOPE_MODEL || 'qwen-plus-character',
+  LIGHT: process.env.MODEL_LIGHT || 'qwen-flash-character-2026-02-26',
+  DEEP: process.env.MODEL_DEEP || 'qwen3.6-plus',
 };
 
-// API Keys
-const API_KEY_DEEP = process.env.DASHSCOPE_API_KEY_DEEP; // 深度分析用
+// ============================================================
+// Session 管理（内存）
+// ============================================================
+interface ChatSession {
+  sessionId: string;
+  roleId: string;
+  roleName: string;
+  userMessage: string;
+  emotionTag: EmotionTag;
+  eventTag: EventTag;
+  frontFlow: FrontFlowItem[];
+  createdAt: number;
+  deepResult: string | null;       // 最终完整结果
+  deepStreaming: boolean;          // 是否正在流式生成
+  deepError: string | null;        // 错误信息
+}
 
-/**
- * 轻量共情分析提示词
- * 目标：生成30秒左右的详细共情回复，包含6个角色的简短视角
- */
-// 动态构建完整角色人设提示词（使用 PSYCHOLOGIST_ROLES）
-const buildLightSystemPrompt = () => {
-  const rolesDescriptions = PSYCHOLOGIST_ROLES.map(role => {
-    return `【${role.name}（${role.therapyType}）】
-职业背景：${role.professionalBackground.education}，${role.professionalBackground.workExperience}
-个人背景：${role.personalBackground.lifeExperience}，性格特点：${role.personalBackground.personalityTraits.join('、')}
-核心价值观：${role.coreValues.psychologyConcept}
-情感反应设定：${role.emotionalResponse.reactionPattern}
-经典语录：${role.classicQuotes.join('；')}`.replace(/"/g, '\\"');
-  }).join('\n\n');
+const sessions = new Map<string, ChatSession>();
 
-  return `你是一位资深心理咨询师，正在与来访者进行温暖、共情的对话。
+const SESSION_TTL_MS = 10 * 60 * 1000; // 10分钟过期
 
-【角色人设】
-${rolesDescriptions}
+// 定期清理过期会话
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.createdAt > SESSION_TTL_MS) {
+      sessions.delete(id);
+    }
+  }
+}, 60 * 1000);
 
-【回复格式】
-请按以下格式回复：
-
-## 共情回复（主体）- 请写500-800字
-这部分是主要回复，要包含：
-1. 温暖的同理心表达（50-100字）：用温柔的话语确认用户的感受
-2. 对问题的理解（100-150字）：简要分析用户表述的内容
-3. 心理层面的洞察（100-150字）：从专业角度指出可能的情绪或需求
-4. 引导性提问（100-150字）：提出1-2个开放式问题，帮助用户深入思考
-5. 鼓励的话语（50-100字）：给用户一些支持和希望
-
-## 各角色视角（简短）
-用3-4句话描述每个角色对用户问题的独特看法，结合各自的治疗流派和个人风格：
-
-【示例】
-用户说："我最近工作压力很大，总是加班到很晚"
-
-## 共情回复（主体）
-听到你说最近工作压力很大，总是加班到很晚，我能感受到你真的很辛苦...
-
-## 各角色视角
-【聪明狐狸】：我会从认知行为角度，关注你对工作的认知模式...
-【温暖小熊】：此刻的你一定很累，请记得照顾好自己不是自私...
-【深思猫头鹰】：我想探索这份压力背后是否有更深层的需求...
-【情感小精灵】：在"压力大"的背后，可能还藏着委屈、愤怒...
-【哲思海豚】：工作对你而言意味着什么？是成就感还是逃避？
-【团结小象】：除了同事，有没有可以倾诉和支持你的人？`;
+// ============================================================
+// 角色名称映射
+// ============================================================
+const ROLE_NAMES: Record<string, string> = {
+  'clever-fox': '聪明狐狸',
+  'warm-bear': '温暖小熊',
+  'wise-owl': '深思猫头鹰',
+  'emotion-elf': '情感小精灵',
+  'philosophy-dolphin': '哲思海豚',
+  'unity-elephant': '团结小象',
 };
 
-import { PSYCHOLOGIST_ROLES } from './roles/psychologistRoles';
+// ============================================================
+// 角色 system prompt 构建（用于百炼）
+// ============================================================
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlow: FrontFlowItem[]): string {
+  // 从前端流中提取文本
+  const flowTexts = frontFlow.map(item => item.text);
 
-/**
- * 调用百炼 API（通用）
- * @param baseUrl - API Base URL（轻量用 dashscope，深度用 token-plan）
- */
-// 记录每次调用的完整 prompt（用于调试）
-const lastPrompts: { light: any; deep: any; analyze?: any } = { light: null, deep: null };
+  return `你是「${roleName}」。
 
+${getRoleStyle(roleId)}
+
+用户已经看到以下陪伴内容（请勿重复）：
+${flowTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+请自然接着往下说，不要重新开始，不要重复上述内容。
+
+请基于用户输入进行深入分析，输出结构化JSON格式：
+{
+  "reply": "你的自然回复（直接接着上面的话往下说）",
+  "deep_analysis": {
+    "fact": "区分事实",
+    "interpretation": "用户的解释/解读",
+    "cognitive_pattern": "可能的认知模式",
+    "reframe": "重新框架"
+  },
+  "next_step": "建议的下一步"
+}`;
+}
+
+function getRoleStyle(roleId: string): string {
+  const styles: Record<string, string> = {
+    'clever-fox': '你风格接近CBT：理性、温和、善于拆解念头。',
+    'warm-bear': '你风格接近人本主义：温暖、共情、无条件接纳。',
+    'wise-owl': '你风格接近精神分析：洞察潜意识、探索深层冲突。',
+    'emotion-elf': '你风格接近情绪聚焦疗法：关注情感识别与调节。',
+    'philosophy-dolphin': '你风格接近存在主义：探索意义、自由与责任。',
+    'unity-elephant': '你风格接近叙事/系统疗法：关注关系模式与故事重构。',
+  };
+  return styles[roleId] || '你是一位温暖的心理陪伴者。';
+}
+
+// ============================================================
+// 调用百炼 DashScope API
+// ============================================================
 async function callDashScope(
   baseUrl: string,
   apiKey: string,
   model: string,
   messages: Array<{ role: string; content: string }>,
-  stream: boolean = false,
-  maxTokens: number = 500
+  stream: boolean,
+  maxTokens: number = 1200
 ): Promise<Response> {
-  // 记录完整 messages 到日志和调试变量
-  const isLight = model === MODELS.LIGHT;
-  const type = isLight ? 'Light' : 'Deep';
-  if (isLight) {
-    lastPrompts.light = { model, messages: JSON.parse(JSON.stringify(messages)) };
-  } else {
-    lastPrompts.deep = { model, messages: JSON.parse(JSON.stringify(messages)) };
-  }
-  console.log(`\n========== [${type}] 发送给 AI 的完整 Payload ==========`);
-  for (const msg of messages) {
-    console.log(`--- role: ${msg.role} ---`);
-    console.log(msg.content.substring(0, 500) + (msg.content.length > 500 ? '...' : ''));
-  }
-  console.log(`========== [${type}] Payload 结束 ==========\n`);
-  const response = await fetch(`${baseUrl}/chat/completions`, {
+  const url = `${baseUrl}/chat/completions`;
+
+  const body = JSON.stringify({
+    model,
+    messages,
+    stream,
+    max_tokens: maxTokens,
+    temperature: 0.6,
+  });
+
+  return fetch(url, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      stream,
-      max_tokens: maxTokens,
-      extra_body: {
-        thinking: { type: "off" }
-      }
-    }),
+    body,
   });
-  return response;
 }
 
-/**
- * 构建深度分析的角色系统提示词
- */
-function buildDeepAnalysisPrompt(userMessage: string, lightAnalysis: string, messagesHistory: Array<{role: string; content: string}>, targetRole?: string): string {
-  // 完整版：包含职业背景、个人背景、核心价值观、情感反应设定
-  const rolesSystemPrompts = PSYCHOLOGIST_ROLES.map(role => {
-    return `【${role.name}（${role.therapyType}）】
-职业背景：
-- 教育：${role.professionalBackground.education}
-- 经历：${role.professionalBackground.workExperience}
-- 专长：${role.professionalBackground.specialties.join('、')}
-
-个人背景：
-- 经历：${role.personalBackground.lifeExperience}
-- 性格：${role.personalBackground.personalityTraits.join('、')}
-
-核心价值观：
-- 心理学理念：${role.coreValues.psychologyConcept}
-- 处理方式：${role.coreValues.emotionalApproach}
-
-情感反应设定：
-${role.emotionalResponse.reactionPattern}
-
-经典语录：
-${role.classicQuotes.map(q => `- ${q}`).join('\n')}
-
-人设描述：${role.systemPrompt}`;
-  }).join('\n\n');
-
-  // 构建对话历史摘要（减少到最近3条消息）
-  const conversationHistory = messagesHistory
-    .filter(m => m.role === 'user' || m.role === 'assistant')
-    .slice(-3) // 只保留最近3条消息
-    .map(m => `${m.role === 'user' ? '用户' : 'AI'}：${m.content}`)
-    .join('\n');
-
-  return `【深度心理分析任务】
-
-【对话历史】
-${conversationHistory}
-
-【用户最新输入】
-${userMessage}
-
-【轻量共情分析结果】
-${lightAnalysis}
-
-请从以下6个心理治疗学派视角，对用户进行深度分析：
-
-${rolesSystemPrompts}
-
-【输出格式】
-请按以下JSON格式输出（只需要输出JSON，不要其他内容）：
-{
-  "聪明狐狸": { "analysis": "CBT视角分析...", "insight": "关键洞察..." },
-  "温暖小熊": { "analysis": "人本主义视角分析...", "insight": "关键洞察..." },
-  "深思猫头鹰": { "analysis": "精神分析视角分析...", "insight": "关键洞察..." },
-  "情感小精灵": { "analysis": "情绪聚焦视角分析...", "insight": "关键洞察..." },
-  "哲思海豚": { "analysis": "存在主义视角分析...", "insight": "关键洞察..." },
-  "团结小象": { "analysis": "家庭系统视角分析...", "insight": "关键洞察..." }
-}
-
-【要求】
-- 每个角色的分析控制在50字以内
-- 洞察要精准、有启发性
-- 从各自学派的专业角度切入
-- 分析要结合轻量共情分析的结果，不要脱离上下文`;
-}
-
-/**
- * 构建单个角色的深度分析提示词
- * @param roleName 角色名称
- */
-function buildSingleRoleAnalysisPrompt(roleName: string): string {
-  const role = PSYCHOLOGIST_ROLES.find(r => r.name === roleName);
-  if (!role) {
-    // 如果找不到角色，返回空提示词
-    return '';
-  }
-  
-  // 完整版：包含职业背景、个人背景、核心价值观、情感反应设定
-  const prompt = '【' + role.name + '（' + role.therapyType + '）】\n' +
-    '职业背景：\n' +
-    '- 教育：' + role.professionalBackground.education + '\n' +
-    '- 经历：' + role.professionalBackground.workExperience + '\n' +
-    '- 专长：' + role.professionalBackground.specialties.join('、') + '\n\n' +
-    '个人背景：\n' +
-    '- 经历：' + role.personalBackground.lifeExperience + '\n' +
-    '- 性格：' + role.personalBackground.personalityTraits.join('、') + '\n\n' +
-    '核心价值观：\n' +
-    '- 心理学理念：' + role.coreValues.psychologyConcept + '\n' +
-    '- 处理方式：' + role.coreValues.emotionalApproach + '\n\n' +
-    '情感反应设定：\n' + role.emotionalResponse.reactionPattern + '\n\n' +
-    '经典语录：\n' + role.classicQuotes.map(q => '- ' + q).join('\n') + '\n\n' +
-    '人设描述：' + role.systemPrompt + '\n\n' +
-    '请基于以上角色设定，对用户的心理状态进行深度分析。\n' +
-    '请按以下JSON格式返回（只返回JSON，不要有其他内容）：\n' +
-    '{"analysis": "分析内容..."}';
-  
-  return prompt;
-}
-
-/**
- * 轻量共情分析接口
- * POST /api/v1/chat/light
- * 快速返回共情回复
- */
-app.post('/api/v1/chat/light', async (req, res) => {
-  try {
-    const { messages, userMessage } = req.body;
-
-    if (!API_KEY_LIGHT) {
-      return res.status(500).json({ error: 'Light model API key not configured' });
-    }
-
-    // 优先使用 userMessage，确保回复与当前问题相关
-    let chatMessages;
-    if (userMessage) {
-      chatMessages = [
-        { role: 'system', content: buildLightSystemPrompt() },
-        { role: 'user', content: userMessage },
-      ];
-    } else {
-      const recentMessages = messages.slice(-2);
-      chatMessages = [
-        { role: 'system', content: buildLightSystemPrompt() },
-        ...recentMessages.map((m: { role: string; content: string }) => ({
-          role: m.role === 'assistant' ? 'assistant' : 'user',
-          content: m.content,
-        })),
-      ];
-    }
-
-    console.log(`[Light Analysis] Using model: ${MODELS.LIGHT}`);
-
-    const response = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, chatMessages, false, 4000);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[Light Analysis] API error:', response.status, errorData);
-      return res.status(response.status).json({ error: 'Light analysis failed', details: errorData });
-    }
-
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data.choices?.[0]?.message?.content || '';
-
-    res.json({ content, type: 'light' });
-  } catch (error) {
-    console.error('[Light Analysis] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * 轻量共情分析接口（流式）
- * POST /api/v1/chat/light/stream
- */
-app.post('/api/v1/chat/light/stream', async (req, res) => {
-  const { messages, userMessage } = req.body;
-
-  if (!API_KEY_LIGHT) {
-    return res.status(500).json({ error: 'Light model API key not configured' });
-  }
-
-  // 优先使用 userMessage，确保回复与当前问题相关
-  let chatMessages;
-  if (userMessage) {
-    chatMessages = [
-      { role: 'system', content: buildLightSystemPrompt() },
-      { role: 'user', content: userMessage },
-    ];
-  } else {
-    const recentMessages = messages.slice(-2);
-    chatMessages = [
-      { role: 'system', content: buildLightSystemPrompt() },
-      ...recentMessages.map((m: { role: string; content: string }) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-    ];
-  }
-
-  // 设置 SSE 响应头
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
-  try {
-    console.log(`[Light Analysis Stream] Using model: ${MODELS.LIGHT}`);
-
-    const response = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, chatMessages, true, 150);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      res.write(`data: ${JSON.stringify({ error: 'Light analysis failed', details: errorData })}\n\n`);
-      res.end();
-      return;
-    }
-
-    // 处理流式响应
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader!.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            res.write('data: [DONE]\n\n');
-          } else {
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta || {};
-              const content = delta.content;
-              if (content) {
-                res.write(`data: ${JSON.stringify({ type: 'light', content })}\n\n`);
-              }
-            } catch (e) {
-              // 忽略解析错误
-            }
-          }
-        }
-      }
-    }
-
-    res.write('data: [DONE]\n\n');
-    res.end();
-  } catch (error) {
-    console.error('[Light Stream] Error:', error);
-    res.write(`data: ${JSON.stringify({ error: 'Stream error' })}\n\n`);
-    res.end();
-  }
-});
-
-/**
- * 深度分析接口（并行调用6个角色）
- * POST /api/v1/chat/deep
- */
-app.post('/api/v1/chat/deep', async (req, res) => {
-  try {
-    const { userMessage, lightAnalysis, messagesHistory, targetRole } = req.body;
-
-    if (!API_KEY_DEEP) {
-      return res.status(500).json({ error: 'Deep model API key not configured' });
-    }
-
-    console.log(`[Deep Analysis] Using model: ${MODELS.DEEP}${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
-
-    // 构建深度分析提示词
-    let systemPrompt;
-    if (targetRole) {
-      systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
-    } else {
-      systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
-    }
-
-    const deepMessages = [
-      { role: 'system', content: systemPrompt },
-      // 添加轻量分析结果作为补充上下文
-      ...(lightAnalysis ? [{ role: 'assistant' as const, content: `【轻量共情分析】${lightAnalysis}` }] : []),
-      { role: 'user', content: '请根据上述信息进行深度心理分析。' },
-    ];
-
-    const response = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, false, 2000);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[Deep Analysis] API error:', response.status, errorData);
-      return res.status(response.status).json({ error: 'Deep analysis failed', details: errorData });
-    }
-
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    let content = data.choices?.[0]?.message?.content || '';
-
-    // 尝试解析 JSON
-    try {
-      // 提取 JSON 部分（可能在 ```json ... ``` 中）
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || content.match(/(\{[\s\S]*\})/);
-      if (jsonMatch) {
-        content = jsonMatch[1];
-      }
-      const parsed = JSON.parse(content);
-      res.json({ analysis: parsed, type: 'deep' });
-    } catch (e) {
-      // 解析失败，返回原始内容
-      res.json({ content, type: 'deep', parseError: true });
-    }
-  } catch (error) {
-    console.error('[Deep Analysis] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * 深度分析接口（流式）
- * POST /api/v1/chat/deep/stream
- */
-app.post('/api/v1/chat/deep/stream', async (req, res) => {
-  const { userMessage, lightAnalysis, messagesHistory, targetRole } = req.body;
-
-  if (!API_KEY_DEEP) {
-    res.write(`data: ${JSON.stringify({ error: 'Deep model API key not configured' })}\n\n`);
-    res.end();
+// ============================================================
+// 后端异步调用百炼（在返回前端流之后触发）
+// ============================================================
+async function startDeepAnalysis(session: ChatSession): Promise<void> {
+  const apiKey = API_KEY_LIGHT;  // 使用基础密钥（已验证可用）
+  if (!apiKey) {
+    session.deepError = 'API key not configured';
     return;
   }
 
-  // 设置 SSE 响应头
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
+  session.deepStreaming = true;
 
   try {
-    console.log(`[Deep Analysis Stream] Using model: ${MODELS.DEEP}${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
-
-    let systemPrompt;
-    if (targetRole) {
-      systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
-    } else {
-      systemPrompt = buildDeepAnalysisPrompt(userMessage, lightAnalysis || '', messagesHistory || []);
-    }
-    
-    // 把轻量分析结果作为 assistant 消息加入上下文
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlow);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
-      ...(lightAnalysis ? [{ role: 'assistant' as const, content: `【轻量共情分析】${lightAnalysis}` }] : []),
-      { role: 'user', content: '请根据上述信息进行深度心理分析。' },
+      { role: 'user', content: session.userMessage },
     ];
 
-    const response = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
+    const response = await callDashScope(
+      DASHSCOPE_BASE_URL,
+      apiKey,
+      MODELS.DEEP,
+      deepMessages,
+      true,
+      1200
+    );
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      res.write(`data: ${JSON.stringify({ error: 'Deep analysis failed', details: errorData })}\n\n`);
-      res.end();
+      session.deepError = `DashScope error: ${response.status}`;
+      session.deepStreaming = false;
       return;
     }
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
     let fullContent = '';
 
     while (true) {
       const { done, value } = await reader!.read();
       if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data === '[DONE]') {
-            // 尝试解析完整的 JSON 并发送
-            try {
-              const jsonMatch = fullContent.match(/```(?:json)?\s*([\s\S]*?)```/) || fullContent.match(/(\{[\s\S]*\})/);
-              if (jsonMatch) {
-                const jsonStr = jsonMatch[1];
-                const parsed = JSON.parse(jsonStr);
-                res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed, done: true })}\n\n`);
-              } else {
-                res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
-              }
-            } catch (e) {
-              res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
-            }
-          } else {
+          if (data && data !== '[DONE]') {
             try {
               const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta || {};
-              const content = delta.content;
+              const content = parsed.choices?.[0]?.delta?.content || '';
               if (content) {
                 fullContent += content;
-                res.write(`data: ${JSON.stringify({ type: 'deep', content })}\n\n`);
               }
-            } catch (e) {
-              // 忽略解析错误
-            }
+            } catch {}
           }
         }
       }
     }
 
-    res.write('data: [DONE]\n\n');
-    res.end();
+    session.deepResult = fullContent;
   } catch (error) {
-    console.error('[Deep Stream] Error:', error);
-    res.write(`data: ${JSON.stringify({ error: 'Stream error' })}\n\n`);
-    res.end();
+    session.deepError = error instanceof Error ? error.message : 'Unknown error';
+  } finally {
+    session.deepStreaming = false;
   }
+}
+
+// ============================================================
+// 获取前端流（基于角色 + 情绪 + 事件，包含 fallback）
+// ============================================================
+function getFrontFlow(roleId: string, emotionTag: EmotionTag, eventTag: EventTag): FrontFlowItem[] {
+  const roleFlows = frontFlows[roleId];
+  if (!roleFlows) return getDefaultFlow(roleId);
+
+  // 精确匹配：角色 + 情绪 + 事件
+  const exact = roleFlows[emotionTag]?.[eventTag];
+  if (exact) return exact;
+
+  // 匹配：角色 + 情绪（不区分事件）
+  const emotionAny = (roleFlows as any)[emotionTag]?.any;
+  if (emotionAny) return emotionAny as FrontFlowItem[];
+
+  // 匹配：角色 + 默认
+  const defaultFlow = (roleFlows as any).default?.any;
+  if (defaultFlow) return defaultFlow as FrontFlowItem[];
+
+  // 全局 fallback
+  return getDefaultFlow(roleId);
+}
+
+function getDefaultFlow(roleId: string): FrontFlowItem[] {
+  const roleName = ROLE_NAMES[roleId] || '心理陪伴师';
+  return [
+    { delay: 0, text: `${roleName}在这里陪着你。` },
+    { delay: 8, text: '愿意和我多说一些吗？' },
+    { delay: 18, text: '我在听。' },
+    { delay: 30, text: '有时候，说出来本身就有疗愈的力量。' },
+    { delay: 45, text: '我们可以一起慢慢梳理。' },
+  ];
+}
+
+// ============================================================
+// 健康检查
+// ============================================================
+app.get('/api/v1/health', (_req, res) => {
+  res.status(200).json({ status: 'ok' });
 });
 
-/**
- * 组合分析接口（轻量 + 深度，分段返回）
- * POST /api/v1/chat/combined
- * 先返回轻量分析，再并行触发深度分析
- */
-app.post('/api/v1/chat/combined', async (req, res) => {
-  const { messages, userMessage, targetRole } = req.body;
-
-  if (!API_KEY_LIGHT) {
-    return res.status(500).json({ error: 'Light model API key not configured' });
-  }
-
-  if (!messages) {
-    return res.status(400).json({ error: 'messages is required' });
-  }
-
-  // 设置 SSE 响应头
-  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no');
-
+// ============================================================
+// 接口 1：POST /api/v1/chat/start
+// 即时返回前端流 + 触发后台百炼调用
+// ============================================================
+app.post('/api/v1/chat/start', async (req, res) => {
   try {
-    // 阶段1：轻量分析（快速，先发送）
-    // 直接使用 userMessage，确保回复与当前问题相关
-    const lightMessages = [
-      { role: 'system', content: buildLightSystemPrompt() },
-      { role: 'user', content: userMessage || '' },
-    ];
-    
-    const lightResponse = await callDashScope(DASHSCOPE_BASE_URL, API_KEY_LIGHT, MODELS.LIGHT, lightMessages, true, 1500);
-    
-    if (!lightResponse.ok) {
-      const errorData = await lightResponse.json().catch(() => ({}));
-      res.write(`data: ${JSON.stringify({ error: 'Light analysis failed', details: errorData })}\n\n`);
-      res.end();
-      return;
+    const { roleId, message } = req.body;
+
+    if (!roleId || !message) {
+      return res.status(400).json({ error: 'roleId and message are required' });
     }
 
-    // 流式读取 Light 响应
-    let lightContent = '';
-    const lightReader = lightResponse.body?.getReader();
-    const lightDecoder = new TextDecoder();
-    
-    if (lightReader) {
-      try {
-        while (true) {
-          const { done, value } = await lightReader.read();
-          if (done) break;
-          const chunk = lightDecoder.decode(value, { stream: true });
-          // 解析 SSE 格式: data: {...}
-          const lines = chunk.split('\n');
-          for (const line of lines) {
-            if (line.startsWith('data: ')) {
-              const data = line.slice(6);
-              if (data && data !== '[DONE]') {
-                try {
-                  const parsed = JSON.parse(data);
-                  const content = parsed.choices?.[0]?.delta?.content || '';
-                  if (content) {
-                    lightContent += content;
-                    res.write(`data: ${JSON.stringify({ type: 'light', content })}\n\n`);
-                  }
-                } catch {}
-              }
-            }
-          }
-        }
-      } finally {
-        lightReader.releaseLock();
-      }
-    }
+    const roleName = ROLE_NAMES[roleId] || roleId;
 
-    // 发送轻量分析结果（用户先看到这个）
-    res.write(`data: ${JSON.stringify({ type: 'light', content: lightContent })}\n\n`);
+    // 1. 情绪识别
+    const emotionTag = recognizeEmotion(message);
 
-    // 阶段2：深度分析（流式返回给前端）
-    if (API_KEY_DEEP) {
-      console.log(`[Combined] Stage 2: Deep Analysis${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
-      
-      let systemPrompt = '';
-      let userPrompt = '';
-      
-      if (targetRole) {
-        // 只分析指定角色
-        systemPrompt = buildSingleRoleAnalysisPrompt(targetRole) || '';
-        userPrompt = `你扮演的是【${targetRole}】角色。请根据上述轻量共情分析结果，对用户的最新输入进行深度心理分析。
-用户最新输入：${userMessage}
-请输出JSON格式：
-{ "${targetRole}": { "analysis": "分析内容", "insight": "关键洞察" } }`;
-      } else {
-        // 分析所有6个角色
-        systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
-        userPrompt = '请根据上述信息进行深度心理分析。';
-      }
-      
-      // 如果没有有效的 systemPrompt，跳过深度分析
-      if (!systemPrompt) {
-        console.log(`[Combined] Skipping deep analysis: no valid system prompt`);
-      } else {
-        const deepMessages = [
-          { role: 'system', content: systemPrompt },
-          // 添加对话历史作为上下文
-          ...messages.slice(-6).map((m: { role: string; content: string }) => ({
-            role: m.role === 'assistant' ? 'assistant' : 'user',
-            content: m.content,
-          })),
-          // 添加轻量分析结果作为补充上下文
-          { role: 'assistant', content: `【轻量共情分析】${lightContent}` },
-          { role: 'user', content: userPrompt },
-        ];
+    // 2. 事件识别
+    const eventTag = recognizeEvent(message);
 
-        const deepResponse = await callDashScope(DASHSCOPE_BASE_URL_DEEP, API_KEY_DEEP, MODELS.DEEP, deepMessages, true, 2000);
+    // 3. 匹配前端流脚本
+    const frontFlow = getFrontFlow(roleId, emotionTag, eventTag);
 
-        if (deepResponse.ok) {
-          // Deep 分析使用流式返回
-          const reader = deepResponse.body?.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let fullContent = '';
+    // 4. 创建会话
+    const sessionId = crypto.randomUUID();
+    const session: ChatSession = {
+      sessionId,
+      roleId,
+      roleName,
+      userMessage: message,
+      emotionTag,
+      eventTag,
+      frontFlow,
+      createdAt: Date.now(),
+      deepResult: null,
+      deepStreaming: false,
+      deepError: null,
+    };
+    sessions.set(sessionId, session);
 
-          while (true) {
-            const { done, value } = await reader!.read();
-            if (done) break;
+    // 5. 立即返回前端流（不等待百炼）
+    res.json({
+      sessionId,
+      frontFlow,
+      emotionTag,
+      eventTag,
+    });
 
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-              if (line.startsWith('data: ')) {
-                const data = line.slice(6);
-                if (data === '[DONE]') {
-                  // Deep 分析完成，尝试解析 JSON
-                  try {
-                    const jsonMatch = fullContent.match(/```(?:json)?\s*([\s\S]*?)```/) || fullContent.match(/(\{[\s\S]*\})/);
-                    if (jsonMatch) {
-                      const parsed = JSON.parse(jsonMatch[1]);
-                      res.write(`data: ${JSON.stringify({ type: 'deep', analysis: parsed, done: true })}\n\n`);
-                    } else {
-                      res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
-                    }
-                  } catch (e) {
-                    res.write(`data: ${JSON.stringify({ type: 'deep', content: fullContent, done: true })}\n\n`);
-                  }
-                } else {
-                  try {
-                    const parsed = JSON.parse(data);
-                    const delta = parsed.choices?.[0]?.delta || {};
-                    const content = delta.content;
-                    if (content) {
-                      fullContent += content;
-                      // Deep 内容使用 content 字段，逐字流式发送
-                      res.write(`data: ${JSON.stringify({ type: 'deep', content })}\n\n`);
-                    }
-                  } catch (e) {
-                    // 忽略解析错误
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    res.write('data: [DONE]\n\n');
-    res.end();
+    // 6. 后台异步调用百炼（响应返回后触发）
+    console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
+    startDeepAnalysis(session).catch(err => {
+      console.error(`[Deep] Session ${sessionId} error:`, err);
+      session.deepError = err instanceof Error ? err.message : 'Unknown error';
+    });
   } catch (error) {
-    console.error('[Combined] Error:', error);
-    res.write(`data: ${JSON.stringify({ error: 'Internal server error' })}\n\n`);
-    res.end();
-  }
-});
-
-/**
- * 聊天消息接口（非流式）- 保留兼容
- */
-app.post('/api/v1/chat', async (req, res) => {
-  try {
-    const { systemPrompt, messages, model } = req.body;
-
-    const apiKey = API_KEY_LIGHT || process.env.DASHSCOPE_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'API key not configured' });
-    }
-
-    const chatMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages.map((m: { role: string; content: string }) => ({
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        content: m.content,
-      })),
-    ];
-
-    const selectedModel = model || MODELS.DEFAULT;
-    const response = await callDashScope(DASHSCOPE_BASE_URL!, apiKey, selectedModel, chatMessages, false, 800);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      return res.status(response.status).json({ error: 'AI service error', details: errorData });
-    }
-
-    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
-    const content = data.choices?.[0]?.message?.content || '';
-
-    res.json({ content });
-  } catch (error) {
-    console.error('Chat error:', error);
+    console.error('[Start] Error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-/**
- * 流式聊天接口（SSE）- 保留兼容
- */
-app.post('/api/v1/chat/stream', async (req, res) => {
-  const { systemPrompt, messages, model } = req.body;
+// ============================================================
+// 接口 2：GET /api/v1/chat/stream?sessionId=xxx
+// SSE 流式返回百炼深度分析结果
+// ============================================================
+app.get('/api/v1/chat/stream', (req, res) => {
+  const { sessionId } = req.query;
 
-  const apiKey = API_KEY_LIGHT || process.env.DASHSCOPE_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: 'API key not configured' });
+  if (!sessionId || typeof sessionId !== 'string') {
+    return res.status(400).json({ error: 'sessionId is required' });
   }
 
-  const chatMessages = [
-    { role: 'system', content: systemPrompt },
-    ...messages.map((m: { role: string; content: string }) => ({
-      role: m.role === 'assistant' ? 'assistant' : 'user',
-      content: m.content,
-    })),
-  ];
-
-  const selectedModel = model || MODELS.DEFAULT;
+  const session = sessions.get(sessionId);
+  if (!session) {
+    return res.status(404).json({ error: 'Session not found or expired' });
+  }
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -912,70 +337,81 @@ app.post('/api/v1/chat/stream', async (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  try {
-    const response = await callDashScope(DASHSCOPE_BASE_URL!, apiKey, selectedModel, chatMessages, true, 500);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      res.write(`data: ${JSON.stringify({ error: 'AI service error', details: errorData })}\n\n`);
-      res.end();
-      return;
-    }
-
-    const reader = response.body?.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader!.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            res.write('data: [DONE]\n\n');
-          } else {
-            try {
-              const parsed = JSON.parse(data);
-              const delta = parsed.choices?.[0]?.delta || {};
-              const content = delta.content;
-              if (content) {
-                res.write(`data: ${JSON.stringify({ type: 'content', content })}\n\n`);
-              }
-            } catch (e) {
-              // 忽略解析错误
-            }
-          }
-        }
-      }
-    }
-
+  // 如果已经完成，直接返回结果
+  if (session.deepResult) {
+    res.write(`data: ${JSON.stringify({ type: 'deep', content: session.deepResult, done: true })}\n\n`);
     res.write('data: [DONE]\n\n');
     res.end();
-  } catch (error) {
-    console.error('Stream error:', error);
-    res.write(`data: ${JSON.stringify({ error: 'Stream error' })}\n\n`);
-    res.end();
+    return;
   }
+
+  // 如果有错误
+  if (session.deepError && !session.deepStreaming) {
+    res.write(`data: ${JSON.stringify({ type: 'error', message: session.deepError, done: true })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+    return;
+  }
+
+  // 轮询等待百炼完成（SSE 长连接）
+  const pollInterval = setInterval(() => {
+    if (session.deepResult) {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+      res.write(`data: ${JSON.stringify({ type: 'deep', content: session.deepResult, done: true })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    } else if (session.deepError && !session.deepStreaming) {
+      clearInterval(pollInterval);
+      clearTimeout(timeout);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: session.deepError, done: true })}\n\n`);
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }, 1000);
+
+  // 60秒超时
+  const timeout = setTimeout(() => {
+    clearInterval(pollInterval);
+    res.write(`data: ${JSON.stringify({ type: 'timeout', done: true })}\n\n`);
+    res.write('data: [DONE]\n\n');
+    res.end();
+  }, 60000);
+
+  req.on('close', () => {
+    clearInterval(pollInterval);
+    clearTimeout(timeout);
+  });
 });
 
-/**
- * 角色列表接口
- * GET /api/v1/roles
- */
-app.get('/api/v1/roles', (req, res) => {
-  const roles = PSYCHOLOGIST_ROLES.map(({ systemPrompt, ...role }) => role);
-  res.json({ roles });
+// ============================================================
+// 调试端点：查看会话状态
+// ============================================================
+app.get('/api/v1/debug/last-prompt', (_req, res) => {
+  const sessionList = Array.from(sessions.values()).map(s => ({
+    sessionId: s.sessionId,
+    roleName: s.roleName,
+    emotionTag: s.emotionTag,
+    eventTag: s.eventTag,
+    userMessage: s.userMessage.slice(0, 50),
+    hasFlow: s.frontFlow.length > 0,
+    deepReady: !!s.deepResult,
+    deepStreaming: s.deepStreaming,
+    deepError: s.deepError,
+    age: Math.floor((Date.now() - s.createdAt) / 1000) + 's',
+  }));
+
+  res.json({
+    sessions: sessionList,
+    totalSessions: sessions.size,
+  });
 });
 
-// 启动服务器
+// ============================================================
+// 启动服务
+// ============================================================
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
-  console.log(`Light Model: ${MODELS.LIGHT}`);
-  console.log(`Deep Model: ${MODELS.DEEP}`);
+  console.log(`DASHSCOPE_API_KEY: ${API_KEY_LIGHT ? 'SET' : 'NOT SET'}`);
+  console.log(`DASHSCOPE_API_KEY_DEEP: ${API_KEY_DEEP ? 'SET' : 'NOT SET'}`);
 });
