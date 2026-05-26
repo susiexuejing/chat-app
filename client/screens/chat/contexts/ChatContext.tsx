@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
 import { ChatMessage, ChatSession, LightAnalysisResult } from '../types';
 import { analyzeText } from '../utils/textAnalyzer';
-import { chatWithDashScope, chatCombined, DeepAnalysis } from '../api/cozeApi';
+import { chatWithDashScope, chatCombined, chatAnalyze, DeepAnalysis } from '../api/cozeApi';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -236,41 +236,41 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         return prev;
       });
 
-      // 使用组合分析接口：轻量共情 + 深度分析（只分析当前选中的角色）
-      await chatCombined(
-        currentMessages.slice(0, -1).map(m => ({
-          role: m.role as 'user' | 'assistant',
-          content: m.content,
-        })),
-        (content) => {
-          // 轻量分析结果（立即显示）
-          lightContent += content;
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === aiMsgId ? { ...m, content: lightContent } : m
-            )
-          );
-        },
-        (content) => {
-          // 深度分析流式内容（显示打字机效果）
-          setDeepThinkingContent(prev => prev + content);
-          setIsThinking(true);
-        },
-        (analysis: DeepAnalysis) => {
-          // 深度分析完整结果
-          console.log('[DEBUG] Received deepAnalysis, aiMsgId:', aiMsgId);
-          console.log('[DEBUG] Analysis keys:', Object.keys(analysis || {}));
-          setMessages(prev => {
-            console.log('[DEBUG] Current messages IDs:', prev.map(m => m.id));
-            const result = prev.map(m =>
-              m.id === aiMsgId ? { ...m, deepAnalysis: analysis } : m
+      // 使用新版分析接口：一次调用，只发选中角色人设
+      await chatAnalyze(
+        userMessage,
+        currentRole?.name || '聪明狐狸',
+        {
+          onLightChunk: (chunk) => {
+            // reply 渐进显示
+            lightContent = chunk;
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === aiMsgId ? { ...m, content: lightContent } : m
+              )
             );
-            console.log('[DEBUG] After setMessages, result has deepAnalysis:', result.find(m => m.id === aiMsgId)?.deepAnalysis ? 'YES' : 'NO');
-            return result;
-          });
-          setIsThinking(false);
-        },
-        currentRole?.name // 只分析当前选中的角色
+          },
+          onDeepChunk: (chunk) => {
+            // deep_analysis 流式显示
+            setDeepThinkingContent(chunk);
+            setIsThinking(true);
+          },
+          onComplete: (result) => {
+            // 完整解析结果
+            const deepAnalysis: DeepAnalysis = result.deep_analysis || {};
+            setMessages(prev =>
+              prev.map(m =>
+                m.id === aiMsgId ? { ...m, deepAnalysis } : m
+              )
+            );
+            setIsThinking(false);
+          },
+          onError: (error) => {
+            console.error('[chatAnalyze] Error:', error);
+            setIsLoading(false);
+            setIsThinking(false);
+          }
+        }
       );
 
       setIsLoading(false);

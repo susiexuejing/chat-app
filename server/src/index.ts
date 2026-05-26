@@ -22,10 +22,128 @@ app.get('/api/v1/health', (req, res) => {
 // 调试端点：查看上次发送给 AI 的完整 payload
 app.get('/api/v1/debug/last-prompt', (req, res) => {
   res.status(200).json({
+    analyze: lastPrompts.analyze,
     light: lastPrompts.light,
     deep: lastPrompts.deep,
     note: '这是最近一次调用 AI 时发送的完整 messages。发送新消息后会刷新。'
   });
+});
+
+/**
+ * 环境变量与配置声明
+ */
+const DASHSCOPE_BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+const API_KEY_LIGHT = process.env.DASHSCOPE_API_KEY || '';
+
+/**
+ * 新版分析 API：用户选谁就只发谁，一次调用返回结构化结果
+ */
+app.post('/api/v1/chat/analyze', async (req, res) => {
+  try {
+    const { userMessage, targetRole } = req.body;
+    const startTime = Date.now();
+
+    if (!userMessage) {
+      return res.status(400).json({ error: 'userMessage is required' });
+    }
+
+    // 1. 找到选定角色
+    const selectedRole = PSYCHOLOGIST_ROLES.find(r => r.name === targetRole);
+    if (!selectedRole) {
+      return res.status(400).json({ error: `角色 "${targetRole}" 未找到` });
+    }
+
+    console.log(`[Analyze] 角色=${selectedRole.name}, 消息="${userMessage.substring(0, 50)}..."`);
+
+    // 2. 只发选定角色的 systemPrompt + userMessage
+    const systemPrompt = selectedRole.systemPrompt;
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ];
+
+    // 3. 保存到调试端点
+    lastPrompts.analyze = { model: MODELS.LIGHT, messages, temperature: 0.6, max_tokens: 1200 };
+
+    // 4. 设置 SSE 流式输出
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
+    res.setHeader('Connection', 'keep-alive');
+
+    // 5. 调用百炼（流式）
+    const apiKey = API_KEY_LIGHT;
+    const baseUrl = DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
+    const response = await callDashScope(baseUrl, apiKey, MODELS.LIGHT, messages, true, 1200);
+
+    if (!response.ok) {
+      const errorData = await response.text().catch(() => 'Unknown error');
+      console.error('[Analyze] API error:', response.status, errorData);
+      res.write(`data: ${JSON.stringify({ error: `AI错误: ${response.status}`, details: errorData })}\n\n`);
+      res.end();
+      return;
+    }
+
+    // 6. 逐块转发流式数据
+    const reader = response.body?.getReader();
+    if (!reader) {
+      res.write(`data: ${JSON.stringify({ error: 'Reader not available' })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const decoder = new TextDecoder();
+    let fullContent = '';
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (dataStr === '[DONE]') continue;
+
+            try {
+              const parsed = JSON.parse(dataStr);
+              const content = parsed.choices?.[0]?.delta?.content || '';
+              if (content) {
+                fullContent += content;
+                res.write(`data: ${JSON.stringify({ content })}\n\n`);
+              }
+            } catch {
+              // 跳过解析失败的 chunk
+            }
+          }
+        }
+      }
+    } finally {
+      const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[Analyze] 完成, 耗时=${duration}s, 总字符=${fullContent.length}`);
+
+      // 尝试解析最终 JSON 结果
+      let parsed = null;
+      try {
+        parsed = JSON.parse(fullContent);
+      } catch {
+        // 如果模型直接返回了文本，尝试提取 JSON 块
+        const jsonMatch = fullContent.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          try { parsed = JSON.parse(jsonMatch[0]); } catch {}
+        }
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true, fullContent, parsed })}\n\n`);
+      res.end();
+    }
+  } catch (error) {
+    console.error('[Analyze] Error:', error);
+    res.write(`data: ${JSON.stringify({ error: 'Internal server error' })}\n\n`);
+    res.end();
+  }
 });
 
 /**
@@ -35,7 +153,6 @@ app.get('/api/v1/debug/last-prompt', (req, res) => {
  */
 
 // 轻量分析 Base URL（qwen-flash-character）
-const DASHSCOPE_BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // 深度分析 Base URL（qwen3.6-plus）
 const DASHSCOPE_BASE_URL_DEEP = 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
@@ -51,7 +168,6 @@ const MODELS = {
 };
 
 // API Keys
-const API_KEY_LIGHT = process.env.DASHSCOPE_API_KEY; // 轻量分析用
 const API_KEY_DEEP = process.env.DASHSCOPE_API_KEY_DEEP; // 深度分析用
 
 /**
@@ -110,7 +226,7 @@ import { PSYCHOLOGIST_ROLES } from './roles/psychologistRoles';
  * @param baseUrl - API Base URL（轻量用 dashscope，深度用 token-plan）
  */
 // 记录每次调用的完整 prompt（用于调试）
-const lastPrompts: { light: any; deep: any } = { light: null, deep: null };
+const lastPrompts: { light: any; deep: any; analyze?: any } = { light: null, deep: null };
 
 async function callDashScope(
   baseUrl: string,
@@ -636,20 +752,16 @@ app.post('/api/v1/chat/combined', async (req, res) => {
     if (API_KEY_DEEP) {
       console.log(`[Combined] Stage 2: Deep Analysis${targetRole ? ` (target: ${targetRole})` : ' (all 6 roles)'}`);
       
-      let systemPrompt: string;
-      let userPrompt: string;
+      let systemPrompt = '';
+      let userPrompt = '';
       
       if (targetRole) {
         // 只分析指定角色
-        systemPrompt = buildSingleRoleAnalysisPrompt(targetRole);
-        if (!systemPrompt) {
-          console.log(`[Combined] Role not found: ${targetRole}, skipping deep analysis`);
-        } else {
-          userPrompt = `你扮演的是【${targetRole}】角色。请根据上述轻量共情分析结果，对用户的最新输入进行深度心理分析。
+        systemPrompt = buildSingleRoleAnalysisPrompt(targetRole) || '';
+        userPrompt = `你扮演的是【${targetRole}】角色。请根据上述轻量共情分析结果，对用户的最新输入进行深度心理分析。
 用户最新输入：${userMessage}
 请输出JSON格式：
 { "${targetRole}": { "analysis": "分析内容", "insight": "关键洞察" } }`;
-        }
       } else {
         // 分析所有6个角色
         systemPrompt = buildDeepAnalysisPrompt(userMessage, lightContent, messages);
@@ -756,7 +868,7 @@ app.post('/api/v1/chat', async (req, res) => {
     ];
 
     const selectedModel = model || MODELS.DEFAULT;
-    const response = await callDashScope(apiKey, selectedModel, chatMessages, false, 800);
+    const response = await callDashScope(DASHSCOPE_BASE_URL!, apiKey, selectedModel, chatMessages, false, 800);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
@@ -801,7 +913,7 @@ app.post('/api/v1/chat/stream', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
 
   try {
-    const response = await callDashScope(apiKey, selectedModel, chatMessages, true, 500);
+    const response = await callDashScope(DASHSCOPE_BASE_URL!, apiKey, selectedModel, chatMessages, true, 500);
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

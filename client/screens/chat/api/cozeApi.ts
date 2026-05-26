@@ -226,6 +226,82 @@ async function chatNative(
 }
 
 /**
+ * 新版：一次调用，只发选中角色，返回结构化 JSON（reply + light_analysis + deep_analysis + next_step）
+ * 服务端文件：server/src/index.ts
+ * 接口：POST /api/v1/chat/analyze
+ * Body 参数：userMessage: string, targetRole: string
+ * 响应：SSE 流式，累加后解析 JSON
+ */
+export async function chatAnalyze(
+  userMessage: string,
+  targetRole: string,
+  callbacks: {
+    onLightChunk?: (chunk: string) => void;
+    onDeepChunk?: (chunk: string) => void;
+    onComplete?: (result: { reply: string; light_analysis?: any; deep_analysis?: any; next_step?: string }) => void;
+    onError?: (error: Error) => void;
+  }
+): Promise<void> {
+  const url = `${process.env.EXPO_PUBLIC_BACKEND_BASE_URL}/api/v1/chat/analyze`;
+
+  return new Promise((resolve, reject) => {
+    const sse = new RNSSE(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userMessage,
+        targetRole,
+      }),
+    });
+
+    let accumulatedContent = '';
+
+    sse.addEventListener('message', (event: any) => {
+      if (event.data === '[DONE]') {
+        // 流结束，尝试解析完整 JSON
+        try {
+          const result = JSON.parse(accumulatedContent);
+          callbacks.onComplete?.(result);
+        } catch (e) {
+          console.error('解析分析结果失败:', e, accumulatedContent);
+        }
+        sse.close();
+        resolve();
+        return;
+      }
+
+      accumulatedContent += event.data;
+
+      // 尝试增量解析 key 以提供实时反馈
+      // 如果包含 "reply" 字段，可以渐进显示
+      try {
+        const partial = JSON.parse(accumulatedContent);
+        if (partial.reply) {
+          callbacks.onLightChunk?.(partial.reply);
+        }
+        if (partial.deep_analysis) {
+          callbacks.onDeepChunk?.(JSON.stringify(partial.deep_analysis, null, 2));
+        }
+      } catch {
+        // JSON 还未完整，暂时忽略
+      }
+    });
+
+    sse.addEventListener('error', (error: any) => {
+      sse.close();
+      callbacks.onError?.(new Error(error.message || '分析请求失败'));
+      reject(error);
+    });
+
+    sse.addEventListener('close', () => {
+      resolve();
+    });
+  });
+}
+
+/**
  * 非流式版本（备用）
  */
 export async function chatWithDashScopeSync(
