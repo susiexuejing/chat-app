@@ -1,41 +1,29 @@
 /**
- * 深度分析卡片组件
- * 显示6个角色视角的深度分析结果
+ * 深度分析卡片组件 v2
+ * 适配新版 analyze API 输出格式
  */
 
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { FontAwesome6 } from '@expo/vector-icons';
 
-interface RoleAnalysis {
-  analysis: string;
-  insight: string;
+interface DeepAnalysisData {
+  fact?: string;
+  interpretation?: string;
+  possible_cognitive_pattern?: string | string[];
+  reframe?: string;
 }
 
 interface DeepAnalysisCardProps {
-  analysis: {
-    [roleName: string]: RoleAnalysis;
-  };
+  analysis: DeepAnalysisData;
 }
-
-// 角色配置（颜色、图标）
-const ROLE_CONFIG: Record<string, { color: string; icon: string; shortTitle: string }> = {
-  '聪明狐狸': { color: '#FF6B35', icon: 'fox', shortTitle: '认知行为' },
-  '温暖小熊': { color: '#FF8C42', icon: 'bear', shortTitle: '人本主义' },
-  '深思猫头鹰': { color: '#6B5B95', icon: 'owl', shortTitle: '精神分析' },
-  '情感小精灵': { color: '#F7CAC9', icon: 'sparkles', shortTitle: '情绪聚焦' },
-  '哲思海豚': { color: '#4ECDC4', icon: 'water', shortTitle: '存在主义' },
-  '团结小象': { color: '#95E1D3', icon: 'seedling', shortTitle: '家庭系统' },
-};
 
 export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
   const [expanded, setExpanded] = useState(false);
-  const roles = Object.keys(analysis);
-  const visibleRoles = expanded ? roles : roles.slice(0, 2);
 
-  if (!analysis || Object.keys(analysis).length === 0) {
-    return null;
-  }
+  if (!analysis || Object.keys(analysis).length === 0) return null;
+
+  const hasContent = analysis.fact || analysis.interpretation || analysis.reframe;
 
   return (
     <View className="px-4 mb-4">
@@ -49,78 +37,99 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
             <FontAwesome6 name="brain" size={16} color="white" />
             <Text className="text-white font-medium ml-2">深度心理分析</Text>
           </View>
-          <View className="flex-row items-center">
-            <Text className="text-white/80 text-xs mr-2">
-              {roles.length} 个视角
-            </Text>
-            <FontAwesome6
-              name={expanded ? 'chevron-up' : 'chevron-down'}
-              size={14}
-              color="white"
-            />
-          </View>
+          <FontAwesome6
+            name={expanded ? 'chevron-up' : 'chevron-down'}
+            size={14}
+            color="white"
+          />
         </View>
       </TouchableOpacity>
 
-      {/* 分析内容 */}
-      {visibleRoles.map((roleName, index) => {
-        const config = ROLE_CONFIG[roleName] || { color: '#8B5CF6', icon: 'user', shortTitle: '' };
-        const roleData = analysis[roleName];
-
-        return (
-          <View
-            key={roleName}
-            className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3 mt-2"
-            style={{ borderLeftWidth: 3, borderLeftColor: config.color }}
-          >
-            <View className="flex-row items-center mb-1">
-              <Text className="font-semibold text-gray-900 dark:text-white">
-                {roleName}
-              </Text>
-              <View
-                className="ml-2 px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: config.color + '20' }}
-              >
-                <Text
-                  className="text-xs font-medium"
-                  style={{ color: config.color }}
-                >
-                  {config.shortTitle}
+      {/* 展开内容 */}
+      {expanded && hasContent && (
+        <View className="mt-2 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
+          {/* 客观事实 */}
+          {analysis.fact ? (
+            <View className="mb-3">
+              <View className="flex-row items-center mb-1">
+                <FontAwesome6 name="eye" size={12} color="#6B7280" />
+                <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
+                  客观事实
                 </Text>
               </View>
+              <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
+                {analysis.fact}
+              </Text>
             </View>
+          ) : null}
 
-            {roleData.analysis && (
-              <Text className="text-sm text-gray-600 dark:text-gray-300 mb-2">
-                {roleData.analysis}
-              </Text>
-            )}
-
-            {roleData.insight && (
-              <View className="flex-row items-start bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2">
-                <FontAwesome6
-                  name="lightbulb"
-                  size={12}
-                  color="#F59E0B"
-                  style={{ marginTop: 2 }}
-                />
-                <Text className="text-xs text-amber-700 dark:text-amber-300 ml-2 flex-1">
-                  {roleData.insight}
+          {/* 解读方式 */}
+          {analysis.interpretation ? (
+            <View className="mb-3">
+              <View className="flex-row items-center mb-1">
+                <FontAwesome6 name="comment-dots" size={12} color="#6B7280" />
+                <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
+                  你的解读
                 </Text>
               </View>
-            )}
-          </View>
-        );
-      })}
+              <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
+                {analysis.interpretation}
+              </Text>
+            </View>
+          ) : null}
 
-      {/* 展开/收起提示 */}
-      {roles.length > 2 && (
+          {/* 认知模式 */}
+          {analysis.possible_cognitive_pattern ? (
+            <View className="mb-3">
+              <View className="flex-row items-center mb-1">
+                <FontAwesome6 name="brain" size={12} color="#6B7280" />
+                <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
+                  可能认知模式
+                </Text>
+              </View>
+              {Array.isArray(analysis.possible_cognitive_pattern) ? (
+                <View className="flex-row flex-wrap gap-1.5">
+                  {analysis.possible_cognitive_pattern.map((pattern, i) => (
+                    <View key={i} className="bg-purple-100 dark:bg-purple-900/30 px-2 py-1 rounded-lg">
+                      <Text className="text-xs text-purple-700 dark:text-purple-300">
+                        {pattern}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
+                  {analysis.possible_cognitive_pattern}
+                </Text>
+              )}
+            </View>
+          ) : null}
+
+          {/* 重新框架 */}
+          {analysis.reframe ? (
+            <View>
+              <View className="flex-row items-center mb-1">
+                <FontAwesome6 name="rotate" size={12} color="#059669" />
+                <Text className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 ml-1.5 uppercase tracking-wide">
+                  换个角度
+                </Text>
+              </View>
+              <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
+                {analysis.reframe}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
+      {/* 未展开时显示简短提示 */}
+      {!expanded && hasContent && (
         <TouchableOpacity
-          onPress={() => setExpanded(!expanded)}
-          className="items-center py-2"
+          onPress={() => setExpanded(true)}
+          className="mt-1 py-2"
         >
-          <Text className="text-xs text-purple-600 dark:text-purple-400">
-            {expanded ? '收起分析' : `展开全部 ${roles.length} 个视角`}
+          <Text className="text-xs text-purple-500 text-center">
+            点击展开深度分析
           </Text>
         </TouchableOpacity>
       )}

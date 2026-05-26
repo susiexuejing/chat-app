@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
-import { ChatMessage, ChatSession, LightAnalysisResult } from '../types';
+import { ChatMessage, ChatSession, LightAnalysisResult, DeepAnalysisData } from '../types';
 import { analyzeText } from '../utils/textAnalyzer';
-import { chatWithDashScope, chatCombined, chatAnalyze, DeepAnalysis } from '../api/cozeApi';
+import { chatWithDashScope, chatCombined, chatAnalyze } from '../api/cozeApi';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -257,7 +257,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
           },
           onComplete: (result) => {
             // 完整解析结果
-            const deepAnalysis: DeepAnalysis = result.deep_analysis || {};
+            const deepAnalysis: DeepAnalysisData = result.deep_analysis || {};
             setMessages(prev =>
               prev.map(m =>
                 m.id === aiMsgId ? { ...m, deepAnalysis } : m
@@ -269,6 +269,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
             console.error('[chatAnalyze] Error:', error);
             setIsLoading(false);
             setIsThinking(false);
+            setError(typeof error === 'string' ? error : error?.message || '连接失败，请重试');
           }
         }
       );

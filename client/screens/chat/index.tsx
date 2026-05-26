@@ -126,10 +126,10 @@ function ChatContent() {
                 </View>
                 <View className="flex-1">
                   <Text className="text-sm font-medium text-red-700 dark:text-red-400 mb-1">
-                    请求超时
+                    {error || '请求超时'}
                   </Text>
                   <Text className="text-xs text-red-600 dark:text-red-300 mb-2">
-                    网络连接不稳定，请检查网络后重试
+                    请检查网络后重试，或点击「重试」重新发送
                   </Text>
                   <View className="flex-row">
                     <TouchableOpacity

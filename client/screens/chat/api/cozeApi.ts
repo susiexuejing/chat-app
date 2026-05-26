@@ -254,6 +254,8 @@ export async function chatAnalyze(
         userMessage,
         targetRole,
       }),
+      timeoutBeforeConnection: 10000, // 10s 连接超时
+      timeout: 30000,                // 30s 响应超时
     });
 
     let accumulatedContent = '';
@@ -291,8 +293,14 @@ export async function chatAnalyze(
 
     sse.addEventListener('error', (error: any) => {
       sse.close();
-      callbacks.onError?.(new Error(error.message || '分析请求失败'));
-      reject(error);
+      let errorMsg = '分析请求失败';
+      if (error?.type === 'timeout') {
+        errorMsg = '请求超时，模型响应较慢，请重试';
+      } else if (error?.message) {
+        errorMsg = error.message;
+      }
+      callbacks.onError?.(new Error(errorMsg));
+      reject(new Error(errorMsg));
     });
 
     sse.addEventListener('close', () => {

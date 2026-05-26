@@ -4,13 +4,16 @@ export interface ChatMessage {
   content: string;
   timestamp: number;
   isThinking?: boolean;
-  // 深度分析结果（6个角色视角）
-  deepAnalysis?: {
-    [roleName: string]: {
-      analysis: string;
-      insight: string;
-    };
-  };
+  // 深度分析结果（新版 analyze API 输出格式）
+  deepAnalysis?: DeepAnalysisData;
+}
+
+// 新版深度分析数据结构
+export interface DeepAnalysisData {
+  fact?: string;
+  interpretation?: string;
+  possible_cognitive_pattern?: string | string[];
+  reframe?: string;
 }
 
 export interface ChatSession {
