@@ -226,7 +226,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
 
       const { sessionId, frontFlowText } = startResponse;
 
-      // ====== 第二阶段：单气泡 + 标点感知打字机效果 ======
+      // ====== 统一打字机引擎 ======
       const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
       setMessages(prev => [...prev, {
@@ -236,119 +236,136 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         timestamp: Date.now(),
       }]);
 
-      setIsThinking(false); // 开始打字，取消"思考中"指示
+      setIsThinking(false); // 取消"思考中"指示
+
+      // 打字机状态（闭包变量）
+      const textQueue: string[] = [];
+      let displayedContent = '';
+      let deepTextBuffer = '';
+      let isFlowDone = false;
+      let isDeepDone = false;
+      let hasTransition = false;
+      let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
       // 标点停顿映射
-      const punctuationPauses: Record<string, number> = {
-        '\n': 600,
-        '，': 200,
-        '、': 200,
-        '。': 400,
-        '？': 400,
-        '！': 400,
-      };
-
-      let typingIdx = 0;
-      let deepAccumulated = '';
-      let typingFinished = false;
-
       function getTypingDelay(ch: string): number {
-        return punctuationPauses[ch] ?? 50;
+        if (ch === '\n') return 600;
+        if (ch === '，' || ch === '、') return 200;
+        if (ch === '。' || ch === '？' || ch === '！') return 400;
+        return 50;
       }
 
-      function typeNextChar() {
-        if (typingIdx >= frontFlowText.length) {
-          typingFinished = true;
-          // 打字完成 → 追加过渡语 → 启动百炼流
-          setTimeout(() => startDeepStream(), 300);
+      // 统一打字机：把文本加入队列，逐字渲染
+      function pushToQueue(text: string) {
+        for (const ch of text) textQueue.push(ch);
+        if (!typingTimer) scheduleNext();
+      }
+
+      function scheduleNext() {
+        const next = textQueue.shift();
+
+        if (next !== undefined) {
+          displayedContent += next;
+          setMessages(prev =>
+            prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+          );
+          const delay = getTypingDelay(next);
+          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, delay);
           return;
         }
 
-        const ch = frontFlowText[typingIdx];
-        typingIdx++;
-
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === bubbleMsgId
-              ? { ...m, content: frontFlowText.slice(0, typingIdx) }
-              : m
-          )
-        );
-
-        const delay = getTypingDelay(ch);
-        setTimeout(typeNextChar, delay);
-      }
-
-      // 开始打字
-      typeNextChar();
-
-      // ====== 第三阶段：百炼实时流（逐chunk追加到同一气泡）======
-      function startDeepStream() {
-        // 先加过渡语
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === bubbleMsgId
-              ? { ...m, content: frontFlowText + '\n\n我们继续往深一层看。\n\n' }
-              : m
-          )
-        );
-
-        chatStream(sessionId, {
-          onChunk: (chunk) => {
-            try {
-              const parsed = JSON.parse(chunk);
-              // SSE 事件：{"type":"deep","content":"..."}
-              if (parsed.type === 'deep' && parsed.content) {
-                deepAccumulated += parsed.content;
-                setMessages(prev =>
-                  prev.map(m =>
-                    m.id === bubbleMsgId
-                      ? { ...m, content: frontFlowText + '\n\n我们继续往深一层看。\n\n' + deepAccumulated }
-                      : m
-                  )
-                );
-              }
-            } catch {
-              // 非JSON回退
-              deepAccumulated += chunk;
-              setMessages(prev =>
-                prev.map(m =>
-                  m.id === bubbleMsgId
-                    ? { ...m, content: frontFlowText + '\n\n我们继续往深一层看。\n\n' + deepAccumulated }
-                    : m
-                )
-              );
-            }
-          },
-          onDone: () => {
-            setIsLoading(false);
-            // 保存会话
-            if (currentSessionId) {
-              setSessions(prev => {
-                const allMsgs: ChatMessage[] = [];
-                setMessages(m => { allMsgs.push(...m); return m; });
-                const updated = prev.map(s => {
-                  if (s.id === currentSessionId) {
-                    return { ...s, messages: allMsgs, updatedAt: Date.now() };
-                  }
-                  return s;
-                });
-                saveSessionsToStorage(updated);
-                return updated;
-              });
-            }
-          },
-          onError: (error) => {
-            console.error('[chatStream] Error:', error);
-            setIsLoading(false);
-            setError(typeof error === 'string' ? error : error?.message || '连接失败');
+        // 队列为空 - 决定下一个要打什么
+        if (!isFlowDone) {
+          // 首次：把前端流加入队列
+          isFlowDone = true;
+          pushToQueue(frontFlowText);
+          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
+        } else if (!hasTransition) {
+          // 前端流打完 - 检查百炼是否就绪
+          hasTransition = true;
+          if (deepTextBuffer.length > 0) {
+            // 百炼已有内容 → 过渡语 + 深度分析
+            pushToQueue('\n\n我们继续往深一层看。\n\n');
+            pushToQueue(deepTextBuffer);
+            deepTextBuffer = '';
+          } else {
+            // 百炼还没到 → 显示等待提示
+            pushToQueue('\n\n我还在继续理解你刚才那句话……');
           }
-        });
+          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
+        } else if (deepTextBuffer.length > 0) {
+          // 百炼新内容到达
+          const text = deepTextBuffer;
+          deepTextBuffer = '';
+          // 如果当前显示的是等待提示，替换掉
+          if (displayedContent.includes('我还在继续理解')) {
+            displayedContent = displayedContent.replace('\n\n我还在继续理解你刚才那句话……', '');
+            setMessages(prev =>
+              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+            );
+            pushToQueue('\n\n我们继续往深一层看。\n\n' + text);
+          } else {
+            pushToQueue(text);
+          }
+          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
+        } else if (isDeepDone) {
+          // 全部完成
+          typingTimer = null;
+        } else {
+          // 等待百炼更多chunk
+          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 200);
+        }
       }
 
-    } catch (err) {
+      // 立即启动百炼流式请求（跟打字机并行）
+      (async () => {
+        try {
+          await chatStream(sessionId, {
+            onChunk: (chunk: string) => {
+              try {
+                const parsed = JSON.parse(chunk);
+                if (parsed.content) {
+                  deepTextBuffer += parsed.content;
+                  // 如果打字机在空闲状态，唤醒它把新内容打出来
+                  if (!typingTimer && isFlowDone) {
+                    if (!hasTransition) {
+                      hasTransition = true;
+                      if (displayedContent.includes('我还在继续理解')) {
+                        displayedContent = displayedContent.replace('\n\n我还在继续理解你刚才那句话……', '');
+                        setMessages(prev =>
+                          prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+                        );
+                        pushToQueue('\n\n我们继续往深一层看。\n\n' + deepTextBuffer);
+                      } else {
+                        pushToQueue('\n\n我们继续往深一层看。\n\n' + deepTextBuffer);
+                      }
+                      deepTextBuffer = '';
+                    } else {
+                      pushToQueue(deepTextBuffer);
+                      deepTextBuffer = '';
+                    }
+                  }
+                }
+                if (parsed.done) isDeepDone = true;
+              } catch { /* non-JSON chunk, ignore */ }
+            },
+            onDone: () => { isDeepDone = true; },
+            onError: () => { isDeepDone = true; },
+          });
+        } catch { /* stream error, ignore */ }
+      })();
+
+      // 启动打字机
+      scheduleNext();
+
+      // 保存当前sessionId
+      setCurrentSessionId(sessionId);
       setIsLoading(false);
-      setError(err instanceof Error ? err.message : '发送失败');
+    } catch (err) {
+      console.error('[sendMessage] Error:', err);
+      setError(err instanceof Error ? err.message : '请求失败');
+      setIsLoading(false);
+      setIsThinking(false);
     }
   }, [currentRole, currentSessionId, saveSessionsToStorage]);
 
