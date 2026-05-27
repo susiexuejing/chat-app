@@ -323,6 +323,10 @@ export const DEFAULT_ROLE = DEFAULT_ROLES[0];
 // 获取默认角色列表
 export const getDefaultRoles = (): PsychologistRole[] => DEFAULT_ROLES;
 
+// 根据 ID 获取角色
+export const getRoleById = (id: string): PsychologistRole | undefined =>
+  DEFAULT_ROLES.find(r => r.id === id);
+
 // 构建系统提示词
 export const buildSystemPrompt = (role: PsychologistRole): string => {
   return role.systemPrompt;

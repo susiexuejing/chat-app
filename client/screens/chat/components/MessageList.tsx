@@ -6,10 +6,9 @@
 import React, { useRef, useEffect } from 'react';
 import { View, ScrollView, Text, Image, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { MessageBubble } from './MessageBubble';
-import { LightAnalysisCard } from './LightAnalysisCard';
 import { DeepAnalysisCard } from './DeepAnalysisCard';
 import { useChat } from '../contexts/ChatContext';
-import { ChatMessage, AnalysisResult } from '../types';
+import { ChatMessage } from '../types';
 import { FontAwesome6 } from '@expo/vector-icons';
 
 interface MessageListProps {
@@ -20,25 +19,7 @@ export function MessageList({ onShowIntro }: MessageListProps) {
   const { messages, currentRole, lightAnalysis, isLoading } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
   const [isAITyping, setIsAITyping] = React.useState(false);
-  const [currentAnalysis, setCurrentAnalysis] = React.useState<AnalysisResult | null>(null);
   
-  // 监听 lightAnalysis 变化，显示分析结果
-  React.useEffect(() => {
-    if (lightAnalysis) {
-      setCurrentAnalysis(lightAnalysis);
-    }
-  }, [lightAnalysis]);
-
-  // 当 AI 回复完成时，隐藏分析卡片
-  React.useEffect(() => {
-    if (!isLoading && currentAnalysis) {
-      // 延迟清除，让用户看到分析结果
-      const timer = setTimeout(() => {
-        setCurrentAnalysis(null);
-      }, 3000); // 显示3秒后消失
-      return () => clearTimeout(timer);
-    }
-  }, [isLoading]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -133,11 +114,6 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         return (
           <React.Fragment key={message.id}>
             <MessageBubble message={message} />
-            
-            {/* 用户消息后立即显示轻量分析卡片（当下一条是AI消息时） */}
-            {isCurrentUserMessage && isNextMessageAI && currentAnalysis && (
-              <LightAnalysisCard analysis={currentAnalysis} />
-            )}
 
             {/* AI 消息后显示深度分析卡片 */}
             {!isCurrentUserMessage && message.deepAnalysis && (

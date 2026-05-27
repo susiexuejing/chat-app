@@ -1,373 +1,294 @@
-import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
-import { ChatMessage, ChatSession, LightAnalysisResult, DeepAnalysisData } from '../types';
-import { analyzeText } from '../utils/textAnalyzer';
-import { chatStart, chatStream, ChatStartResponse } from '../api/cozeApi';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useMemo,
+} from 'react';
+import { getRoleById, roles, PsychologistRole } from '../constants/roles';
+import { chatStart, chatStream } from '../api/cozeApi';
+
+
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+}
+
+interface ChatSession {
+  id: string;
+  roleId: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+}
 
 interface ChatContextValue {
   messages: ChatMessage[];
   sessions: ChatSession[];
-  currentRole: PsychologistRole | null;
+  currentRole: (typeof roles)[0];
   currentSessionId: string | null;
   isLoading: boolean;
   isThinking: boolean;
   thinkingContent: string;
   error: string | null;
   showHistory: boolean;
-  lightAnalysis: LightAnalysisResult | null;
+  lightAnalysis: string;
   inputText: string;
   showRoleIntro: boolean;
-  deepThinkingContent: string; // Deep 分析流式思考内容
-  roles: PsychologistRole[];
-  onSelectRole?: (role: PsychologistRole) => void;
-  onShowIntro?: () => void;
-  setShowRoleIntro: (show: boolean) => void;
-  setShowHistory: (show: boolean) => void;
-  sendMessage: (content: string) => Promise<void>;
-  setLightAnalysis: (analysis: LightAnalysisResult | null) => void;
-  setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  roles: typeof roles;
   setInputText: (text: string) => void;
-  setCurrentRole: (role: PsychologistRole | null) => void;
+  setCurrentRole: (role: (typeof roles)[0]) => void;
+  setShowRoleIntro: (show: boolean) => void;
+  sendMessage: (text: string) => Promise<void>;
   clearError: () => void;
-  createNewChat: (role?: PsychologistRole) => void;
-  loadSession: (sessionId: string) => void;
+  setShowHistory: (show: boolean) => void;
+  selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
-  currentSession: ChatSession | null;
+  createNewChat: (role?: PsychologistRole) => void;
+  currentSession: ChatSession | undefined;
+  loadSession: (sessionId: string) => void;
+  deepThinkingContent: string;
 }
 
-const STORAGE_KEY = 'chat_sessions';
+const ChatContext = createContext<ChatContextValue | null>(null);
 
-export const ChatContext = createContext<ChatContextValue>({
-  messages: [],
-  sessions: [],
-  currentRole: null,
-  currentSessionId: null,
-  isLoading: false,
-  isThinking: false,
-  thinkingContent: '',
-  error: null,
-  showHistory: false,
-  lightAnalysis: null,
-  inputText: '',
-  showRoleIntro: false,
-  deepThinkingContent: '',
-  roles: DEFAULT_ROLES,
-  onSelectRole: undefined,
-  onShowIntro: undefined,
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setShowRoleIntro: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setShowHistory: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setMessages: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setInputText: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setLightAnalysis: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  setCurrentRole: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  createNewChat: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  loadSession: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  deleteSession: async () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  clearError: () => {},
-  // eslint-disable-next-line @typescript-eslint/no-empty-function
-  sendMessage: async () => {},
-  currentSession: null,
-});
-
-export const useChat = () => useContext(ChatContext);
-
-interface ChatProviderProps {
-  children: ReactNode;
-  onSelectRole?: (role: PsychologistRole) => void;
-  onShowIntro?: () => void;
-}
-
-export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProviderProps) {
+export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  // 默认选择第一个角色（聪明狐狸）
-  const [currentRole, setCurrentRole] = useState<PsychologistRole | null>(DEFAULT_ROLES[0]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentRole, setCurrentRole] = useState<(typeof roles)[0]>(roles[0]);
   const [isLoading, setIsLoading] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [thinkingContent, setThinkingContent] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
-  const [lightAnalysis, setLightAnalysis] = useState<LightAnalysisResult | null>(null);
+  const [lightAnalysis, setLightAnalysis] = useState('');
   const [inputText, setInputText] = useState('');
-  const [showRoleIntro, setShowRoleIntro] = useState(false);
-  // Deep 分析流式思考内容（用于打字机效果）
-  const [deepThinkingContent, setDeepThinkingContent] = useState('');
-  const roles = DEFAULT_ROLES;
+  const [showRoleIntro, setShowRoleIntro] = useState(true);
 
-  const currentSession = sessions.find(s => s.id === currentSessionId) || null;
 
-  // Save sessions to storage
-  const saveSessionsToStorage = useCallback(async (newSessions: ChatSession[]) => {
-    try {
-      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newSessions));
-    } catch (err) {
-      console.error('Failed to save sessions:', err);
-    }
-  }, []);
 
-  // Load sessions from storage on mount
-  useEffect(() => {
-    const loadSessionsFromStorage = async () => {
-      try {
-        const stored = await AsyncStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          setSessions(JSON.parse(stored));
-        }
-      } catch (err) {
-        console.error('Failed to load sessions:', err);
-      }
-    };
-    loadSessionsFromStorage();
-  }, []);
+  // 保存会话
+  /* sessions persistence skipped */
 
   const createNewChat = useCallback((role?: PsychologistRole) => {
-    const targetRole = role || currentRole;
-    if (!targetRole) return;
-    
-    const newSession: ChatSession = {
-      id: `session_${Date.now()}`,
-      roleId: targetRole.id,
-      messages: [],
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-
-    setSessions(prev => {
-      const updated = [newSession, ...prev];
-      saveSessionsToStorage(updated);
-      return updated;
-    });
-
-    setCurrentSessionId(newSession.id);
-    setCurrentRole(targetRole);
     setMessages([]);
-    setLightAnalysis(null);
+    setCurrentSessionId(null);
     setError(null);
-    setShowHistory(false);
-  }, [saveSessionsToStorage, currentRole]);
+    setIsLoading(false);
+    setIsThinking(false);
+    setThinkingContent('');
+    setLightAnalysis('');
+  }, []);
 
-  const loadSession = useCallback((sessionId: string) => {
-    setSessions(prev => {
-      const session = prev.find(s => s.id === sessionId);
+  const selectSession = useCallback(
+    (sessionId: string) => {
+      const session = sessions.find((s) => s.id === sessionId);
       if (session) {
-        const role = DEFAULT_ROLES.find(r => r.id === session.roleId) || null;
-        setCurrentSessionId(session.id);
-        setCurrentRole(role);
         setMessages(session.messages);
-        setLightAnalysis(null);
-        setError(null);
+        setCurrentSessionId(session.id);
+        const role = getRoleById(session.roleId);
+        if (role) setCurrentRole(role);
         setShowHistory(false);
       }
-      return prev;
-    });
-  }, []);
+    },
+    [sessions]
+  );
 
-  const deleteSession = useCallback(async (sessionId: string) => {
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== sessionId);
-      saveSessionsToStorage(updated);
-      
+  const deleteSession = useCallback(
+    async (sessionId: string) => {
+      const updated = sessions.filter((s) => s.id !== sessionId);
+      setSessions(updated);
       if (currentSessionId === sessionId) {
-        setCurrentSessionId(null);
-        setMessages([]);
-        setCurrentRole(null);
+        createNewChat();
       }
-      return updated;
-    });
-  }, [currentSessionId, saveSessionsToStorage]);
+    },
+    [sessions, currentSessionId, createNewChat]
+  );
 
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
+  const sendMessage = useCallback(
+    async (userMessage: string) => {
+      if (!userMessage.trim() || !currentRole) return;
 
-  // 打字机效果定时器引用
-  const typingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const sendMessage = useCallback(async (userMessage: string) => {
-    if (!currentRole || !userMessage.trim()) return;
-
-    // 清理之前的打字机定时器
-    if (typingTimerRef.current) {
-      clearInterval(typingTimerRef.current);
-      typingTimerRef.current = null;
-    }
-
-    const userMsg: ChatMessage = {
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      role: 'user',
-      content: userMessage,
-      timestamp: Date.now(),
-    };
-
-    setMessages(prev => [...prev, userMsg]);
-    setInputText('');
-    setDeepThinkingContent('');
-    setError(null);
-    setIsLoading(true);
-
-    try {
-      // ====== 第一阶段：调用 /chat/start 获取前端流 ======
-      const startResponse: ChatStartResponse = await chatStart(
-        currentRole.id,
-        userMessage
-      );
-
-      const { sessionId, frontFlowText } = startResponse;
-
-      // ====== 统一打字机引擎 ======
-      const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      setMessages(prev => [...prev, {
-        id: bubbleMsgId,
-        role: 'assistant',
-        content: '',
+      const userMsg: ChatMessage = {
+        id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        role: 'user',
+        content: userMessage,
         timestamp: Date.now(),
-      }]);
+      };
+      setMessages(prev => [...prev, userMsg]);
+      setIsThinking(true);
+      setIsLoading(true);
+      setError(null);
+      setLightAnalysis('');
 
-      setIsThinking(false); // 取消"思考中"指示
+      try {
+        // ====== 第一阶段：调用 /chat/start 获取前端流 ======
+        const sessionInfo = await chatStart(
+          currentRole.id,
+          userMessage
+        );
 
-      // 打字机状态（闭包变量）
-      const textQueue: string[] = [];
-      let displayedContent = '';
-      let deepTextBuffer = '';
-      let isFlowDone = false;
-      let isDeepDone = false;
-      let hasTransition = false;
-      let typingTimer: ReturnType<typeof setTimeout> | null = null;
+        const { sessionId, frontFlowText } = sessionInfo;
 
-      // 标点停顿映射
-      function getTypingDelay(ch: string): number {
-        if (ch === '\n') return 600;
-        if (ch === '，' || ch === '、') return 200;
-        if (ch === '。' || ch === '？' || ch === '！') return 400;
-        return 50;
-      }
+        // ====== 第二阶段：统一打字机引擎 ======
+        const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      // 统一打字机：把文本加入队列，逐字渲染
-      function pushToQueue(text: string) {
-        for (const ch of text) textQueue.push(ch);
-        if (!typingTimer) scheduleNext();
-      }
+        setMessages(prev => [...prev, {
+          id: bubbleMsgId,
+          role: 'assistant',
+          content: '',
+          timestamp: Date.now(),
+        }]);
 
-      function scheduleNext() {
-        const next = textQueue.shift();
+        setIsThinking(false);
 
-        if (next !== undefined) {
-          displayedContent += next;
-          setMessages(prev =>
-            prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-          );
-          const delay = getTypingDelay(next);
-          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, delay);
-          return;
+        // ── 打字机引擎状态（闭包变量）──
+        const textQueue: string[] = [];
+        let displayedContent = '';
+        let typingTimer: ReturnType<typeof setTimeout> | null = null;
+
+        // 状态标记
+        let isFlowQueued = false;       // 前端流已进入队列
+        let isFlowDone = false;         // 前端流全部打完
+        let isDeepStarted = false;      // 收到过百炼chunk
+        let isDeepDone = false;         // 百炼全部完成
+        let isWaiting = false;          // 等待文案正在显示
+        let waitingPos = -1;            // 等待文案在displayedContent中的起始位置
+
+        // ── 打字速度配置 ──
+        function getTypingDelay(ch: string): number {
+          if (ch === '\n') return 600;
+          if (ch === '，' || ch === '、') return 180;
+          if (ch === '。' || ch === '？' || ch === '！') return 350;
+          if (/[a-z0-9]/i.test(ch)) return 25;
+          return 45;
         }
 
-        // 队列为空 - 决定下一个要打什么
-        if (!isFlowDone) {
-          // 首次：把前端流加入队列
-          isFlowDone = true;
-          pushToQueue(frontFlowText);
-          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
-        } else if (!hasTransition) {
-          // 前端流打完 - 检查百炼是否就绪
-          hasTransition = true;
-          if (deepTextBuffer.length > 0) {
-            // 百炼已有内容 → 过渡语 + 深度分析
-            pushToQueue('\n\n我们继续往深一层看。\n\n');
-            pushToQueue(deepTextBuffer);
-            deepTextBuffer = '';
-          } else {
-            // 百炼还没到 → 显示等待提示
-            pushToQueue('\n\n我还在继续理解你刚才那句话……');
-          }
-          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
-        } else if (deepTextBuffer.length > 0) {
-          // 百炼新内容到达
-          const text = deepTextBuffer;
-          deepTextBuffer = '';
-          // 如果当前显示的是等待提示，替换掉
-          if (displayedContent.includes('我还在继续理解')) {
-            displayedContent = displayedContent.replace('\n\n我还在继续理解你刚才那句话……', '');
+        // ── 核心：把文本加入队列 ──
+        function pushToQueue(text: string) {
+          for (const ch of text) textQueue.push(ch);
+          scheduleNext();
+        }
+
+        // ── 核心：从队列取出一个字渲染 ──
+        function scheduleNext() {
+          if (typingTimer) return; // 正在渲染中，新内容已入队
+
+          const ch = textQueue.shift();
+
+          if (ch !== undefined) {
+            displayedContent += ch;
             setMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
-            pushToQueue('\n\n我们继续往深一层看。\n\n' + text);
-          } else {
-            pushToQueue(text);
+            const delay = getTypingDelay(ch);
+            typingTimer = setTimeout(() => {
+              typingTimer = null;
+              scheduleNext();
+            }, delay);
+            return;
           }
-          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 10);
-        } else if (isDeepDone) {
-          // 全部完成
-          typingTimer = null;
-        } else {
-          // 等待百炼更多chunk
-          typingTimer = setTimeout(() => { typingTimer = null; scheduleNext(); }, 200);
+
+          // ====== 队列为空 — 决策下一步 ======
+          if (!isFlowQueued) {
+            isFlowQueued = true;
+            pushToQueue(frontFlowText);
+            return;
+          }
+
+          if (!isFlowDone) {
+            isFlowDone = true;
+            scheduleNext();
+            return;
+          }
+
+          if (!isDeepStarted && !isDeepDone && !isWaiting) {
+            // 前端流打完，百炼还没到 → 显示等待
+            isWaiting = true;
+            waitingPos = displayedContent.length;
+            pushToQueue('\n\n我还在继续理解你刚才那句话……');
+            return;
+          }
+
+          if (isWaiting && isDeepStarted) {
+            // 百炼开始回来了，但等待文案还在队列里 → 移除等待
+            isWaiting = false;
+            displayedContent = displayedContent.substring(0, waitingPos);
+            waitingPos = -1;
+            setMessages(prev =>
+              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+            );
+            pushToQueue('我们继续往深一层看。\n\n');
+            return;
+          }
+
+          // 队列空且没有新内容 → 安静等待
         }
-      }
 
-      // 立即启动百炼流式请求（跟打字机并行）
-      (async () => {
-        try {
-          await chatStream(sessionId, {
-            onChunk: (chunk: string) => {
-              try {
-                const parsed = JSON.parse(chunk);
-                if (parsed.content) {
-                  deepTextBuffer += parsed.content;
-                  // 如果打字机在空闲状态，唤醒它把新内容打出来
-                  if (!typingTimer && isFlowDone) {
-                    if (!hasTransition) {
-                      hasTransition = true;
-                      if (displayedContent.includes('我还在继续理解')) {
-                        displayedContent = displayedContent.replace('\n\n我还在继续理解你刚才那句话……', '');
-                        setMessages(prev =>
-                          prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-                        );
-                        pushToQueue('\n\n我们继续往深一层看。\n\n' + deepTextBuffer);
-                      } else {
-                        pushToQueue('\n\n我们继续往深一层看。\n\n' + deepTextBuffer);
-                      }
-                      deepTextBuffer = '';
-                    } else {
-                      pushToQueue(deepTextBuffer);
-                      deepTextBuffer = '';
+        // ── 并行：启动百炼流式 ──
+        (async () => {
+          try {
+            await chatStream(sessionId, {
+              onChunk: (chunk: string) => {
+                try {
+                  const parsed = JSON.parse(chunk);
+                  if (parsed.content) {
+                    if (!isDeepStarted) {
+                      isDeepStarted = true;
                     }
+                    pushToQueue(parsed.content);
                   }
-                }
-                if (parsed.done) isDeepDone = true;
-              } catch { /* non-JSON chunk, ignore */ }
-            },
-            onDone: () => { isDeepDone = true; },
-            onError: () => { isDeepDone = true; },
-          });
-        } catch { /* stream error, ignore */ }
-      })();
+                  if (parsed.done) {
+                    isDeepDone = true;
+                    scheduleNext();
+                  }
+                } catch { /* ignore */ }
+              },
+              onDone: () => {
+                isDeepDone = true;
+                scheduleNext();
+              },
+              onError: () => {
+                isDeepDone = true;
+                scheduleNext();
+              },
+            });
+          } catch { /* ignore */ }
+        })();
 
-      // 启动打字机
-      scheduleNext();
+        // ── 启动打字机 ──
+        scheduleNext();
 
-      // 保存当前sessionId
-      setCurrentSessionId(sessionId);
-      setIsLoading(false);
-    } catch (err) {
-      console.error('[sendMessage] Error:', err);
-      setError(err instanceof Error ? err.message : '请求失败');
-      setIsLoading(false);
-      setIsThinking(false);
-    }
-  }, [currentRole, currentSessionId, saveSessionsToStorage]);
+        setCurrentSessionId(sessionId);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('[sendMessage] Error:', err);
+        setError(err instanceof Error ? err.message : '请求失败');
+        setIsLoading(false);
+        setIsThinking(false);
+      }
+    },
+    [currentRole, currentSessionId]
+  );
+
+  const currentSession = sessions.find(s => s.id === currentSessionId);
+
+  const loadSessionFn = useCallback((sessionId: string) => {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const role = roles.find(r => r.id === session.roleId);
+    setCurrentRole(role || roles[0]);
+    setCurrentSessionId(session.id);
+    setMessages(session.messages);
+  }, [sessions]);
+
+  const deepThinkingContent = '';
 
   return (
     <ChatContext.Provider
@@ -376,30 +297,27 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         sessions,
         currentRole,
         currentSessionId,
+        currentSession,
         isLoading,
         isThinking,
         thinkingContent,
+        deepThinkingContent,
         error,
         showHistory,
         lightAnalysis,
         inputText,
         showRoleIntro,
         roles,
-        deepThinkingContent,
-        onSelectRole,
-        onShowIntro,
-        setShowRoleIntro,
-        setShowHistory,
-        setMessages,
         setInputText,
-        setLightAnalysis,
         setCurrentRole,
-        createNewChat,
-        loadSession,
-        deleteSession,
-        clearError,
+        setShowRoleIntro,
         sendMessage,
-        currentSession,
+        clearError: () => setError(null),
+        setShowHistory,
+        selectSession,
+        deleteSession,
+        createNewChat,
+        loadSession: loadSessionFn,
       }}
     >
       {children}
@@ -407,4 +325,10 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
   );
 }
 
-export const useChatContext = () => useContext(ChatContext);
+export function useChat() {
+  const context = useContext(ChatContext);
+  if (!context) {
+    throw new Error('useChat must be used within a ChatProvider');
+  }
+  return context;
+}
