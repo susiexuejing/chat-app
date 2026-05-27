@@ -84,6 +84,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setIsThinking(false);
     setThinkingContent('');
     setLightAnalysis('');
+    if (role) setCurrentRole(role);
   }, []);
 
   const selectSession = useCallback(
