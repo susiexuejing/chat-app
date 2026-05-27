@@ -1,10 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
-import { frontFlows } from './flows/frontFlows';
-import type { FrontFlowItem } from './flows/frontFlows';
-import type { EmotionTag, EventTag } from './flows/frontFlows';
 import { recognizeEmotion, recognizeEvent } from './flows/recognizer';
+import type { EmotionTag, EventTag } from './flows/frontFlows';
+import { detectUserState, extractKeywords } from './flows/stateDetector';
+import { buildFrontFlowText } from './flows/frontFlowTemplates';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -40,7 +40,9 @@ interface ChatSession {
   userMessage: string;
   emotionTag: EmotionTag;
   eventTag: EventTag;
-  frontFlow: FrontFlowItem[];
+  state: string;
+  keywords: string[];
+  frontFlowText: string;
   createdAt: number;
   deepChunks: string[];         // 流式chunk队列（实时推送）
   deepDone: boolean;            // 是否已完成生成
@@ -77,11 +79,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlow: FrontFlowItem[]): string {
-  // 从前端流中提取文本
-  const flowTexts = frontFlow.map(item => item.text);
-  const frontFlowText = flowTexts.join('\n');
-
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string): string {
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
@@ -156,7 +154,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   session.deepStreaming = true;
 
   try {
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlow);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -216,39 +214,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   }
 }
 
-// ============================================================
-// 获取前端流（基于角色 + 情绪 + 事件，包含 fallback）
-// ============================================================
-function getFrontFlow(roleId: string, emotionTag: EmotionTag, eventTag: EventTag): FrontFlowItem[] {
-  const roleFlows = frontFlows[roleId];
-  if (!roleFlows) return getDefaultFlow(roleId);
 
-  // 精确匹配：角色 + 情绪 + 事件
-  const exact = roleFlows[emotionTag]?.[eventTag];
-  if (exact) return exact;
-
-  // 匹配：角色 + 情绪（不区分事件）
-  const emotionAny = (roleFlows as any)[emotionTag]?.any;
-  if (emotionAny) return emotionAny as FrontFlowItem[];
-
-  // 匹配：角色 + 默认
-  const defaultFlow = (roleFlows as any).default?.any;
-  if (defaultFlow) return defaultFlow as FrontFlowItem[];
-
-  // 全局 fallback
-  return getDefaultFlow(roleId);
-}
-
-function getDefaultFlow(roleId: string): FrontFlowItem[] {
-  const roleName = ROLE_NAMES[roleId] || '心理陪伴师';
-  return [
-    { delay: 0, text: `${roleName}在这里陪着你。` },
-    { delay: 8, text: '愿意和我多说一些吗？' },
-    { delay: 18, text: '我在听。' },
-    { delay: 30, text: '有时候，说出来本身就有疗愈的力量。' },
-    { delay: 45, text: '我们可以一起慢慢梳理。' },
-  ];
-}
 
 // ============================================================
 // 健康检查
@@ -277,8 +243,10 @@ app.post('/api/v1/chat/start', async (req, res) => {
     // 2. 事件识别
     const eventTag = recognizeEvent(message);
 
-    // 3. 匹配前端流脚本
-    const frontFlow = getFrontFlow(roleId, emotionTag, eventTag);
+    // 3. 新模板系统：状态识别 + 关键词提取 + 动态模板
+    const state = detectUserState(message);
+    const keywords = extractKeywords(message);
+    const frontFlowText = buildFrontFlowText(roleId, state, keywords);
 
     // 4. 创建会话
     const sessionId = crypto.randomUUID();
@@ -289,7 +257,9 @@ app.post('/api/v1/chat/start', async (req, res) => {
       userMessage: message,
       emotionTag,
       eventTag,
-      frontFlow,
+      state,
+      keywords,
+      frontFlowText,
       createdAt: Date.now(),
       deepChunks: [],
       deepDone: false,
@@ -298,12 +268,11 @@ app.post('/api/v1/chat/start', async (req, res) => {
     };
     sessions.set(sessionId, session);
 
-    // 5. 生成前端流完整文本（连续打字机效果用）
-    const frontFlowText = frontFlow.map(item => item.text).join('\n\n');
-
-    // 6. 立即返回前端流（不等待百炼）
+    // 5. 立即返回前端流（不等待百炼）
     res.json({
       sessionId,
+      state,
+      keywords,
       frontFlowText,
       emotionTag,
       eventTag,
@@ -400,7 +369,7 @@ app.get('/api/v1/debug/last-prompt', (_req, res) => {
     emotionTag: s.emotionTag,
     eventTag: s.eventTag,
     userMessage: s.userMessage.slice(0, 50),
-    hasFlow: s.frontFlow.length > 0,
+    hasFlow: !!s.frontFlowText,
     deepReady: s.deepDone || (s.deepChunks.length > 0),
     deepStreaming: s.deepStreaming,
     deepError: s.deepError,
