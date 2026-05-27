@@ -227,15 +227,28 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
       // ====== 第二阶段：单气泡模式播放前端流 ======
       // 只创建一个 assistant 气泡，按 delay 逐条追加文本
       const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // 先收集所有文本，delay=0 的立即放入气泡初始内容
+      let initialContent = '';
+      const delayedItems: FrontFlowItem[] = [];
+      for (const item of frontFlow) {
+        if (item.delay === 0) {
+          initialContent += (initialContent ? '\n\n' : '') + item.text;
+        } else {
+          delayedItems.push(item);
+        }
+      }
+      
       const bubbleMsg: ChatMessage = {
         id: bubbleMsgId,
         role: 'assistant',
-        content: '',
+        content: initialContent,
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, bubbleMsg]);
 
-      for (const item of frontFlow) {
+      // delay > 0 的通过 setTimeout 逐条追加
+      for (const item of delayedItems) {
         const timer = setTimeout(() => {
           setMessages(prev =>
             prev.map(m =>
