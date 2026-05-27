@@ -205,6 +205,15 @@ function ChatContent() {
         }}
         onClose={() => setRolePickerVisible(false)}
       />
+
+      {/* 版本号标识 - 生产环境只显示版本，开发环境加 DEV 前缀 */}
+      <View className="absolute bottom-2 right-3">
+        <View className="bg-gray-100/80 dark:bg-gray-800/80 px-2 py-0.5 rounded-md">
+          <Text className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+            {__DEV__ ? 'DEV' : 'PROD'} - v2.0.1
+          </Text>
+        </View>
+      </View>
     </Screen>
   );
 }

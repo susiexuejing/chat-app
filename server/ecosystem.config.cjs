@@ -12,11 +12,16 @@ env.split('\n').forEach(line => {
   }
 });
 
+// 构建版本信息（构建时自动注入）
+envVars['GIT_COMMIT'] = '55dcaed';
+envVars['BUILD_TIME'] = '2026-05-27T09:10:49Z';
+
 module.exports = {
   apps: [{
     name: 'chat-server',
     script: 'dist/index.js',
     exec_mode: 'fork',
-    env_production: envVars
+    env: envVars
   }]
 };
+

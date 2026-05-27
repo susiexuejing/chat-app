@@ -19,6 +19,28 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 // ============================================================
+// 版本信息（构建时注入）
+// ============================================================
+const VERSION_INFO = {
+  env: process.env.NODE_ENV || 'development',
+  version: process.env.APP_VERSION || 'v2.0.1',
+  gitCommit: process.env.GIT_COMMIT || '55dcaed',
+  buildTime: process.env.BUILD_TIME || new Date().toISOString(),
+  apiVersion: 'v1',
+};
+
+// ============================================================
+// 健康检查 & 版本信息
+// ============================================================
+app.get('/api/v1/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.get('/api/v1/version', (_req, res) => {
+  res.json(VERSION_INFO);
+});
+
+// ============================================================
 // 环境变量
 // ============================================================
 const DASHSCOPE_BASE_URL = process.env.DASHSCOPE_BASE_URL || 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -215,13 +237,6 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 }
 
 
-
-// ============================================================
-// 健康检查
-// ============================================================
-app.get('/api/v1/health', (_req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
 
 // ============================================================
 // 接口 1：POST /api/v1/chat/start
