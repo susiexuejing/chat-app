@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PsychologistRole, DEFAULT_ROLES } from '../constants/roles';
 import { ChatMessage, ChatSession, LightAnalysisResult, DeepAnalysisData } from '../types';
 import { analyzeText } from '../utils/textAnalyzer';
-import { chatWithDashScope, chatCombined, chatStart, chatStream, FrontFlowItem, ChatStartResponse } from '../api/cozeApi';
+import { chatStart, chatStream, ChatStartResponse } from '../api/cozeApi';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -192,15 +192,17 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
     setError(null);
   }, []);
 
-  // 存储前一次请求的 flowTimers，以便新消息发送时清理
-  const flowTimersRef = React.useRef<NodeJS.Timeout[]>([]);
+  // 打字机效果定时器引用
+  const typingTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   const sendMessage = useCallback(async (userMessage: string) => {
     if (!currentRole || !userMessage.trim()) return;
 
-    // 清理之前的 flowTimers（如果用户快速连续发送）
-    flowTimersRef.current.forEach(t => clearTimeout(t));
-    flowTimersRef.current = [];
+    // 清理之前的打字机定时器
+    if (typingTimerRef.current) {
+      clearInterval(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
 
     const userMsg: ChatMessage = {
       id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -222,77 +224,87 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
         userMessage
       );
 
-      const { sessionId, frontFlow } = startResponse;
+      const { sessionId, frontFlowText } = startResponse;
 
-      // ====== 第二阶段：单气泡模式播放前端流 ======
-      // 只创建一个 assistant 气泡，按 delay 逐条追加文本
+      // ====== 第二阶段：单气泡打字机效果 ======
       const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      
-      // 先收集所有文本，delay=0 的立即放入气泡初始内容
-      let initialContent = '';
-      const delayedItems: FrontFlowItem[] = [];
-      for (const item of frontFlow) {
-        if (item.delay === 0) {
-          initialContent += (initialContent ? '\n\n' : '') + item.text;
-        } else {
-          delayedItems.push(item);
-        }
-      }
-      
+
       const bubbleMsg: ChatMessage = {
         id: bubbleMsgId,
         role: 'assistant',
-        content: initialContent,
+        content: '',
         timestamp: Date.now(),
       };
       setMessages(prev => [...prev, bubbleMsg]);
 
-      // delay > 0 的通过 setTimeout 逐条追加
-      for (const item of delayedItems) {
-        const timer = setTimeout(() => {
-          setMessages(prev =>
-            prev.map(m =>
-              m.id === bubbleMsgId
-                ? { ...m, content: m.content + (m.content ? '\n\n' : '') + item.text }
-                : m
-            )
-          );
-        }, item.delay * 1000);
-        flowTimersRef.current.push(timer);
-      }
+      // 打字机效果：逐字连续渲染
+      let charIndex = 0;
+      const charsPerTick = 3;   // 每 tick 渲染 3 个字
+      const tickMs = 30;        // 每 30ms 渲染一次
+      typingTimerRef.current = setInterval(() => {
+        charIndex += charsPerTick;
+        if (charIndex >= frontFlowText.length) {
+          charIndex = frontFlowText.length;
+          if (typingTimerRef.current) {
+            clearInterval(typingTimerRef.current);
+            typingTimerRef.current = null;
+          }
+        }
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === bubbleMsgId
+              ? { ...m, content: frontFlowText.slice(0, charIndex) }
+              : m
+          )
+        );
+      }, tickMs);
 
-      // ====== 第三阶段：百炼续写（追加到同一气泡） ======
-      const maxDelay = frontFlow.length > 0
-        ? Math.max(...frontFlow.map(f => f.delay), 0)
-        : 0;
+      // ====== 第三阶段：百炼结果追加 ======
+      // 等打字机结束后，再请求百炼
+      const typingDuration = (frontFlowText.length / charsPerTick) * tickMs + 500;
 
       setTimeout(async () => {
+        // 确保打字机完成
+        if (typingTimerRef.current) {
+          clearInterval(typingTimerRef.current);
+          typingTimerRef.current = null;
+        }
+        // 设置最终完整文本
+        setMessages(prev =>
+          prev.map(m =>
+            m.id === bubbleMsgId
+              ? { ...m, content: frontFlowText }
+              : m
+          )
+        );
+
         setIsThinking(true);
 
         try {
-          let deepContent = '';
+          let deepReceived = false;
           await chatStream(sessionId, {
             onChunk: (chunk) => {
-              // 解析 SSE JSON，提取 content 纯文本
               try {
                 const parsed = JSON.parse(chunk);
                 if (parsed.content) {
-                  deepContent = parsed.content;
+                  const transition = deepReceived ? '' : '\n\n我们继续往深一层看。\n\n';
+                  deepReceived = true;
                   setMessages(prev =>
                     prev.map(m =>
                       m.id === bubbleMsgId
-                        ? { ...m, content: m.content + '\n\n' + deepContent }
+                        ? { ...m, content: frontFlowText + transition + parsed.content }
                         : m
                     )
                   );
                 }
               } catch {
-                // 非 JSON，直接追加
-                deepContent += chunk;
+                // 非 JSON，尝试追加 raw text
+                const transition = deepReceived ? '' : '\n\n我们继续往深一层看。\n\n';
+                deepReceived = true;
                 setMessages(prev =>
                   prev.map(m =>
                     m.id === bubbleMsgId
-                      ? { ...m, content: m.content + chunk }
+                      ? { ...m, content: frontFlowText + transition + chunk }
                       : m
                   )
                 );
@@ -329,7 +341,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
           setIsLoading(false);
           setError(streamErr instanceof Error ? streamErr.message : '流式请求失败');
         }
-      }, maxDelay * 1000 + 2000);
+      }, typingDuration);
 
     } catch (err) {
       setIsLoading(false);

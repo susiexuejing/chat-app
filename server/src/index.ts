@@ -292,10 +292,13 @@ app.post('/api/v1/chat/start', async (req, res) => {
     };
     sessions.set(sessionId, session);
 
-    // 5. 立即返回前端流（不等待百炼）
+    // 5. 生成前端流完整文本（连续打字机效果用）
+    const frontFlowText = frontFlow.map(item => item.text).join('\n\n');
+
+    // 6. 立即返回前端流（不等待百炼）
     res.json({
       sessionId,
-      frontFlow,
+      frontFlowText,
       emotionTag,
       eventTag,
     });

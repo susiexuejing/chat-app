@@ -236,7 +236,7 @@ export interface ChatStartResponse {
   sessionId: string;
   emotionTag: string;
   eventKeyword: string;
-  frontFlow: FrontFlowItem[];
+  frontFlowText: string;
 }
 
 /**
