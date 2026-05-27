@@ -10,14 +10,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useChat } from '../contexts/ChatContext';
 
-// 角色图标映射
+// 角色图标映射（FontAwesome6 Free Solid 有效图标）
 const ROLE_ICONS: Record<string, string> = {
-  'clever-fox': 'fox-head',           // 狐狸
-  'warm-bear': 'teddy-bear',          // 小熊
-  'wise-owl': 'owl',                   // 猫头鹰
-  'emotion-elf': 'sparkles',          // 小精灵（使用闪光图标）
-  'philosophical-dolphin': 'fish',    // 海豚
-  'family-elephant': 'elephant',      // 大象
+  'clever-fox': 'brain',               // 机智聪明 → 大脑
+  'warm-bear': 'hand-holding-heart',   // 温暖治愈 → 暖心
+  'wise-owl': 'graduation-cap',        // 深思智慧 → 学识帽
+  'emotion-elf': 'sparkles',           // 情感精灵 → 闪光
+  'philosophical-dolphin': 'fish',     // 哲思海豚 → 鱼
+  'family-elephant': 'people-group',   // 团结大象 → 人群
 };
 
 // 获取角色对应的图标名

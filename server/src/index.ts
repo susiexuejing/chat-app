@@ -72,8 +72,8 @@ const ROLE_NAMES: Record<string, string> = {
   'warm-bear': '温暖小熊',
   'wise-owl': '深思猫头鹰',
   'emotion-elf': '情感小精灵',
-  'philosophy-dolphin': '哲思海豚',
-  'unity-elephant': '团结小象',
+  'philosophical-dolphin': '哲思海豚',
+  'family-elephant': '团结小象',
 };
 
 // ============================================================
@@ -104,8 +104,8 @@ function getRoleStyle(roleId: string): string {
     'warm-bear': '你风格接近人本主义：温暖、共情、无条件接纳。',
     'wise-owl': '你风格接近精神分析：洞察潜意识、探索深层冲突。',
     'emotion-elf': '你风格接近情绪聚焦疗法：关注情感识别与调节。',
-    'philosophy-dolphin': '你风格接近存在主义：探索意义、自由与责任。',
-    'unity-elephant': '你风格接近叙事/系统疗法：关注关系模式与故事重构。',
+    'philosophical-dolphin': '你风格接近存在主义：探索意义、自由与责任。',
+    'family-elephant': '你风格接近叙事/系统疗法：关注关系模式与故事重构。',
   };
   return styles[roleId] || '你是一位温暖的心理陪伴者。';
 }
