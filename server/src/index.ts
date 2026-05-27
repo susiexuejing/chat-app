@@ -79,27 +79,24 @@ const ROLE_NAMES: Record<string, string> = {
 function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlow: FrontFlowItem[]): string {
   // 从前端流中提取文本
   const flowTexts = frontFlow.map(item => item.text);
+  const frontFlowText = flowTexts.join('\n');
 
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
 
-用户已经看到以下陪伴内容（请勿重复）：
-${flowTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+用户已经看到以下前置陪伴内容：
+${frontFlowText}
 
-请自然接着往下说，不要重新开始，不要重复上述内容。
+请严格遵守：
+- 不要重复以上前置陪伴内容
+- 不要输出 JSON
+- 不要输出 Markdown 代码块（包括 \`\`\`json）
+- 只用自然语言继续往下说
+- 从更深一层的分析开始
+- 回复长度控制在 300 字以内
 
-请基于用户输入进行深入分析，输出结构化JSON格式：
-{
-  "reply": "你的自然回复（直接接着上面的话往下说）",
-  "deep_analysis": {
-    "fact": "区分事实",
-    "interpretation": "用户的解释/解读",
-    "cognitive_pattern": "可能的认知模式",
-    "reframe": "重新框架"
-  },
-  "next_step": "建议的下一步"
-}`;
+请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
 }
 
 function getRoleStyle(roleId: string): string {

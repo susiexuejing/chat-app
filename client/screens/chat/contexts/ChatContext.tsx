@@ -224,66 +224,63 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
 
       const { sessionId, frontFlow } = startResponse;
 
-      // ====== 第二阶段：按 delay 播放前端流 ======
+      // ====== 第二阶段：单气泡模式播放前端流 ======
+      // 只创建一个 assistant 气泡，按 delay 逐条追加文本
+      const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const bubbleMsg: ChatMessage = {
+        id: bubbleMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, bubbleMsg]);
+
       for (const item of frontFlow) {
         const timer = setTimeout(() => {
-          const flowMsg: ChatMessage = {
-            id: `flow_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            role: 'assistant',
-            content: item.text,
-            timestamp: Date.now(),
-          };
-          setMessages(prev => [...prev, flowMsg]);
+          setMessages(prev =>
+            prev.map(m =>
+              m.id === bubbleMsgId
+                ? { ...m, content: m.content + (m.content ? '\n\n' : '') + item.text }
+                : m
+            )
+          );
         }, item.delay * 1000);
         flowTimersRef.current.push(timer);
       }
 
-      // ====== 第三阶段：前端流播放完毕后，百炼接管 ======
+      // ====== 第三阶段：百炼续写（追加到同一气泡） ======
       const maxDelay = frontFlow.length > 0
         ? Math.max(...frontFlow.map(f => f.delay), 0)
         : 0;
 
       setTimeout(async () => {
-        // 创建百炼回复消息占位
-        const deepMsgId = `deep_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        const streamMsg: ChatMessage = {
-          id: deepMsgId,
-          role: 'assistant',
-          content: '',
-          timestamp: Date.now(),
-        };
-        setMessages(prev => [...prev, streamMsg]);
         setIsThinking(true);
 
         try {
-          let streamContent = '';
+          let deepContent = '';
           await chatStream(sessionId, {
             onChunk: (chunk) => {
-              // 解析 SSE JSON 数据，提取 content 字段
+              // 解析 SSE JSON，提取 content 纯文本
               try {
                 const parsed = JSON.parse(chunk);
                 if (parsed.content) {
-                  // 如果是 JSON 结构内容（包含 reply/deep_analysis），显示 reply 部分
-                  let displayText = parsed.content;
-                  try {
-                    const inner = JSON.parse(parsed.content);
-                    if (inner.reply) {
-                      displayText = inner.reply;
-                    }
-                  } catch {}
-                  streamContent = displayText;
+                  deepContent = parsed.content;
                   setMessages(prev =>
                     prev.map(m =>
-                      m.id === deepMsgId ? { ...m, content: streamContent } : m
+                      m.id === bubbleMsgId
+                        ? { ...m, content: m.content + '\n\n' + deepContent }
+                        : m
                     )
                   );
                 }
               } catch {
-                // 不是 JSON，直接显示
-                streamContent += chunk;
+                // 非 JSON，直接追加
+                deepContent += chunk;
                 setMessages(prev =>
                   prev.map(m =>
-                    m.id === deepMsgId ? { ...m, content: streamContent } : m
+                    m.id === bubbleMsgId
+                      ? { ...m, content: m.content + chunk }
+                      : m
                   )
                 );
               }
@@ -319,7 +316,7 @@ export function ChatProvider({ children, onSelectRole, onShowIntro }: ChatProvid
           setIsLoading(false);
           setError(streamErr instanceof Error ? streamErr.message : '流式请求失败');
         }
-      }, maxDelay * 1000 + 2000); // 最后一条前端流结束后 +2秒缓冲
+      }, maxDelay * 1000 + 2000);
 
     } catch (err) {
       setIsLoading(false);
