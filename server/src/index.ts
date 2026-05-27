@@ -42,9 +42,10 @@ interface ChatSession {
   eventTag: EventTag;
   frontFlow: FrontFlowItem[];
   createdAt: number;
-  deepResult: string | null;       // 最终完整结果
-  deepStreaming: boolean;          // 是否正在流式生成
-  deepError: string | null;        // 错误信息
+  deepChunks: string[];         // 流式chunk队列（实时推送）
+  deepDone: boolean;            // 是否已完成生成
+  deepStreaming: boolean;       // 是否正在流式生成
+  deepError: string | null;     // 错误信息
 }
 
 const sessions = new Map<string, ChatSession>();
@@ -143,10 +144,10 @@ async function callDashScope(
 }
 
 // ============================================================
-// 后端异步调用百炼（在返回前端流之后触发）
+// 后端异步调用百炼（实时流式推送chunk到session）
 // ============================================================
 async function startDeepAnalysis(session: ChatSession): Promise<void> {
-  const apiKey = API_KEY_LIGHT;  // 使用基础密钥（已验证可用）
+  const apiKey = API_KEY_LIGHT;
   if (!apiKey) {
     session.deepError = 'API key not configured';
     return;
@@ -166,8 +167,8 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       apiKey,
       MODELS.DEEP,
       deepMessages,
-      true,
-      1200
+      true,      // stream: true
+      600        // 减少maxTokens让首字更快
     );
 
     if (!response.ok) {
@@ -178,7 +179,6 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
-    let fullContent = '';
 
     while (true) {
       const { done, value } = await reader!.read();
@@ -190,20 +190,25 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           const data = line.slice(6);
-          if (data && data !== '[DONE]') {
+          if (data === '[DONE]') {
+            session.deepDone = true;
+            continue;
+          }
+          if (data) {
             try {
               const parsed = JSON.parse(data);
               const content = parsed.choices?.[0]?.delta?.content || '';
               if (content) {
-                fullContent += content;
+                // ★ 立即推入chunk队列，前端实时读取
+                session.deepChunks.push(content);
               }
-            } catch {}
+            } catch { /* 忽略解析错误 */ }
           }
         }
       }
     }
 
-    session.deepResult = fullContent;
+    session.deepDone = true;
   } catch (error) {
     session.deepError = error instanceof Error ? error.message : 'Unknown error';
   } finally {
@@ -286,7 +291,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
       eventTag,
       frontFlow,
       createdAt: Date.now(),
-      deepResult: null,
+      deepChunks: [],
+      deepDone: false,
       deepStreaming: false,
       deepError: null,
     };
@@ -317,7 +323,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
 // ============================================================
 // 接口 2：GET /api/v1/chat/stream?sessionId=xxx
-// SSE 流式返回百炼深度分析结果
+// SSE 流式返回百炼深度分析结果（实时chunk推送）
 // ============================================================
 app.get('/api/v1/chat/stream', (req, res) => {
   const { sessionId } = req.query;
@@ -337,38 +343,38 @@ app.get('/api/v1/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  // 如果已经完成，直接返回结果
-  if (session.deepResult) {
-    res.write(`data: ${JSON.stringify({ type: 'deep', content: session.deepResult, done: true })}\n\n`);
-    res.write('data: [DONE]\n\n');
-    res.end();
-    return;
-  }
+  let lastIndex = 0;
 
-  // 如果有错误
-  if (session.deepError && !session.deepStreaming) {
-    res.write(`data: ${JSON.stringify({ type: 'error', message: session.deepError, done: true })}\n\n`);
-    res.write('data: [DONE]\n\n');
-    res.end();
-    return;
-  }
-
-  // 轮询等待百炼完成（SSE 长连接）
+  // 每 100ms 轮询 session.deepChunks，推送新chunk
   const pollInterval = setInterval(() => {
-    if (session.deepResult) {
+    // 推送所有新chunk
+    while (lastIndex < session.deepChunks.length) {
+      const chunk = session.deepChunks[lastIndex++];
+      if (chunk) {
+        res.write(`data: ${JSON.stringify({ type: 'deep', content: chunk })}\n\n`);
+      }
+    }
+
+    // 完成
+    if (session.deepDone) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
-      res.write(`data: ${JSON.stringify({ type: 'deep', content: session.deepResult, done: true })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'deep', done: true })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
-    } else if (session.deepError && !session.deepStreaming) {
+      return;
+    }
+
+    // 错误（非流式状态）
+    if (session.deepError && !session.deepStreaming) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
       res.write(`data: ${JSON.stringify({ type: 'error', message: session.deepError, done: true })}\n\n`);
       res.write('data: [DONE]\n\n');
       res.end();
+      return;
     }
-  }, 1000);
+  }, 100);
 
   // 60秒超时
   const timeout = setTimeout(() => {
@@ -395,7 +401,7 @@ app.get('/api/v1/debug/last-prompt', (_req, res) => {
     eventTag: s.eventTag,
     userMessage: s.userMessage.slice(0, 50),
     hasFlow: s.frontFlow.length > 0,
-    deepReady: !!s.deepResult,
+    deepReady: s.deepDone || (s.deepChunks.length > 0),
     deepStreaming: s.deepStreaming,
     deepError: s.deepError,
     age: Math.floor((Date.now() - s.createdAt) / 1000) + 's',
