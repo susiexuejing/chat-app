@@ -161,6 +161,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         let isDeepDone = false;         // 百炼全部完成
         let isWaiting = false;          // 等待文案正在显示
         let waitingPos = -1;            // 等待文案在displayedContent中的起始位置
+        let deepBuffer = '';            // 等待期间百炼chunk缓存（避免混入displayedContent被截断）
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -218,14 +219,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (isWaiting && isDeepStarted) {
-            // 百炼开始回来了，但等待文案还在队列里 → 移除等待
+            // 百炼到达，结束等待 → 清除等待文案 + 追加过渡 + 释放缓存的百炼内容
             isWaiting = false;
             displayedContent = displayedContent.substring(0, waitingPos);
             waitingPos = -1;
             setMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
-            pushToQueue('我们继续往深一层看。\n\n');
+            const transition = '我们继续往深一层看。\n\n';
+            const toPush = deepBuffer ? transition + deepBuffer : transition;
+            deepBuffer = '';
+            pushToQueue(toPush);
             return;
           }
 
@@ -243,7 +247,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     if (!isDeepStarted) {
                       isDeepStarted = true;
                     }
-                    pushToQueue(parsed.content);
+                    if (isWaiting) {
+                      // ★ 等待期间：缓存到 deepBuffer，不入队（防止混入 displayedContent 被截断）
+                      deepBuffer += parsed.content;
+                    } else {
+                      pushToQueue(parsed.content);
+                    }
                   }
                   if (parsed.done) {
                     isDeepDone = true;
