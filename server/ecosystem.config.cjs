@@ -13,8 +13,8 @@ env.split('\n').forEach(line => {
 });
 
 // 构建版本信息（构建时自动注入）
-envVars['GIT_COMMIT'] = 'aebd22d';
-envVars['BUILD_TIME'] = '2026-05-29T07:35:45Z';
+envVars['GIT_COMMIT'] = '4a1ad72';
+envVars['BUILD_TIME'] = '2026-05-29T08:16:34Z';
 
 module.exports = {
   apps: [{
