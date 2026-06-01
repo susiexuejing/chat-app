@@ -149,15 +149,22 @@ export function generateReactionLayer(
   message: string,
   emotionTag: string,
 ): string {
-  const reactions = getPersonalityReactions(personality, message, emotionTag);
-  return reactions[Math.floor(Math.random() * reactions.length)];
+  const { topicReactions, genericReactions } = getPersonalityReactions(personality, message, emotionTag);
+  const topic = extractTopicKeyword(message);
+  // 有关键词时：70%概率用关键词反应，30%用通用
+  if (topic && topicReactions.length > 0) {
+    if (Math.random() < 0.7) {
+      return topicReactions[Math.floor(Math.random() * topicReactions.length)];
+    }
+  }
+  return genericReactions[Math.floor(Math.random() * genericReactions.length)];
 }
 
 function getPersonalityReactions(
   p: PersonalityConsciousness,
   message: string,
   emotion: string,
-): string[] {
+): { topicReactions: string[]; genericReactions: string[] } {
   const topic = extractTopicKeyword(message);
   const eDesc = getEmotionDesc(emotion);
 
@@ -168,35 +175,36 @@ function getPersonalityReactions(
     case 'empathy-fairy': return fairyReactions(topic, emotion, eDesc);
     case 'philosophical-dolphin': return dolphinReactions(topic, emotion, eDesc);
     case 'family-elephant': return elephantReactions(topic, emotion, eDesc);
-    default: return ['嗯。', '我听到了。', '啊。'];
+    default: return { topicReactions: [], genericReactions: ['嗯。', '我听到了。', '啊。'] };
   }
 }
 
 // ─── 各人格 Reaction ─────────────────────────────────
 
-function foxReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function foxReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯。这句话有东西。',
     '这里头有点绕。',
     '这个我得捋捋。',
     '啧。这个状态我见过。',
   ];
-  // 当消息中有具体关键词时，生成更具体的反应
   if (topic && topic.length >= 2) {
-    base.push(`嗯。这个「${topic}」的事，不会就一个点那么简单。`);
-    base.push(`「${topic}」——这个词你特意用了。`);
-    base.push(`这个「${topic}」我注意到了。里面应该不止一层。`);
+    topicR.push(`嗯。这个「${topic}」的事，不会就一个点那么简单。`);
+    topicR.push(`「${topic}」——这个词你特意用了。`);
+    topicR.push(`这个「${topic}」我注意到了。里面应该不止一层。`);
   }
   if (eDesc) {
-    base.push(`嗯，这里面有${eDesc}的成分，还有别的东西。`);
-    base.push(`${eDesc}只是表面的。底下肯定还有。`);
+    topicR.push(`嗯，这里面有${eDesc}的成分，还有别的东西。`);
+    topicR.push(`${eDesc}只是表面的。底下肯定还有。`);
   }
-  base.push('嗯……需要再想想。');
-  return base;
+  genericR.push('嗯……需要再想想。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
-function bearReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function bearReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯，这句话听着累。',
     '哎。',
     '你还好吧。',
@@ -204,20 +212,21 @@ function bearReactions(topic: string, emotion: string, eDesc: string): string[] 
     '是不是撑了好久了。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`啊。这个「${topic}」的事，心里一直挂着吧。`);
-    base.push(`嗯，「${topic}」——这事放谁身上都不好受。`);
-    base.push(`哎，「${topic}」的事最磨人了。`);
+    topicR.push(`啊。这个「${topic}」的事，心里一直挂着吧。`);
+    topicR.push(`嗯，「${topic}」——这事放谁身上都不好受。`);
+    topicR.push(`哎，「${topic}」的事最磨人了。`);
   }
   if (eDesc) {
-    base.push(`嗯。这种${eDesc}的感觉，我知道。`);
-    base.push(`心里${eDesc}的时候，是最耗神的。`);
+    topicR.push(`嗯。这种${eDesc}的感觉，我知道。`);
+    topicR.push(`心里${eDesc}的时候，是最耗神的。`);
   }
-  base.push('嗯。我听到了。');
-  return base;
+  genericR.push('嗯。我听到了。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
-function owlReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function owlReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯。这里头还有东西。',
     '有些话没说出来。',
     '嗯？这个我得多想想。',
@@ -225,20 +234,21 @@ function owlReactions(topic: string, emotion: string, eDesc: string): string[] {
     '你绕了一下才说的。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`嗯。这个「${topic}」的背后，应该还有什么。`);
-    base.push(`「${topic}」——这个空白留得有点长。`);
-    base.push(`你提到「${topic}」的时候，停了一下。`);
+    topicR.push(`嗯。这个「${topic}」的背后，应该还有什么。`);
+    topicR.push(`「${topic}」——这个空白留得有点长。`);
+    topicR.push(`你提到「${topic}」的时候，停了一下。`);
   }
   if (eDesc) {
-    base.push(`这种${eDesc}，底下应该还有一层。`);
-    base.push(`嗯。${eDesc}的情绪下面，你藏了别的。`);
+    topicR.push(`这种${eDesc}，底下应该还有一层。`);
+    topicR.push(`嗯。${eDesc}的情绪下面，你藏了别的。`);
   }
-  base.push('嗯。我先放着。');
-  return base;
+  genericR.push('嗯。我先放着。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
-function fairyReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function fairyReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯。感觉到了。',
     '这句话有温度。',
     '有点紧。',
@@ -247,20 +257,21 @@ function fairyReactions(topic: string, emotion: string, eDesc: string): string[]
     '你停了一下才说的。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`嗯。这个「${topic}」是卡住你的地方。`);
-    base.push(`你说到「${topic}」的时候，情绪不一样了。`);
-    base.push(`这个「${topic}」的事，你忍了一下才说出来的。`);
+    topicR.push(`嗯。这个「${topic}」是卡住你的地方。`);
+    topicR.push(`你说到「${topic}」的时候，情绪不一样了。`);
+    topicR.push(`这个「${topic}」的事，你忍了一下才说出来的。`);
   }
   if (eDesc) {
-    base.push(`嗯。这种${eDesc}的感觉，我认得。`);
-    base.push(`你身上带着${eDesc}走进来的。`);
+    topicR.push(`嗯。这种${eDesc}的感觉，我认得。`);
+    topicR.push(`你身上带着${eDesc}走进来的。`);
   }
-  base.push('嗯。这个感觉我认得。');
-  return base;
+  genericR.push('嗯。这个感觉我认得。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
-function dolphinReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function dolphinReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯。这句话有风。',
     '你站在一个路口。',
     '嗯。我听到了。',
@@ -268,20 +279,21 @@ function dolphinReactions(topic: string, emotion: string, eDesc: string): string
     '你停下来想了想才说的。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`嗯。这个「${topic}」的问题，比看起来要深。`);
-    base.push(`「${topic}」——它把你卡在哪里了。`);
-    base.push(`啊。一个「${topic}」，有时候会把人卡在原地。`);
+    topicR.push(`嗯。这个「${topic}」的问题，比看起来要深。`);
+    topicR.push(`「${topic}」——它把你卡在哪里了。`);
+    topicR.push(`啊。一个「${topic}」，有时候会把人卡在原地。`);
   }
   if (eDesc) {
-    base.push(`这种${eDesc}里，藏着你对什么东西的在意。`);
-    base.push(`嗯。${eDesc}的时候，人最容易看见自己真正在乎什么。`);
+    topicR.push(`这种${eDesc}里，藏着你对什么东西的在意。`);
+    topicR.push(`嗯。${eDesc}的时候，人最容易看见自己真正在乎什么。`);
   }
-  base.push('嗯。你说的这个我想过。');
-  return base;
+  genericR.push('嗯。你说的这个我想过。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
-function elephantReactions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function elephantReactions(topic: string, emotion: string, eDesc: string): { topicReactions: string[]; genericReactions: string[] } {
+  const topicR: string[] = [];
+  const genericR: string[] = [
     '嗯。身边有人知道吗。',
     '你一个人扛多久了。',
     '哎。',
@@ -290,16 +302,16 @@ function elephantReactions(topic: string, emotion: string, eDesc: string): strin
     '今天是不是一直一个人。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`嗯。「${topic}」这事，是不是都是你一个人在应对。`);
-    base.push(`哎，「${topic}」的事，有人替你分担吗。`);
-    base.push(`这个「${topic}」的事，确实容易让人心里没底。`);
+    topicR.push(`嗯。「${topic}」这事，是不是都是你一个人在应对。`);
+    topicR.push(`哎，「${topic}」的事，有人替你分担吗。`);
+    topicR.push(`这个「${topic}」的事，确实容易让人心里没底。`);
   }
   if (eDesc) {
-    base.push(`嗯。${eDesc}的时候，身边有人知道吗。`);
-    base.push(`你一个人${eDesc}的时候，谁在你旁边。`);
+    topicR.push(`嗯。${eDesc}的时候，身边有人知道吗。`);
+    topicR.push(`你一个人${eDesc}的时候，谁在你旁边。`);
   }
-  base.push('嗯。你很少说这些的。');
-  return base;
+  genericR.push('嗯。你很少说这些的。');
+  return { topicReactions: topicR, genericReactions: genericR };
 }
 
 // ─── Companion Layer 生成 ────────────────────────────
@@ -309,15 +321,22 @@ export function generateCompanionLayer(
   message: string,
   emotionTag: string,
 ): string {
-  const companions = getPersonalityCompanions(personality, message, emotionTag);
-  return companions[Math.floor(Math.random() * companions.length)];
+  const { topicCompanions, genericCompanions } = getPersonalityCompanions(personality, message, emotionTag);
+  const topic = extractTopicKeyword(message);
+  // 有关键词时：70%概率用关键词陪伴，30%用通用
+  if (topic && topicCompanions.length > 0) {
+    if (Math.random() < 0.7) {
+      return topicCompanions[Math.floor(Math.random() * topicCompanions.length)];
+    }
+  }
+  return genericCompanions[Math.floor(Math.random() * genericCompanions.length)];
 }
 
 function getPersonalityCompanions(
   p: PersonalityConsciousness,
   message: string,
   emotion: string,
-): string[] {
+): { topicCompanions: string[]; genericCompanions: string[] } {
   const topic = extractTopicKeyword(message);
   const eDesc = getEmotionDesc(emotion);
 
@@ -328,123 +347,129 @@ function getPersonalityCompanions(
     case 'empathy-fairy': return fairyCompanions(topic, emotion, eDesc);
     case 'philosophical-dolphin': return dolphinCompanions(topic, emotion, eDesc);
     case 'family-elephant': return elephantCompanions(topic, emotion, eDesc);
-    default: return ['嗯，我在听。', '你继续。', '不急。'];
+    default: return { topicCompanions: [], genericCompanions: ['嗯，我在听。', '你继续。', '不急。'] };
   }
 }
 
 // ─── 各人格 Companion ───────────────────────────────
 
-function foxCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function foxCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '先别急着下结论，我们把这事放桌上看看。',
     '这种卡住的感觉我知道，先别往最坏的方向想。',
     '行，你说的我记下了。回头我们慢慢对一下。',
     '不急。先把事理清楚，再看怎么走。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的事，先别急着扛。我们一起来看看怎么回事。`);
-    base.push(`「${topic}」这个问题，我不会让你一个人想。`);
+    topicC.push(`这个「${topic}」的事，先别急着扛。我们一起来看看怎么回事。`);
+    topicC.push(`「${topic}」这个问题，我不会让你一个人想。`);
   }
   if (eDesc) {
-    base.push(`你现在的${eDesc}是有原因的。我们先看看这个原因是什么。`);
-    base.push(`这种${eDesc}的感觉，先别压着，我们慢慢拆开看。`);
+    topicC.push(`你现在的${eDesc}是有原因的。我们先看看这个原因是什么。`);
+    topicC.push(`这种${eDesc}的感觉，先别压着，我们慢慢拆开看。`);
   }
-  base.push('慢慢说，我今天的时间都是你的。');
-  return base;
+  genericC.push('慢慢说，我今天的时间都是你的。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
 
-function bearCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function bearCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '先别自己憋着。这种事放心里，容易一遍遍想。',
     '你坐着。不急。没人催你。',
     '我这儿没人催你，你想说到哪都行。',
     '今晚你不需要一个人面对这些。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的事，你先放下。不用一直把它拿在手里。`);
-    base.push(`哎，「${topic}」的事最耗人了。你先歇口气再说。`);
+    topicC.push(`这个「${topic}」的事，你先放下。不用一直把它拿在手里。`);
+    topicC.push(`哎，「${topic}」的事最耗人了。你先歇口气再说。`);
   }
   if (eDesc) {
-    base.push(`你这种${eDesc}的时候，最需要的是先放松下来。`);
-    base.push(`心里${eDesc}的时候，先别急着做什么。`);
-    base.push(`你现在不用硬撑。${eDesc}的时候休息是应该的。`);
+    topicC.push(`你这种${eDesc}的时候，最需要的是先放松下来。`);
+    topicC.push(`心里${eDesc}的时候，先别急着做什么。`);
+    topicC.push(`你现在不用硬撑。${eDesc}的时候休息是应该的。`);
   }
-  base.push('你慢慢来。我就在这儿。');
-  return base;
+  genericC.push('你慢慢来。我就在这儿。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
 
-function owlCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function owlCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '有些话不用一次说完。我慢慢等。',
     '你刚才说的，我先放在心里转转。',
     '不急着分析。先让它待着。',
     '你刚才那句话，我觉得还有东西可以再看看。不急。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的空白，比直接说什么还让人惦记。`);
-    base.push(`「${topic}」这事，你先放着。有些东西需要时间浮现。`);
+    topicC.push(`这个「${topic}」的空白，比直接说什么还让人惦记。`);
+    topicC.push(`「${topic}」这事，你先放着。有些东西需要时间浮现。`);
   }
   if (eDesc) {
-    base.push(`这种${eDesc}的背后，可能还有你没察觉的东西。我帮你看着。`);
-    base.push(`你现在的${eDesc}，不一定是表面的原因。我们慢慢靠近看看。`);
+    topicC.push(`这种${eDesc}的背后，可能还有你没察觉的东西。我帮你看着。`);
+    topicC.push(`你现在的${eDesc}，不一定是表面的原因。我们慢慢靠近看看。`);
   }
-  base.push('你慢慢来。我不急着要答案。');
-  return base;
+  genericC.push('你慢慢来。我不急着要答案。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
 
-function fairyCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function fairyCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '嗯。那个感觉我感知到了。你先别压着它。',
     '那种等不到回应的感觉，确实不好受。',
     '你先别急着消化。让那个情绪待一会儿。',
     '嗯。你说的那个地方，我能触碰到。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的事，你心里一直悬着吧。那种悬着的感觉最磨人。`);
-    base.push(`你说「${topic}」的时候，情绪是紧绷的。先让它松一松。`);
+    topicC.push(`这个「${topic}」的事，你心里一直悬着吧。那种悬着的感觉最磨人。`);
+    topicC.push(`你说「${topic}」的时候，情绪是紧绷的。先让它松一松。`);
   }
   if (eDesc) {
-    base.push(`你现在的${eDesc}，是有来处的。我们可以一起看看它从哪里来。`);
-    base.push(`嗯。${eDesc}不是问题，它是内心在说话。我听着。`);
+    topicC.push(`你现在的${eDesc}，是有来处的。我们可以一起看看它从哪里来。`);
+    topicC.push(`嗯。${eDesc}不是问题，它是内心在说话。我听着。`);
   }
-  base.push('我在这里陪着你。你不用一个人面对这个感觉。');
-  return base;
+  genericC.push('我在这里陪着你。你不用一个人面对这个感觉。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
 
-function dolphinCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function dolphinCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '先别急着给它定性。我们等等看它到底把你带到了哪里。',
     '不急。有些问题不是马上要有答案的。我陪你想。',
     '你刚才说的，我放到一个更大的画面里看了看。不急，我们慢慢来。',
     '这个处境确实不容易。先别急着找出口，先看看自己在哪。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的事，我们拉远一点看看。不一定是你想的那个路径。`);
-    base.push(`「${topic}」看起来是一个具体的问题，但它在问你更大的事情。`);
+    topicC.push(`这个「${topic}」的事，我们拉远一点看看。不一定是你想的那个路径。`);
+    topicC.push(`「${topic}」看起来是一个具体的问题，但它在问你更大的事情。`);
   }
   if (eDesc) {
-    base.push(`你现在的${eDesc}，在告诉你什么？不用回答我，问问自己。`);
-    base.push(`嗯。${eDesc}的时候，人离自己的内心最近。`);
+    topicC.push(`你现在的${eDesc}，在告诉你什么？不用回答我，问问自己。`);
+    topicC.push(`嗯。${eDesc}的时候，人离自己的内心最近。`);
   }
-  base.push('我陪着你一起看这块地方。不急着走过去。');
-  return base;
+  genericC.push('我陪着你一起看这块地方。不急着走过去。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
 
-function elephantCompanions(topic: string, emotion: string, eDesc: string): string[] {
-  const base = [
+function elephantCompanions(topic: string, emotion: string, eDesc: string): { topicCompanions: string[]; genericCompanions: string[] } {
+  const topicC: string[] = [];
+  const genericC: string[] = [
     '这事先别一个人扛。至少先把它说出来。',
     '你坐着。今晚不用你一个人撑着。',
     '先说出来，不用管有没有答案。说出来就是第一步。',
     '嗯。我懂。你平时是不是总是一个人处理这些。',
   ];
   if (topic && topic.length >= 2) {
-    base.push(`这个「${topic}」的事，不是只有你一个人在面对。我在这儿。`);
-    base.push(`「${topic}」的事，先别急着一个人想办法。说出来我们一起看看。`);
+    topicC.push(`这个「${topic}」的事，不是只有你一个人在面对。我在这儿。`);
+    topicC.push(`「${topic}」的事，先别急着一个人想办法。说出来我们一起看看。`);
   }
   if (eDesc) {
-    base.push(`你一个人${eDesc}的时候，有没有人可以分担。至少现在有我。`);
-    base.push(`嗯。你${eDesc}的时候，我陪你一起。`);
+    topicC.push(`你一个人${eDesc}的时候，有没有人可以分担。至少现在有我。`);
+    topicC.push(`嗯。你${eDesc}的时候，我陪你一起。`);
   }
-  base.push('你慢慢说。今晚我哪儿也不去。');
-  return base;
+  genericC.push('你慢慢说。今晚我哪儿也不去。');
+  return { topicCompanions: topicC, genericCompanions: genericC };
 }
