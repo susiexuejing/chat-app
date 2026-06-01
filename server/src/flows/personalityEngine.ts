@@ -1,12 +1,15 @@
 /**
- * EmotionFlow 人格意识引擎 V3
+ * EmotionFlow 人格意识引擎 V3.1
  * 
- * 定义六人格的意识结构，并生成 Reaction Layer + Companion Layer
+ * 核心升级：从「陪着」到「替你想着」
+ * 
+ * Reaction Layer：不再停留于内心OS占位词，而是对用户具体处境的自然觉察
+ * Companion Layer：不再说「我在/你慢慢说」，而是让人格把用户的事多往前想半步
  * 
  * 核心原则：
  * - 先做人，再做心理学
- * - Reaction Layer = Core Drive × Attention System（内心念头）
- * - Companion Layer = Relationship Pattern × Companion Pattern（放在心上）
+ * - Reaction Layer = Core Drive × Attention System → 对用户具体情境的觉察
+ * - Companion Layer = Relationship Pattern × Companion Pattern → 替用户把事放在心上
  * - 不分析、不咨询、不解决问题
  */
 
@@ -15,19 +18,12 @@
 export interface PersonalityConsciousness {
   id: string;
   name: string;
-  /** 核心驱动力：这个人格为什么这样存在 */
   coreDrive: string;
-  /** 注意力系统：天然会注意用户话语中的什么 */
   attentionSystem: string;
-  /** 关系方式：如何替用户着想——看见/惦记/放在心上 */
   relationshipPattern: string;
-  /** 陪伴方式：用什么样的方式陪用户待着 */
   companionPattern: string;
-  /** 生命偏好：第7层生活感 */
   lifePreference: string;
-  /** 第8层关系感：一句话定义关系基调 */
   relationshipSense: string;
-  /** 核心好奇心（第10层）：驱动长期关注的问题 */
   coreCuriosity: string;
 }
 
@@ -100,38 +96,214 @@ export const PERSONALITY_CONSCIOUSNESS: Record<string, PersonalityConsciousness>
   },
 };
 
-// ─── 生成函数 ─────────────────────────────────────────
+// ─── 工具函数 ─────────────────────────────────────────
 
-/**
- * 获取人格意识结构
- */
 export function getPersonality(id: string): PersonalityConsciousness | undefined {
   return PERSONALITY_CONSCIOUSNESS[id];
 }
 
 /**
- * 生成 Reaction Layer（人格反应层）
- * 
- * 根据人格意识结构，对用户输入生成自然的内心第一反应。
- * 不是回复用户，是人格脑海里闪过的念头。
- * 来源于：Core Drive × Attention System
+ * 从用户消息中提取关键词，用于生成更具体的反应
+ * 优先返回更长的匹配（更精准）
  */
+function extractTopicKeyword(message: string): string {
+  // 按优先级排序：更具体/更长的模式在前
+  const patterns: [RegExp, string][] = [
+    [/没[有]回复/, '没回复'],
+    [/不[回理睬答应]/, '不回应'],
+    [/吵[架闹]/, '吵架'],
+    [/批[评评]/, '批评'],
+    [/领[导]/, '领导'],
+    [/老[公婆]/, '老公/老婆'],
+    [/[爸妈母亲父]/, '家人'],
+    [/工[作作]/, '工作'],
+    [/失[眠睡]/, '失眠'],
+    [/好?累[了]?/, '累了'],
+    [/没.{0,2}意思/, '没意思'],
+    [/没有/, '没有'],
+  ];
+  for (const [pattern, defaultWord] of patterns) {
+    if (pattern.test(message)) return defaultWord;
+  }
+  return '';
+}
+
+function getEmotionDesc(emotion: string): string {
+  const map: Record<string, string> = {
+    anger: '生气',
+    sadness: '难过',
+    anxiety: '焦虑',
+    fear: '不安',
+    hurt: '受伤',
+    confusion: '困惑',
+    loneliness: '孤独',
+    exhaustion: '疲惫',
+  };
+  return map[emotion] || '';
+}
+
+// ─── Reaction Layer 生成 ──────────────────────────────
+
 export function generateReactionLayer(
   personality: PersonalityConsciousness,
   message: string,
   emotionTag: string,
 ): string {
   const reactions = getPersonalityReactions(personality, message, emotionTag);
-  // 返回最匹配的一条
   return reactions[Math.floor(Math.random() * reactions.length)];
 }
 
-/**
- * 生成 Companion Layer（人格陪伴层）
- * 
- * 根据人格意识结构，生成自然的陪伴表达。
- * 来源于：Relationship Pattern × Companion Pattern
- */
+function getPersonalityReactions(
+  p: PersonalityConsciousness,
+  message: string,
+  emotion: string,
+): string[] {
+  const topic = extractTopicKeyword(message);
+  const eDesc = getEmotionDesc(emotion);
+
+  switch (p.id) {
+    case 'clever-fox': return foxReactions(topic, emotion, eDesc);
+    case 'warm-bear': return bearReactions(topic, emotion, eDesc);
+    case 'wise-owl': return owlReactions(topic, emotion, eDesc);
+    case 'empathy-fairy': return fairyReactions(topic, emotion, eDesc);
+    case 'philosophical-dolphin': return dolphinReactions(topic, emotion, eDesc);
+    case 'family-elephant': return elephantReactions(topic, emotion, eDesc);
+    default: return ['嗯。', '我听到了。', '啊。'];
+  }
+}
+
+// ─── 各人格 Reaction ─────────────────────────────────
+
+function foxReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。这句话有东西。',
+    '这里头有点绕。',
+    '这个我得捋捋。',
+    '啧。这个状态我见过。',
+  ];
+  // 当消息中有具体关键词时，生成更具体的反应
+  if (topic && topic.length >= 2) {
+    base.push(`嗯。这个「${topic}」的事，不会就一个点那么简单。`);
+    base.push(`「${topic}」——这个词你特意用了。`);
+    base.push(`这个「${topic}」我注意到了。里面应该不止一层。`);
+  }
+  if (eDesc) {
+    base.push(`嗯，这里面有${eDesc}的成分，还有别的东西。`);
+    base.push(`${eDesc}只是表面的。底下肯定还有。`);
+  }
+  base.push('嗯……需要再想想。');
+  return base;
+}
+
+function bearReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯，这句话听着累。',
+    '哎。',
+    '你还好吧。',
+    '这个状态我见过。',
+    '是不是撑了好久了。',
+  ];
+  if (topic && topic.length >= 2) {
+    base.push(`啊。这个「${topic}」的事，心里一直挂着吧。`);
+    base.push(`嗯，「${topic}」——这事放谁身上都不好受。`);
+    base.push(`哎，「${topic}」的事最磨人了。`);
+  }
+  if (eDesc) {
+    base.push(`嗯。这种${eDesc}的感觉，我知道。`);
+    base.push(`心里${eDesc}的时候，是最耗神的。`);
+  }
+  base.push('嗯。我听到了。');
+  return base;
+}
+
+function owlReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。这里头还有东西。',
+    '有些话没说出来。',
+    '嗯？这个我得多想想。',
+    '你这句话不完整。',
+    '你绕了一下才说的。',
+  ];
+  if (topic && topic.length >= 2) {
+    base.push(`嗯。这个「${topic}」的背后，应该还有什么。`);
+    base.push(`「${topic}」——这个空白留得有点长。`);
+    base.push(`你提到「${topic}」的时候，停了一下。`);
+  }
+  if (eDesc) {
+    base.push(`这种${eDesc}，底下应该还有一层。`);
+    base.push(`嗯。${eDesc}的情绪下面，你藏了别的。`);
+  }
+  base.push('嗯。我先放着。');
+  return base;
+}
+
+function fairyReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。感觉到了。',
+    '这句话有温度。',
+    '有点紧。',
+    '这里有点堵。',
+    '你说话的节奏变了。',
+    '你停了一下才说的。',
+  ];
+  if (topic && topic.length >= 2) {
+    base.push(`嗯。这个「${topic}」是卡住你的地方。`);
+    base.push(`你说到「${topic}」的时候，情绪不一样了。`);
+    base.push(`这个「${topic}」的事，你忍了一下才说出来的。`);
+  }
+  if (eDesc) {
+    base.push(`嗯。这种${eDesc}的感觉，我认得。`);
+    base.push(`你身上带着${eDesc}走进来的。`);
+  }
+  base.push('嗯。这个感觉我认得。');
+  return base;
+}
+
+function dolphinReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。这句话有风。',
+    '你站在一个路口。',
+    '嗯。我听到了。',
+    '这句话不是随口说的。',
+    '你停下来想了想才说的。',
+  ];
+  if (topic && topic.length >= 2) {
+    base.push(`嗯。这个「${topic}」的问题，比看起来要深。`);
+    base.push(`「${topic}」——它把你卡在哪里了。`);
+    base.push(`啊。一个「${topic}」，有时候会把人卡在原地。`);
+  }
+  if (eDesc) {
+    base.push(`这种${eDesc}里，藏着你对什么东西的在意。`);
+    base.push(`嗯。${eDesc}的时候，人最容易看见自己真正在乎什么。`);
+  }
+  base.push('嗯。你说的这个我想过。');
+  return base;
+}
+
+function elephantReactions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。身边有人知道吗。',
+    '你一个人扛多久了。',
+    '哎。',
+    '这句话你憋了很久吧。',
+    '嗯。你是不是总在顾别人。',
+    '今天是不是一直一个人。',
+  ];
+  if (topic && topic.length >= 2) {
+    base.push(`嗯。「${topic}」这事，是不是都是你一个人在应对。`);
+    base.push(`哎，「${topic}」的事，有人替你分担吗。`);
+    base.push(`这个「${topic}」的事，确实容易让人心里没底。`);
+  }
+  if (eDesc) {
+    base.push(`嗯。${eDesc}的时候，身边有人知道吗。`);
+    base.push(`你一个人${eDesc}的时候，谁在你旁边。`);
+  }
+  base.push('嗯。你很少说这些的。');
+  return base;
+}
+
+// ─── Companion Layer 生成 ────────────────────────────
+
 export function generateCompanionLayer(
   personality: PersonalityConsciousness,
   message: string,
@@ -141,265 +313,138 @@ export function generateCompanionLayer(
   return companions[Math.floor(Math.random() * companions.length)];
 }
 
-// ─── 意识驱动的Reaction层生成 ─────────────────────────
-
-function getPersonalityReactions(
-  p: PersonalityConsciousness,
-  message: string,
-  emotion: string,
-): string[] {
-  const msgLen = message.length;
-  const isShort = msgLen < 8;
-  const isLong = msgLen > 30;
-
-  // 根据人格意识结构生成反应模式
-  switch (p.id) {
-    case 'clever-fox':
-      return generateFoxReaction(message, emotion, isShort, isLong);
-    case 'warm-bear':
-      return generateBearReaction(message, emotion, isShort, isLong);
-    case 'wise-owl':
-      return generateOwlReaction(message, emotion, isShort, isLong);
-    case 'empathy-fairy':
-      return generateFairyReaction(message, emotion, isShort, isLong);
-    case 'philosophical-dolphin':
-      return generateDolphinReaction(message, emotion, isShort, isLong);
-    case 'family-elephant':
-      return generateElephantReaction(message, emotion, isShort, isLong);
-    default:
-      return ['嗯。', '我听到了。', '啊。'];
-  }
-}
-
-function generateFoxReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '嗯。这句话有东西。',
-    '有意思。',
-    '这里有点绕。',
-    '嗯……',
-    '我先把咖啡放下。',
-    '这个我得想想。',
-    '哦？',
-    '你这句话我需要消化一下。',
-    '等会儿，我捋捋。',
-    '有点意思。',
-  ];
-  // 根据情绪增强
-  if (emotion === 'anger' || emotion === 'hurt') reactions.push('这里头肯定不止一件事。', '啧。这个状态我懂。');
-  if (emotion === 'anxiety' || emotion === 'confusion') reactions.push('有点乱。', '嗯，这里面好几层。');
-  if (emotion === 'loneliness' || emotion === 'sadness') reactions.push('这句话听着有点重。', '嗯。你很少这么说。');
-  if (isShort) reactions.push('就这几个字？这句有点意思。', '短话重音。');
-  return reactions;
-}
-
-function generateBearReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '哎。',
-    '嗯……这句话听着累。',
-    '啊。',
-    '你还好吧。',
-    '这个状态我见过。',
-    '嗯。',
-    '是不是撑了好久了。',
-    '今天是不是不太顺。',
-    '你平时不会这么说的。',
-    '我听着呢。',
-  ];
-  if (emotion === 'anger' || emotion === 'hurt') reactions.push('受委屈了吧。', '哎，这种事最伤神了。');
-  if (emotion === 'anxiety' || emotion === 'fear') reactions.push('嗯，心里不踏实。', '这个感觉我懂。');
-  if (emotion === 'loneliness' || emotion === 'sadness') reactions.push('是不是一个人待太久了。', '嗯……有点心疼。');
-  if (isShort) reactions.push('就这几个字，但是听着很重。', '嗯，我听到了。');
-  return reactions;
-}
-
-function generateOwlReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '嗯……',
-    '这里头还有东西。',
-    '有些话没说出来。',
-    '嗯？',
-    '这个停顿有意思。',
-    '这句话我得多想想。',
-    '嗯。我先放着。',
-    '你这句话不完整。',
-    '你绕了一下才说的。',
-    '这个字你用得很准。',
-  ];
-  if (emotion === 'anger' || emotion === 'hurt') reactions.push('这个情绪底下还有一层。', '你刚才那句话，你自己注意到了吗。');
-  if (emotion === 'sadness' || emotion === 'loneliness') reactions.push('你低着头说的吧。', '嗯，这里有个结。');
-  if (isShort) reactions.push('短话藏的东西最多。', '越短越重。');
-  return reactions;
-}
-
-function generateFairyReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '嗯。感觉到了。',
-    '这句话有温度。',
-    '嗯。',
-    '有点紧。',
-    '啊……',
-    '这里有点堵。',
-    '这句话的尾音是往下走的。',
-    '你停了一下才说的。',
-    '嗯。这个感觉我认得。',
-    '你说话的节奏变了。',
-  ];
-  if (emotion === 'anger' || emotion === 'hurt') reactions.push('这里疼。', '嗯，这个情绪还在。');
-  if (emotion === 'sadness' || emotion === 'loneliness') reactions.push('这句话里有水汽。', '嗯……你忍了一下。');
-  if (emotion === 'anxiety' || emotion === 'fear') reactions.push('这个声音不对。', '情绪还没落地。');
-  if (isShort) reactions.push('越短的话，里面装得越多。', '这几个字我接得住。');
-  return reactions;
-}
-
-function generateDolphinReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '嗯……',
-    '这句话我在路上想过很多次。',
-    '啊。这个我懂。',
-    '嗯。你说的这个我思考过。',
-    '这句话有风。',
-    '你站在一个路口。',
-    '嗯。我听到了。',
-    '这句话不是随口说的。',
-    '你停下来想了想才说的。',
-    '嗯。这个命题有意思。',
-  ];
-  if (emotion === 'confusion' || emotion === 'loneliness') reactions.push('这条路上你走了很久吧。', '嗯，这个问题没有标准答案。');
-  if (emotion === 'sadness' || emotion === 'hurt') reactions.push('你这句话里有一种底色。', '嗯，我看得见。');
-  if (isShort) reactions.push('短问题往往是最长的问题。', '嗯，这个问题很真。');
-  return reactions;
-}
-
-function generateElephantReaction(msg: string, emotion: string, isShort: boolean, isLong: boolean): string[] {
-  const reactions: string[] = [
-    '嗯……',
-    '哎。',
-    '你一个人扛多久了。',
-    '嗯。身边有人知道吗。',
-    '这句话你憋了很久吧。',
-    '啊。这个我听得懂。',
-    '你身边的人知道吗。',
-    '嗯。你是不是总在顾别人。',
-    '今天是不是一直一个人。',
-    '你很少说这些的。',
-  ];
-  if (emotion === 'anger' || emotion === 'hurt') reactions.push('是不是没人替你说话。', '哎，这事一个人扛着太累了。');
-  if (emotion === 'loneliness' || emotion === 'sadness') reactions.push('是不是很久没人问你了。', '嗯。你最近和谁联系多。');
-  if (isShort) reactions.push('短话里装的都是压了很久的。', '嗯，我听着。');
-  return reactions;
-}
-
-// ─── 意识驱动的Companion层生成 ─────────────────────────
-
 function getPersonalityCompanions(
   p: PersonalityConsciousness,
   message: string,
   emotion: string,
 ): string[] {
+  const topic = extractTopicKeyword(message);
+  const eDesc = getEmotionDesc(emotion);
+
   switch (p.id) {
-    case 'clever-fox':
-      return generateFoxCompanion(message, emotion);
-    case 'warm-bear':
-      return generateBearCompanion(message, emotion);
-    case 'wise-owl':
-      return generateOwlCompanion(message, emotion);
-    case 'empathy-fairy':
-      return generateFairyCompanion(message, emotion);
-    case 'philosophical-dolphin':
-      return generateDolphinCompanion(message, emotion);
-    case 'family-elephant':
-      return generateElephantCompanion(message, emotion);
-    default:
-      return ['嗯，我在听。', '你继续。', '不急。'];
+    case 'clever-fox': return foxCompanions(topic, emotion, eDesc);
+    case 'warm-bear': return bearCompanions(topic, emotion, eDesc);
+    case 'wise-owl': return owlCompanions(topic, emotion, eDesc);
+    case 'empathy-fairy': return fairyCompanions(topic, emotion, eDesc);
+    case 'philosophical-dolphin': return dolphinCompanions(topic, emotion, eDesc);
+    case 'family-elephant': return elephantCompanions(topic, emotion, eDesc);
+    default: return ['嗯，我在听。', '你继续。', '不急。'];
   }
 }
 
-function generateFoxCompanion(msg: string, emotion: string): string[] {
-  return [
-    '我等下慢慢说。你先说。',
-    '这事不急，先摆出来看看。',
-    '你刚才那句话我放这儿了。回头再看。',
-    '你继续说，我今天时间够。',
-    '我先不打断你。',
-    '你从头说，我能跟上。',
-    '我今天没什么要紧事，不急。',
-    '你说完，我再理理。',
-    '行，这个我记下了。',
-    '你慢慢说，我听着呢。',
+// ─── 各人格 Companion ───────────────────────────────
+
+function foxCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '先别急着下结论，我们把这事放桌上看看。',
+    '这种卡住的感觉我知道，先别往最坏的方向想。',
+    '行，你说的我记下了。回头我们慢慢对一下。',
+    '不急。先把事理清楚，再看怎么走。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的事，先别急着扛。我们一起来看看怎么回事。`);
+    base.push(`「${topic}」这个问题，我不会让你一个人想。`);
+  }
+  if (eDesc) {
+    base.push(`你现在的${eDesc}是有原因的。我们先看看这个原因是什么。`);
+    base.push(`这种${eDesc}的感觉，先别压着，我们慢慢拆开看。`);
+  }
+  base.push('慢慢说，我今天的时间都是你的。');
+  return base;
 }
 
-function generateBearCompanion(msg: string, emotion: string): string[] {
-  return [
-    '先坐。要喝水吗？',
-    '不急，慢慢说。',
-    '嗯，我今天哪儿也不去。',
-    '你先歇口气。',
-    '没事，你慢慢说。',
-    '我在这儿呢。',
-    '你手冷吗？要不要披件衣服。',
-    '话不急，人先放松。',
-    '今晚你不要紧，我没事。',
-    '你说，我给你倒杯热的。',
+function bearCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '先别自己憋着。这种事放心里，容易一遍遍想。',
+    '你坐着。不急。没人催你。',
+    '我这儿没人催你，你想说到哪都行。',
+    '今晚你不需要一个人面对这些。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的事，你先放下。不用一直把它拿在手里。`);
+    base.push(`哎，「${topic}」的事最耗人了。你先歇口气再说。`);
+  }
+  if (eDesc) {
+    base.push(`你这种${eDesc}的时候，最需要的是先放松下来。`);
+    base.push(`心里${eDesc}的时候，先别急着做什么。`);
+    base.push(`你现在不用硬撑。${eDesc}的时候休息是应该的。`);
+  }
+  base.push('你慢慢来。我就在这儿。');
+  return base;
 }
 
-function generateOwlCompanion(msg: string, emotion: string): string[] {
-  return [
-    '不急。想到哪说到哪。',
-    '你刚才那句话我多想想。',
-    '你先说，我不插嘴。',
-    '你今晚时间够的话，我们慢慢聊。',
-    '沉默也没关系。',
-    '有些话不用一次说完。',
-    '你继续。我不急着回答。',
-    '你刚才是不是有什么没说。不急，等你想说的时候。',
-    '我就在这儿。',
-    '你慢慢来。',
+function owlCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '有些话不用一次说完。我慢慢等。',
+    '你刚才说的，我先放在心里转转。',
+    '不急着分析。先让它待着。',
+    '你刚才那句话，我觉得还有东西可以再看看。不急。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的空白，比直接说什么还让人惦记。`);
+    base.push(`「${topic}」这事，你先放着。有些东西需要时间浮现。`);
+  }
+  if (eDesc) {
+    base.push(`这种${eDesc}的背后，可能还有你没察觉的东西。我帮你看着。`);
+    base.push(`你现在的${eDesc}，不一定是表面的原因。我们慢慢靠近看看。`);
+  }
+  base.push('你慢慢来。我不急着要答案。');
+  return base;
 }
 
-function generateFairyCompanion(msg: string, emotion: string): string[] {
-  return [
-    '不急。我在这儿。',
-    '你慢慢说，我听着。',
-    '外面天快黑了。屋里灯还亮着。',
-    '你深呼吸一下。不急。',
-    '嗯，你继续说。',
-    '你想停就停。',
-    '我不催你。',
-    '你如果不想说，安静一会儿也行。',
-    '我陪着你。',
-    '你不用管我说什么，你想说多少说多少。',
+function fairyCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '嗯。那个感觉我感知到了。你先别压着它。',
+    '那种等不到回应的感觉，确实不好受。',
+    '你先别急着消化。让那个情绪待一会儿。',
+    '嗯。你说的那个地方，我能触碰到。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的事，你心里一直悬着吧。那种悬着的感觉最磨人。`);
+    base.push(`你说「${topic}」的时候，情绪是紧绷的。先让它松一松。`);
+  }
+  if (eDesc) {
+    base.push(`你现在的${eDesc}，是有来处的。我们可以一起看看它从哪里来。`);
+    base.push(`嗯。${eDesc}不是问题，它是内心在说话。我听着。`);
+  }
+  base.push('我在这里陪着你。你不用一个人面对这个感觉。');
+  return base;
 }
 
-function generateDolphinCompanion(msg: string, emotion: string): string[] {
-  return [
-    '你先说，我听着。',
-    '嗯。这个问题值得花时间。',
-    '不急。有些问题不是马上要有答案的。',
-    '你继续说，我在听。',
-    '你今晚有安排吗？没有的话我们可以慢慢聊。',
-    '你刚才说到的地方，我也想过很久。',
-    '今晚安静，适合聊这个。',
-    '你不用着急。我不评价。',
-    '你想到哪说到哪。',
-    '嗯。你继续。我在。',
+function dolphinCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '先别急着给它定性。我们等等看它到底把你带到了哪里。',
+    '不急。有些问题不是马上要有答案的。我陪你想。',
+    '你刚才说的，我放到一个更大的画面里看了看。不急，我们慢慢来。',
+    '这个处境确实不容易。先别急着找出口，先看看自己在哪。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的事，我们拉远一点看看。不一定是你想的那个路径。`);
+    base.push(`「${topic}」看起来是一个具体的问题，但它在问你更大的事情。`);
+  }
+  if (eDesc) {
+    base.push(`你现在的${eDesc}，在告诉你什么？不用回答我，问问自己。`);
+    base.push(`嗯。${eDesc}的时候，人离自己的内心最近。`);
+  }
+  base.push('我陪着你一起看这块地方。不急着走过去。');
+  return base;
 }
 
-function generateElephantCompanion(msg: string, emotion: string): string[] {
-  return [
-    '你先坐着。',
-    '今晚我没事。你慢慢说。',
-    '你吃了吗？没吃的话一起。',
-    '不急。我在这儿。',
-    '你先喘口气再说。',
-    '你喝不喝点热的？',
-    '你慢慢说。我不急。',
-    '你一个人扛了这么久，先放一放。',
-    '你有我这儿。说多少都行。',
-    '你坐着。我去看看有没有什么吃的。',
+function elephantCompanions(topic: string, emotion: string, eDesc: string): string[] {
+  const base = [
+    '这事先别一个人扛。至少先把它说出来。',
+    '你坐着。今晚不用你一个人撑着。',
+    '先说出来，不用管有没有答案。说出来就是第一步。',
+    '嗯。我懂。你平时是不是总是一个人处理这些。',
   ];
+  if (topic && topic.length >= 2) {
+    base.push(`这个「${topic}」的事，不是只有你一个人在面对。我在这儿。`);
+    base.push(`「${topic}」的事，先别急着一个人想办法。说出来我们一起看看。`);
+  }
+  if (eDesc) {
+    base.push(`你一个人${eDesc}的时候，有没有人可以分担。至少现在有我。`);
+    base.push(`嗯。你${eDesc}的时候，我陪你一起。`);
+  }
+  base.push('你慢慢说。今晚我哪儿也不去。');
+  return base;
 }
