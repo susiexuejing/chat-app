@@ -77,7 +77,7 @@ interface ChatSession {
   frontFlowText: string;
   reactionLayer: string;        // EmotionFlow V3: 人格自然第一反应
   companionLayer: string;       // EmotionFlow V3: 人格自然陪伴
-  deepReadyAt: number;          // EmotionFlow V3: 百炼Deep层就绪时间戳（createdAt + 90s）
+  deepReadyAt: number;          // EmotionFlow V3: 百炼Deep层就绪时间戳（createdAt + 3s，动态缓冲）
   createdAt: number;
   deepChunks: string[];         // 流式chunk队列（实时推送）
   deepDone: boolean;            // 是否已完成生成
@@ -918,7 +918,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       frontFlowText,
       reactionLayer,
       companionLayer,
-      deepReadyAt: now + 90000,   // 90秒后才开始推送Deep层
+      deepReadyAt: now + 3000,   // 3秒后开始推送Deep层（动态缓冲，够Reaction展示即可）
       createdAt: now,
       deepChunks: [],
       deepDone: false,
@@ -955,8 +955,9 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
 // ============================================================
 // 接口 2：GET /api/v1/chat/stream?sessionId=xxx
-// SSE 流式返回人格陪伴流 + 百炼深度分析结果（90秒缓存）
-// 前90秒专注展示 Reaction + Companion，百炼结果先缓存排队
+// SSE 流式返回人格陪伴流 + 百炼深度分析结果（动态缓冲）
+// 前端首选展示 Reaction + Companion 时间线，一旦百炼就绪立即接管
+// 不再固定90秒等待，百炼返回多快接管多快
 // ============================================================
 app.get('/api/v1/chat/stream', (req, res) => {
   const { sessionId } = req.query;
@@ -991,7 +992,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
   const pollInterval = setInterval(() => {
     const now = Date.now();
 
-    // 90秒内：只发心跳，不发deep chunks（百炼结果在缓存中排队）
+    // 动态缓冲期内：只发心跳，不发deep chunks
     if (now < session.deepReadyAt) {
       // 每5秒发一次心跳保持连接
       if (now - lastHeartbeat >= 5000) {
@@ -1001,7 +1002,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
       return;
     }
 
-    // 90秒后：开始推送缓存的deep chunks
+    // 缓冲期后：开始推送缓存的deep chunks
     while (lastIndex < session.deepChunks.length) {
       const chunk = session.deepChunks[lastIndex++];
       if (chunk) {

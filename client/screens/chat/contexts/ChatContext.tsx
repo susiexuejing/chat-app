@@ -137,8 +137,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline } = sessionInfo;
 
-        // ====== 第二阶段：EmotionFlow V3 时间线打字引擎 ======
-        // V3 时间线：Reaction（8s→18s→30s）→ Companion（45s→60s→75s→90s）→ Deep（90s后接管）
+        // ====== 第二阶段：EmotionFlow V3 动态缓冲引擎 ======
+        // Reaction（8s→18s→30s）→ Companion（动态填充，Deep就绪时立即切断接管）
         const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
         // 初始内容：Reaction第一段 或 fallback
@@ -276,6 +276,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   if (parsed.content) {
                     if (!isDeepStarted) {
                       isDeepStarted = true;
+                      // ★ Deep就绪！切断时间线，立即接管
+                      // 1. 清空所有待播时间线定时器
+                      timelineSchedules.forEach(t => clearTimeout(t));
+                      timelineSchedules.length = 0;
+                      // 2. 清除打字机
+                      if (typingTimer) {
+                        clearTimeout(typingTimer);
+                        typingTimer = null;
+                      }
+                      // 3. 清空待播队列
+                      textQueue.length = 0;
+
+                      // 4. 如果正在显示等待文案 → 替换为deep
+                      if (isWaiting) {
+                        isWaiting = false;
+                        displayedContent = displayedContent.substring(0, waitingPos);
+                        waitingPos = -1;
+                        setMessages(prev =>
+                          prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+                        );
+                        const transition = '\n\n';
+                        const toPush = deepBuffer ? transition + deepBuffer + parsed.content : transition + parsed.content;
+                        deepBuffer = '';
+                        pushToQueue(toPush);
+                        scheduleNext();
+                        return;
+                      }
+
+                      // 5. 时间线仍在播放 → 立即插入Deep内容
+                      pushToQueue(parsed.content);
+                      scheduleNext();
+                      return;
                     }
                     if (isWaiting) {
                       // ★ 等待期间：缓存到 deepBuffer，不入队（防止混入 displayedContent 被截断）
