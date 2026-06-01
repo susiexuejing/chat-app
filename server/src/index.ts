@@ -11,6 +11,10 @@ import {
   generateCompanionLayer,
 } from './flows/personalityEngine';
 
+// 加载 V3 90秒陪伴模板库
+import * as _companionTemplate from './flows/companion_90s.json';
+const COMPANION_TEMPLATE = (_companionTemplate as any).default || _companionTemplate;
+
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
 console.log('DASHSCOPE_API_KEY_DEEP:', process.env.DASHSCOPE_API_KEY_DEEP ? 'SET' : 'NOT SET');
@@ -886,6 +890,18 @@ app.post('/api/v1/chat/start', async (req, res) => {
       companionLayer = frontFlowText;
     }
 
+    // 4.5 加载 V3 90秒陪伴模板时间线（多段分段展示）
+    let reactionTimeline: Array<{displayAt: number; text: string}> | undefined;
+    let companionTimeline: Array<{displayAt: number; text: string}> | undefined;
+    const templateData = (COMPANION_TEMPLATE as any).personalities?.find(
+      (p: any) => p.roleId === roleId
+    );
+    if (templateData && templateData.displaySamples?.length > 0) {
+      const sample = templateData.displaySamples[0];
+      reactionTimeline = sample.reactionLayer;
+      companionTimeline = sample.companionLayer;
+    }
+
     // 5. 创建会话
     const sessionId = crypto.randomUUID();
     const now = Date.now();
@@ -910,7 +926,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     };
     sessions.set(sessionId, session);
 
-    // 6. 立即返回前端流 + R+C（不等待百炼）
+    // 6. 立即返回前端流 + R+C + 时间线模板（不等待百炼）
     res.json({
       sessionId,
       state,
@@ -920,6 +936,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
       eventTag,
       reactionLayer,
       companionLayer,
+      reactionTimeline,
+      companionTimeline,
     });
 
     // 7. 后台异步调用百炼（响应返回后触发，立即启动不延迟）

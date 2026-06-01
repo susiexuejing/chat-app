@@ -135,20 +135,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           userMessage
         );
 
-        const { sessionId, reactionLayer, companionLayer, frontFlowText } = sessionInfo;
+        const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline } = sessionInfo;
 
-        // ====== 第二阶段：EmotionFlow V3 统一打字引擎 ======
-        // V3 时间线：Reaction（立即显示）→ Companion（2s后打字）→ 等待 → Deep（90s后接管）
+        // ====== 第二阶段：EmotionFlow V3 时间线打字引擎 ======
+        // V3 时间线：Reaction（8s→18s→30s）→ Companion（45s→60s→75s→90s）→ Deep（90s后接管）
         const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-        // Reaction Layer：作为气泡初始内容，立即显示（不打字）
-        const initialContent = reactionLayer || frontFlowText || '';
-        let displayedContent = initialContent;
+        // 初始内容：Reaction第一段 或 fallback
+        const firstReaction = reactionTimeline?.[0]?.text || reactionLayer || frontFlowText || '';
+        let displayedContent = firstReaction;
+        const chatStartTime = Date.now();
 
         setMessages(prev => [...prev, {
           id: bubbleMsgId,
           role: 'assistant',
-          content: initialContent,
+          content: firstReaction,
           timestamp: Date.now(),
         }]);
 
@@ -159,14 +160,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
         // 状态标记
-        let isCompanionQueued = false;    // Companion Layer 已入队
-        let isCompanionDone = !companionLayer; // 无Companion则视为已完成
-        let isWaiting = false;            // 等待文案正在显示
-        let isDeepStarted = false;        // 收到过百炼chunk
-        let isDeepDone = false;           // 百炼全部完成
-        let waitingPos = -1;              // 等待文案在displayedContent中的起始位置
-        let deepBuffer = '';              // 等待期间百炼chunk缓存
-        let companionTimer: ReturnType<typeof setTimeout> | null = null; // Companion Layer延迟计时器
+        const timelineSchedules: ReturnType<typeof setTimeout>[] = []; // 所有时间线定时器
+        let isDeepStarted = false;    // 收到过百炼chunk
+        let isDeepDone = false;       // 百炼全部完成
+        let isWaiting = false;        // 等待文案正在显示
+        let waitingPos = -1;          // 等待文案在displayedContent中的起始位置
+        let deepBuffer = '';          // 等待期间百炼chunk缓存
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -202,25 +201,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             return;
           }
 
-          // ====== 队列为空 — 决策下一步 ======
-
-          // Companion Layer 还没入队 → 2秒后入队（让Reaction先被看到）
-          if (!isCompanionQueued && companionLayer) {
-            isCompanionQueued = true;
-            companionTimer = setTimeout(() => {
-              pushToQueue('\n' + companionLayer);
-            }, 2000);
-            return;
-          }
-
-          // Companion 正在打字中 → 等待
-          if (!isCompanionDone) {
-            isCompanionDone = true;
-            scheduleNext();
-            return;
-          }
-
-          // Companion 打完，百炼还没到 → 显示等待
+          // ====== 队列为空 — 所有展示内容完成后 → 进入等待 ======
           if (!isDeepStarted && !isDeepDone && !isWaiting) {
             isWaiting = true;
             waitingPos = displayedContent.length;
@@ -245,6 +226,45 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           // 队列空且没有新内容 → 安静等待
         }
+
+        // ── 调度时间线：根据 displayAt 定时推送 Reactions + Companions ──
+        function scheduleTimeline() {
+          const allSegments: { displayAt: number; text: string; type: 'reaction' | 'companion' }[] = [];
+
+          if (reactionTimeline && Array.isArray(reactionTimeline)) {
+            for (const seg of reactionTimeline) {
+              if (seg.displayAt <= 0) continue; // 第1段已在初始内容中
+              allSegments.push({ ...seg, type: 'reaction' });
+            }
+          }
+
+          if (companionTimeline && Array.isArray(companionTimeline)) {
+            for (const seg of companionTimeline) {
+              allSegments.push({ ...seg, type: 'companion' });
+            }
+          }
+
+          if (allSegments.length === 0 && companionLayer) {
+            // 无时间线但有关键词版单句Companion → 2s后备
+            timelineSchedules.push(setTimeout(() => {
+              pushToQueue('\n' + companionLayer);
+            }, 2000));
+            return;
+          }
+
+          if (allSegments.length === 0) return; // 无内容可调度
+
+          for (const seg of allSegments) {
+            const elapsed = Date.now() - chatStartTime;
+            const delayMs = Math.max(0, seg.displayAt * 1000 - elapsed);
+            timelineSchedules.push(setTimeout(() => {
+              pushToQueue('\n' + seg.text);
+            }, delayMs));
+          }
+        }
+
+        // 启动时间线调度
+        scheduleTimeline();
 
         // ── 并行：启动百炼流式 ──
         (async () => {
