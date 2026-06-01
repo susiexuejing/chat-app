@@ -28,7 +28,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // ============================================================
 const VERSION_INFO = {
   env: process.env.NODE_ENV || 'development',
-  version: process.env.APP_VERSION || 'v2.0.1',
+  version: process.env.APP_VERSION || 'v2.1.0',
   gitCommit: process.env.GIT_COMMIT || '55dcaed',
   buildTime: process.env.BUILD_TIME || new Date().toISOString(),
   apiVersion: 'v1',
