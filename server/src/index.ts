@@ -33,7 +33,7 @@ app.use(express.urlencoded({ limit: '50mb', extended: true }));
 // ============================================================
 const VERSION_INFO = {
   env: process.env.NODE_ENV || 'development',
-  version: process.env.APP_VERSION || 'v2.1.0',
+  version: process.env.APP_VERSION || 'v2.1.2',
   gitCommit: process.env.GIT_COMMIT || '55dcaed',
   buildTime: process.env.BUILD_TIME || new Date().toISOString(),
   apiVersion: 'v1',
@@ -769,14 +769,24 @@ async function callDashScope(
     temperature: 0.6,
   });
 
-  return fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
-    body,
-  });
+  // 30秒超时控制
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body,
+      signal: controller.signal,
+    });
+    return response;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ============================================================
@@ -784,6 +794,7 @@ async function callDashScope(
 // ============================================================
 async function startDeepAnalysis(session: ChatSession): Promise<void> {
   const apiKey = API_KEY_LIGHT;
+  console.log(`[Deep] startDeepAnalysis called for session ${session.sessionId}, apiKey=${apiKey ? 'SET' : 'NOT SET'}`);
   if (!apiKey) {
     session.deepError = 'API key not configured';
     return;
@@ -798,6 +809,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       { role: 'user', content: session.userMessage },
     ];
 
+    console.log(`[Deep] Calling DashScope API... model=${MODELS.DEEP}`);
     const response = await callDashScope(
       DASHSCOPE_BASE_URL,
       apiKey,
@@ -807,45 +819,81 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       600        // 减少maxTokens让首字更快
     );
 
+    console.log(`[Deep] DashScope response status: ${response.status}`);
     if (!response.ok) {
-      session.deepError = `DashScope error: ${response.status}`;
+      const errorText = await response.text().catch(() => '');
+      console.error(`[Deep] DashScope error: ${response.status} - ${errorText}`);
+      session.deepError = `DashScope error: ${response.status} - ${errorText.substring(0, 200)}`;
       session.deepStreaming = false;
       return;
     }
 
     const reader = response.body?.getReader();
+    if (!reader) {
+      console.error(`[Deep] No reader from DashScope response`);
+      session.deepError = 'No response reader';
+      session.deepStreaming = false;
+      return;
+    }
     const decoder = new TextDecoder();
+    let streamStartTime = Date.now();
+    let streamTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    while (true) {
-      const { done, value } = await reader!.read();
-      if (done) break;
+    // 30秒流读取超时
+    const streamReadTimeout = new Promise<void>((_, reject) => {
+      streamTimeout = setTimeout(() => reject(new Error('Stream read timeout (30s)')), 30000);
+    });
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
+    const streamReadLoop = (async () => {
+      while (true) {
+        const { done, value } = await reader!.read();
+        if (done) break;
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-          if (data === '[DONE]') {
-            session.deepDone = true;
-            continue;
-          }
-          if (data) {
-            try {
-              const parsed = JSON.parse(data);
-              const content = parsed.choices?.[0]?.delta?.content || '';
-              if (content) {
-                // ★ 立即推入chunk队列，前端实时读取
-                session.deepChunks.push(content);
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              continue;
+            }
+            if (data) {
+              try {
+                const parsed = JSON.parse(data);
+                // qwen3.6-plus 等推理模型把内容放在 reasoning_content 字段
+                const content = parsed.choices?.[0]?.delta?.content || 
+                                parsed.choices?.[0]?.delta?.reasoning_content ||
+                                parsed.output?.choices?.[0]?.delta?.content || '';
+                if (content) {
+                  session.deepChunks.push(content);
+                } else {
+                  console.log(`[Deep] Raw SSE line (no content): ${data.substring(0, 80)}`);
+                }
+              } catch {
+                console.log(`[Deep] Parse error for line: ${data.substring(0, 80)}`);
               }
-            } catch { /* 忽略解析错误 */ }
+            }
+          } else if (line.trim()) {
+            // 非标准SSE格式的日志
+            console.log(`[Deep] Non-SSE line: ${line.substring(0, 100)}`);
           }
         }
       }
+    })();
+
+    try {
+      await Promise.race([streamReadLoop, streamReadTimeout]);
+    } catch (e) {
+      console.error(`[Deep] Stream error/timeout:`, e);
+      // 超时或出错时仍然标记完成，让前端能拿到已缓存的chunks
     }
+    if (streamTimeout) clearTimeout(streamTimeout);
 
     session.deepDone = true;
+    console.log(`[Deep] Stream complete for session ${session.sessionId} (took ${Date.now() - streamStartTime}ms)`);
   } catch (error) {
+    console.error(`[Deep] Error in startDeepAnalysis:`, error);
     session.deepError = error instanceof Error ? error.message : 'Unknown error';
   } finally {
     session.deepStreaming = false;
