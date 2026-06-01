@@ -5,6 +5,11 @@ import { recognizeEmotion, recognizeEvent } from './flows/recognizer';
 import type { EmotionTag, EventTag } from './flows/frontFlows';
 import { detectUserState, extractKeywords } from './flows/stateDetector';
 import { buildFrontFlowText } from './flows/frontFlowTemplates';
+import {
+  getPersonality,
+  generateReactionLayer,
+  generateCompanionLayer,
+} from './flows/personalityEngine';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -65,6 +70,9 @@ interface ChatSession {
   state: string;
   keywords: string[];
   frontFlowText: string;
+  reactionLayer: string;        // EmotionFlow V3: 人格自然第一反应
+  companionLayer: string;       // EmotionFlow V3: 人格自然陪伴
+  deepReadyAt: number;          // EmotionFlow V3: 百炼Deep层就绪时间戳（createdAt + 90s）
   createdAt: number;
   deepChunks: string[];         // 流式chunk队列（实时推送）
   deepDone: boolean;            // 是否已完成生成
@@ -866,8 +874,21 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const keywords = extractKeywords(message);
     const frontFlowText = buildFrontFlowText(roleId, state, keywords);
 
-    // 4. 创建会话
+    // 4. EmotionFlow V3: 生成 Reaction Layer + Companion Layer（人格意识驱动）
+    const personality = getPersonality(roleId);
+    let reactionLayer = '';
+    let companionLayer = '';
+    if (personality) {
+      reactionLayer = generateReactionLayer(personality, message, emotionTag);
+      companionLayer = generateCompanionLayer(personality, message, emotionTag);
+    } else {
+      reactionLayer = frontFlowText.split('。')[0] + '。';
+      companionLayer = frontFlowText;
+    }
+
+    // 5. 创建会话
     const sessionId = crypto.randomUUID();
+    const now = Date.now();
     const session: ChatSession = {
       sessionId,
       roleId,
@@ -878,7 +899,10 @@ app.post('/api/v1/chat/start', async (req, res) => {
       state,
       keywords,
       frontFlowText,
-      createdAt: Date.now(),
+      reactionLayer,
+      companionLayer,
+      deepReadyAt: now + 90000,   // 90秒后才开始推送Deep层
+      createdAt: now,
       deepChunks: [],
       deepDone: false,
       deepStreaming: false,
@@ -886,7 +910,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     };
     sessions.set(sessionId, session);
 
-    // 5. 立即返回前端流（不等待百炼）
+    // 6. 立即返回前端流 + R+C（不等待百炼）
     res.json({
       sessionId,
       state,
@@ -894,9 +918,11 @@ app.post('/api/v1/chat/start', async (req, res) => {
       frontFlowText,
       emotionTag,
       eventTag,
+      reactionLayer,
+      companionLayer,
     });
 
-    // 6. 后台异步调用百炼（响应返回后触发）
+    // 7. 后台异步调用百炼（响应返回后触发，立即启动不延迟）
     console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
     startDeepAnalysis(session).catch(err => {
       console.error(`[Deep] Session ${sessionId} error:`, err);
@@ -910,7 +936,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
 // ============================================================
 // 接口 2：GET /api/v1/chat/stream?sessionId=xxx
-// SSE 流式返回百炼深度分析结果（实时chunk推送）
+// SSE 流式返回人格陪伴流 + 百炼深度分析结果（90秒缓存）
+// 前90秒专注展示 Reaction + Companion，百炼结果先缓存排队
 // ============================================================
 app.get('/api/v1/chat/stream', (req, res) => {
   const { sessionId } = req.query;
@@ -930,11 +957,32 @@ app.get('/api/v1/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  let lastIndex = 0;
+  // 先告知前端时间线：reaction → companion → (等待) → deep
+  res.write(`data: ${JSON.stringify({
+    type: 'timeline',
+    deepReadyAt: session.deepReadyAt,
+    reactionLayer: session.reactionLayer || '',
+    companionLayer: session.companionLayer || '',
+  })}\n\n`);
 
-  // 每 100ms 轮询 session.deepChunks，推送新chunk
+  let lastIndex = 0;
+  let lastHeartbeat = Date.now();
+
+  // 每 100ms 轮询 session.deepChunks，推送新chunk（但前90秒不发）
   const pollInterval = setInterval(() => {
-    // 推送所有新chunk
+    const now = Date.now();
+
+    // 90秒内：只发心跳，不发deep chunks（百炼结果在缓存中排队）
+    if (now < session.deepReadyAt) {
+      // 每5秒发一次心跳保持连接
+      if (now - lastHeartbeat >= 5000) {
+        res.write(`data: ${JSON.stringify({ type: 'heartbeat', remaining: Math.ceil((session.deepReadyAt - now) / 1000) })}\n\n`);
+        lastHeartbeat = now;
+      }
+      return;
+    }
+
+    // 90秒后：开始推送缓存的deep chunks
     while (lastIndex < session.deepChunks.length) {
       const chunk = session.deepChunks[lastIndex++];
       if (chunk) {
@@ -963,13 +1011,13 @@ app.get('/api/v1/chat/stream', (req, res) => {
     }
   }, 100);
 
-  // 60秒超时
+  // 150秒超时（90秒缓存 + 60秒流式传输）
   const timeout = setTimeout(() => {
     clearInterval(pollInterval);
     res.write(`data: ${JSON.stringify({ type: 'timeout', done: true })}\n\n`);
     res.write('data: [DONE]\n\n');
     res.end();
-  }, 60000);
+  }, 150000);
 
   req.on('close', () => {
     clearInterval(pollInterval);

@@ -237,6 +237,9 @@ export interface ChatStartResponse {
   emotionTag: string;
   eventKeyword: string;
   frontFlowText: string;
+  reactionLayer?: string;    // EmotionFlow V3 人格反应层
+  companionLayer?: string;   // EmotionFlow V3 人格陪伴层
+  deepReadyAt?: number;      // Deep层就绪时间戳
 }
 
 /**

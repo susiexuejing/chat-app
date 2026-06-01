@@ -129,21 +129,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setLightAnalysis('');
 
       try {
-        // ====== 第一阶段：调用 /chat/start 获取前端流 ======
+        // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
         const sessionInfo = await chatStart(
           currentRole.id,
           userMessage
         );
 
-        const { sessionId, frontFlowText } = sessionInfo;
+        const { sessionId, reactionLayer, companionLayer, frontFlowText } = sessionInfo;
 
-        // ====== 第二阶段：统一打字机引擎 ======
+        // ====== 第二阶段：EmotionFlow V3 统一打字引擎 ======
+        // V3 时间线：Reaction（立即显示）→ Companion（2s后打字）→ 等待 → Deep（90s后接管）
         const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Reaction Layer：作为气泡初始内容，立即显示（不打字）
+        const initialContent = reactionLayer || frontFlowText || '';
+        let displayedContent = initialContent;
 
         setMessages(prev => [...prev, {
           id: bubbleMsgId,
           role: 'assistant',
-          content: '',
+          content: initialContent,
           timestamp: Date.now(),
         }]);
 
@@ -151,17 +156,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // ── 打字机引擎状态（闭包变量）──
         const textQueue: string[] = [];
-        let displayedContent = '';
         let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
         // 状态标记
-        let isFlowQueued = false;       // 前端流已进入队列
-        let isFlowDone = false;         // 前端流全部打完
-        let isDeepStarted = false;      // 收到过百炼chunk
-        let isDeepDone = false;         // 百炼全部完成
-        let isWaiting = false;          // 等待文案正在显示
-        let waitingPos = -1;            // 等待文案在displayedContent中的起始位置
-        let deepBuffer = '';            // 等待期间百炼chunk缓存（避免混入displayedContent被截断）
+        let isCompanionQueued = false;    // Companion Layer 已入队
+        let isCompanionDone = !companionLayer; // 无Companion则视为已完成
+        let isWaiting = false;            // 等待文案正在显示
+        let isDeepStarted = false;        // 收到过百炼chunk
+        let isDeepDone = false;           // 百炼全部完成
+        let waitingPos = -1;              // 等待文案在displayedContent中的起始位置
+        let deepBuffer = '';              // 等待期间百炼chunk缓存
+        let companionTimer: ReturnType<typeof setTimeout> | null = null; // Companion Layer延迟计时器
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -198,20 +203,25 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
 
           // ====== 队列为空 — 决策下一步 ======
-          if (!isFlowQueued) {
-            isFlowQueued = true;
-            pushToQueue(frontFlowText);
+
+          // Companion Layer 还没入队 → 2秒后入队（让Reaction先被看到）
+          if (!isCompanionQueued && companionLayer) {
+            isCompanionQueued = true;
+            companionTimer = setTimeout(() => {
+              pushToQueue('\n' + companionLayer);
+            }, 2000);
             return;
           }
 
-          if (!isFlowDone) {
-            isFlowDone = true;
+          // Companion 正在打字中 → 等待
+          if (!isCompanionDone) {
+            isCompanionDone = true;
             scheduleNext();
             return;
           }
 
+          // Companion 打完，百炼还没到 → 显示等待
           if (!isDeepStarted && !isDeepDone && !isWaiting) {
-            // 前端流打完，百炼还没到 → 显示等待
             isWaiting = true;
             waitingPos = displayedContent.length;
             pushToQueue('\n\n我还在继续理解你刚才那句话……');
@@ -226,7 +236,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             setMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
-            const transition = '我们继续往深一层看。\n\n';
+            const transition = '\n\n';
             const toPush = deepBuffer ? transition + deepBuffer : transition;
             deepBuffer = '';
             pushToQueue(toPush);
