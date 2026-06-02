@@ -836,6 +836,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       return;
     }
     const decoder = new TextDecoder();
+    let reasoningBuffer = '';
     let streamStartTime = Date.now();
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -861,14 +862,20 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
             if (data) {
               try {
                 const parsed = JSON.parse(data);
-                // qwen3.6-plus 等推理模型把内容放在 reasoning_content 字段
-                const content = parsed.choices?.[0]?.delta?.content || 
-                                parsed.choices?.[0]?.delta?.reasoning_content ||
+                // 优先取 content（最终回复）
+                const content = parsed.choices?.[0]?.delta?.content ||
                                 parsed.output?.choices?.[0]?.delta?.content || '';
                 if (content) {
                   session.deepChunks.push(content);
                 } else {
-                  console.log(`[Deep] Raw SSE line (no content): ${data.substring(0, 80)}`);
+                  // 累积 reasoning_content（推理模型将输出放在此字段）
+                  const rc = parsed.choices?.[0]?.delta?.reasoning_content ||
+                             parsed.output?.choices?.[0]?.delta?.reasoning_content || '';
+                  if (rc) {
+                    reasoningBuffer += rc;
+                  } else {
+                    console.log(`[Deep] Raw SSE line (no content): ${data.substring(0, 80)}`);
+                  }
                 }
               } catch {
                 console.log(`[Deep] Parse error for line: ${data.substring(0, 80)}`);
@@ -890,6 +897,13 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     }
     if (streamTimeout) clearTimeout(streamTimeout);
 
+    // 如果 content 流为空但累积了 reasoning_content（推理模型），
+    // 将 reasoning_content 作为最终内容推给前端
+    if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
+      session.deepChunks.push(reasoningBuffer.trim());
+      console.log(`[Deep] Fallback: used reasoning_content (${reasoningBuffer.length} chars)`);
+    }
+
     session.deepDone = true;
     console.log(`[Deep] Stream complete for session ${session.sessionId} (took ${Date.now() - streamStartTime}ms)`);
   } catch (error) {
@@ -901,6 +915,69 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 }
 
 
+
+// ─── normal_chat 检测 ──────────────────────────────────
+// 纯问候/询问人格身份，不应进入情感支持流程
+function isNormalChat(message: string): boolean {
+  const trimmed = message.trim();
+  // 纯问候语
+  if (/^(你好|您好|嗨|hi|hello|hey|早上好|下午好|晚上好|晚安|早[啊呀]?)$/i.test(trimmed)) return true;
+  // 询问你是谁/你叫什么/你是什么
+  if (/你(是|叫|的名字)[什么谁]|你是谁|你叫什么/.test(trimmed)) return true;
+  // 询问你今天做什么/你在干嘛
+  if (/你(今天|最近|在).{0,8}(做|干|忙)什/.test(trimmed)) return true;
+  // 纯问候+角色名
+  if (/^(你好|您好).{0,10}(狐狸|熊|猫头鹰|小精灵|海豚|小象|小精灵)$/.test(trimmed)) return true;
+  // 今天的天气/话题无关内容
+  if (/今天天气|你吃了[吗嘛]|你多大了|你几岁/.test(trimmed)) return true;
+  return false;
+}
+
+// normal_chat 的引导回复
+function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: string; companion: string } {
+  const responses: Record<string, { frontFlow: string; reaction: string; companion: string }> = {
+    'clever-fox': {
+      frontFlow: '我是聪明狐狸。喜欢琢磨那些绕来绕去的事，帮你把乱糟糟的东西理清楚。你愿意聊聊什么？',
+      reaction: '嗯，有人来找我了。',
+      companion: '',
+    },
+    'warm-bear': {
+      frontFlow: '我是温暖小熊。我就待在这儿，你要是累了就靠一会儿。有什么事都可以跟我说。',
+      reaction: '哎，你来了。',
+      companion: '',
+    },
+    'wise-owl': {
+      frontFlow: '我是深思猫头鹰。我喜欢听那些没说完的话，也喜欢琢磨藏在表面之下的东西。你想聊点什么？',
+      reaction: '嗯。有新对话要开始了。',
+      companion: '',
+    },
+    'emotion-elf': {
+      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
+      reaction: '嗯。感觉到了。',
+      companion: '',
+    },
+    'empathy-fairy': {
+      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
+      reaction: '嗯。感觉到了。',
+      companion: '',
+    },
+    'philosophical-dolphin': {
+      frontFlow: '我是哲思海豚。我喜欢陪人一起看看远方，聊聊那些真正重要的事。你最近在想什么？',
+      reaction: '嗯。有新声音。',
+      companion: '',
+    },
+    'family-elephant': {
+      frontFlow: '我是团结小象。我最在意人与人之间的连接。你身边的事，可以跟我聊聊。',
+      reaction: '嗯。有新消息。',
+      companion: '',
+    },
+  };
+  return responses[roleId] || {
+    frontFlow: `我是${ROLE_NAMES[roleId] || roleId}，很高兴认识你！`,
+    reaction: '嗯。',
+    companion: '',
+  };
+}
 
 // ============================================================
 // 接口 1：POST /api/v1/chat/start
@@ -916,39 +993,70 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
     const roleName = ROLE_NAMES[roleId] || roleId;
 
-    // 1. 情绪识别
-    const emotionTag = recognizeEmotion(message);
+    // 0. 检测 normal_chat（纯问候/问身份，不走情感支持）
+    const normalChat = isNormalChat(message);
 
-    // 2. 事件识别
-    const eventTag = recognizeEvent(message);
-
-    // 3. 新模板系统：状态识别 + 关键词提取 + 动态模板
-    const state = detectUserState(message);
-    const keywords = extractKeywords(message);
-    const frontFlowText = buildFrontFlowText(roleId, state, keywords);
-
-    // 4. EmotionFlow V3: 生成 Reaction Layer + Companion Layer（人格意识驱动）
-    const personality = getPersonality(roleId);
-    let reactionLayer = '';
-    let companionLayer = '';
-    if (personality) {
-      reactionLayer = generateReactionLayer(personality, message, emotionTag);
-      companionLayer = generateCompanionLayer(personality, message, emotionTag);
-    } else {
-      reactionLayer = frontFlowText.split('。')[0] + '。';
-      companionLayer = frontFlowText;
-    }
-
-    // 4.5 加载 V3 90秒陪伴模板时间线（多段分段展示）
+    let emotionTag: string;
+    let eventTag: string;
+    let state: any;
+    let keywords: string[];
+    let frontFlowText: string;
+    let reactionLayer: string;
+    let companionLayer: string;
     let reactionTimeline: Array<{displayAt: number; text: string}> | undefined;
     let companionTimeline: Array<{displayAt: number; text: string}> | undefined;
-    const templateData = (COMPANION_TEMPLATE as any).personalities?.find(
-      (p: any) => p.roleId === roleId
-    );
-    if (templateData && templateData.displaySamples?.length > 0) {
-      const sample = templateData.displaySamples[0];
-      reactionTimeline = sample.reactionLayer;
-      companionTimeline = sample.companionLayer;
+    let deepReadyAt: number;
+    let deepDone: boolean;
+    let deepStreaming: boolean;
+
+    if (normalChat) {
+      // normal_chat：不走情感识别，不走深度分析
+      emotionTag = 'general';
+      eventTag = 'general';
+      state = {};
+      keywords = [];
+      const nc = getNormalChatResponse(roleId);
+      frontFlowText = nc.frontFlow;
+      reactionLayer = nc.reaction;
+      companionLayer = nc.companion;
+      reactionTimeline = undefined;
+      companionTimeline = undefined;
+      deepReadyAt = Date.now();
+      deepDone = true;
+      deepStreaming = false;
+    } else {
+      // 1. 情绪识别
+      emotionTag = recognizeEmotion(message);
+      // 2. 事件识别
+      eventTag = recognizeEvent(message);
+      // 3. 状态识别 + 关键词提取
+      state = detectUserState(message);
+      keywords = extractKeywords(message);
+      frontFlowText = buildFrontFlowText(roleId, state, keywords);
+
+      // 4. EmotionFlow V3: 生成 Reaction Layer + Companion Layer
+      const personality = getPersonality(roleId);
+      if (personality) {
+        reactionLayer = generateReactionLayer(personality, message, emotionTag);
+        companionLayer = generateCompanionLayer(personality, message, emotionTag);
+      } else {
+        reactionLayer = frontFlowText.split('。')[0] + '。';
+        companionLayer = frontFlowText;
+      }
+
+      // 4.5 加载 V3 90秒陪伴模板时间线
+      const templateData = (COMPANION_TEMPLATE as any).personalities?.find(
+        (p: any) => p.roleId === roleId
+      );
+      if (templateData && templateData.displaySamples?.length > 0) {
+        const sample = templateData.displaySamples[0];
+        reactionTimeline = sample.reactionLayer;
+        companionTimeline = sample.companionLayer;
+      }
+
+      deepReadyAt = Date.now() + 3000;  // 3秒后开始推送Deep层
+      deepDone = false;
+      deepStreaming = false;
     }
 
     // 5. 创建会话
@@ -966,11 +1074,11 @@ app.post('/api/v1/chat/start', async (req, res) => {
       frontFlowText,
       reactionLayer,
       companionLayer,
-      deepReadyAt: now + 3000,   // 3秒后开始推送Deep层（动态缓冲，够Reaction展示即可）
+      deepReadyAt,
       createdAt: now,
       deepChunks: [],
-      deepDone: false,
-      deepStreaming: false,
+      deepDone,
+      deepStreaming,
       deepError: null,
     };
     sessions.set(sessionId, session);
@@ -989,12 +1097,16 @@ app.post('/api/v1/chat/start', async (req, res) => {
       companionTimeline,
     });
 
-    // 7. 后台异步调用百炼（响应返回后触发，立即启动不延迟）
-    console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
-    startDeepAnalysis(session).catch(err => {
-      console.error(`[Deep] Session ${sessionId} error:`, err);
-      session.deepError = err instanceof Error ? err.message : 'Unknown error';
-    });
+    // 7. 后台异步调用百炼（normal_chat 跳过深度分析）
+    if (normalChat) {
+      console.log(`[Start] Session ${sessionId}: NORMAL_CHAT role=${roleName}, skipped deep analysis`);
+    } else {
+      console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
+      startDeepAnalysis(session).catch(err => {
+        console.error(`[Deep] Session ${sessionId} error:`, err);
+        session.deepError = err instanceof Error ? err.message : 'Unknown error';
+      });
+    }
   } catch (error) {
     console.error('[Start] Error:', error);
     res.status(500).json({ error: 'Internal server error' });
