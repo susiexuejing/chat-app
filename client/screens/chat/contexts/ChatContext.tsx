@@ -297,6 +297,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     return;
                   }
 
+                  // 安全网：丢弃包含模型推理过程的 chunk
+                  const content = parsed.content;
+                  const thinkingPatterns = [
+                    "here's a thinking process",
+                    "here is a thinking process",
+                    "analyze user input",
+                    "check constraints",
+                    "draft construction",
+                    "final polish",
+                    "step-by-step analysis",
+                    "let me think about this",
+                    "let me analyze",
+                    "1. analyze",
+                    "2. check",
+                    "3. draft",
+                    "4. final",
+                    "reason carefully",
+                  ];
+                  const lowerContent = content.toLowerCase();
+                  const isThinkingChunk = thinkingPatterns.some(p => lowerContent.includes(p));
+                  if (isThinkingChunk) {
+                    console.log(`[Deep] 丢弃含推理过程的 chunk: ${content.substring(0, 120)}`);
+                    return;
+                  }
+
                   // ── 首次 Deep chunk 到达：触发接管 ──
                   if (!isDeepStarted) {
                     isDeepStarted = true;
@@ -354,6 +379,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               },
               onDone: () => {
                 isDeepDone = true;
+                // 安全网：如果 deepBuffer 中累积的内容中文占比过低（<20%），丢弃
+                if (deepBuffer && deepBuffer.length > 10) {
+                  const chineseCount = (deepBuffer.match(/[\u4e00-\u9fff]/g) || []).length;
+                  if (chineseCount / deepBuffer.length < 0.2) {
+                    console.log(`[Deep] onDone: 丢弃中文占比过低的 deepBuffer (${chineseCount}/${deepBuffer.length})`);
+                    deepBuffer = '';
+                  }
+                }
                 scheduleNext();
               },
               onError: () => {

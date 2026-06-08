@@ -812,7 +812,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       MODELS.DEEP,
       deepMessages,
       true,      // stream: true
-      600        // 减少maxTokens让首字更快
+      1200       // max_tokens: 确保有足够空间输出中文回复
     );
 
     console.log(`[Deep] DashScope response status: ${response.status}`);
@@ -924,18 +924,91 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 
 
 // ─── 内容清洗：提取最终中文回复 ────────────────────────
-// qwen3.6-plus 把思考过程（Here's a thinking process…）混在 content 字段，
-// 此函数过滤英文推理段落，只保留中文最终回复
+// qwen3.6-plus 可能把完整的思考链（Here's a thinking process…）写在 content 字段，
+// 思考过程中也会包含中文（如引用用户输入或写草稿），因此不能简单地按"第一个中文行"截断。
+// 策略：从尾部反向扫描，找到最后一个中文密集的段落块作为最终回复
+// 核心原则：绝不返回 raw 原始内容（无中文则返回空字符串）
 function extractFinalChineseResponse(raw: string): string {
-  if (!raw || raw.length < 10) return raw;
+  if (!raw || raw.length < 20) return '';
 
-  // 按空行或换行分段
+  const thinkingMarkers = [
+    "here's a thinking process",
+    "here is a thinking process",
+    "thinking process",
+    "let me think",
+    "analyze user input",
+    "check constraints",
+    "draft construction",
+    "final polish",
+    "step-by-step",
+    "reason carefully",
+    "let me break this down",
+    "i'll start by",
+    "first, let me",
+  ];
+
+  const hasThinkingMarker = thinkingMarkers.some(m =>
+    raw.toLowerCase().includes(m)
+  );
+
+  // 按空行分割段落
   const paragraphs = raw.split(/\n\s*\n/);
+
+  if (hasThinkingMarker) {
+    // ── 有思考标记 → 结构式截取 ──
+    // 思考过程特征：编号段落（1. 2. 3.）、结束标记（Proceeds.）、自查段落
+    // 最终回复在这些结构之后，且不编号
+
+    const numberedSection = /^\s*\d+\.\s+/; // 行首数字编号
+    const endMarkers = [
+      /proceeds\.?\s*$/i,
+      /all good\.?\s*$/i,
+      /output matches/i,
+      /ready\.?\s*$/i,
+    ];
+
+    const lines = raw.split('\n');
+
+    // 1. 从行级别：找到最后一行结束标记之后
+    let lastEndLine = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (endMarkers.some(m => m.test(lines[i].trim()))) {
+        lastEndLine = i;
+      }
+    }
+
+    // 2. 从段落级别：排除所有以数字编号开头的段落
+    //    最终回复不开头于编号
+    const nonNumberedParagraphs = paragraphs.filter(p => {
+      const trimmed = p.trim();
+      return !numberedSection.test(trimmed);
+    });
+
+    // 3. 取 nonNumberedParagraphs 中最后一组连续中文段落
+    //    （从后往前，找相邻中文段落）
+    const reliableParagraphs = nonNumberedParagraphs.filter(p => {
+      const chineseChars = p.match(/[\u4e00-\u9fff]/g);
+      if (!chineseChars) return false;
+      const totalVisible = p.replace(/\s/g, '').length;
+      return totalVisible > 0 && chineseChars.length / totalVisible >= 0.35;
+    });
+
+    if (reliableParagraphs.length > 0) {
+      const result = reliableParagraphs.join('\n\n');
+      console.log(`[Clean] Extracted ${result.length} chars from thinking content (${reliableParagraphs.length} paragraphs)`);
+      return result;
+    }
+
+    console.log(`[Clean] Has thinking marker but no reliable Chinese found (${raw.length} raw chars)`);
+    return '';
+  }
+
+  // ── 无思考标记 → 正常清洗：保留中文占比≥30%的段落 ──
   const chineseParagraphs = paragraphs.filter(p => {
     const chineseChars = p.match(/[\u4e00-\u9fff]/g);
     if (!chineseChars) return false;
     const totalVisible = p.replace(/\s/g, '').length;
-    return totalVisible > 0 && chineseChars.length / totalVisible >= 0.4;
+    return totalVisible > 0 && chineseChars.length / totalVisible >= 0.3;
   });
 
   if (chineseParagraphs.length > 0) {
@@ -944,8 +1017,8 @@ function extractFinalChineseResponse(raw: string): string {
     return result;
   }
 
-  // 没找到中文段落，返回原始内容（兜底）
-  return raw;
+  console.log(`[Clean] No Chinese paragraphs found in ${raw.length} raw chars, returning empty`);
+  return '';
 }
 
 
