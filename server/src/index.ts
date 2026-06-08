@@ -6,15 +6,11 @@ import { recognizeEmotion, recognizeEvent } from './flows/recognizer';
 import type { EmotionTag, EventTag } from './flows/frontFlows';
 import { detectUserState, extractKeywords } from './flows/stateDetector';
 import { buildFrontFlowText } from './flows/frontFlowTemplates';
+import { extractSignal } from './flows/signalExtractor';
 import {
-  getPersonality,
-  generateReactionLayer,
-  generateCompanionLayer,
-} from './flows/personalityEngine';
-
-// 加载 V3 90秒陪伴模板库
-import * as _companionTemplate from './flows/companion_90s.json';
-const COMPANION_TEMPLATE = (_companionTemplate as any).default || _companionTemplate;
+  generateReactionTimeline,
+  generateCompanionTimeline,
+} from './flows/localReactionEngine';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -1034,25 +1030,12 @@ app.post('/api/v1/chat/start', async (req, res) => {
       keywords = extractKeywords(message);
       frontFlowText = buildFrontFlowText(roleId, state, keywords);
 
-      // 4. EmotionFlow V3: 生成 Reaction Layer + Companion Layer
-      const personality = getPersonality(roleId);
-      if (personality) {
-        reactionLayer = generateReactionLayer(personality, message, emotionTag);
-        companionLayer = generateCompanionLayer(personality, message, emotionTag);
-      } else {
-        reactionLayer = frontFlowText.split('。')[0] + '。';
-        companionLayer = frontFlowText;
-      }
-
-      // 4.5 加载 V3 90秒陪伴模板时间线
-      const templateData = (COMPANION_TEMPLATE as any).personalities?.find(
-        (p: any) => p.roleId === roleId
-      );
-      if (templateData && templateData.displaySamples?.length > 0) {
-        const sample = templateData.displaySamples[0];
-        reactionTimeline = sample.reactionLayer;
-        companionTimeline = sample.companionLayer;
-      }
+      // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
+      const signal = extractSignal(message);
+      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal);
+      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal);
+      reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
+      companionLayer = companionTimeline[0]?.text || frontFlowText;
 
       deepReadyAt = Date.now() + 3000;  // 3秒后开始推送Deep层
       deepDone = false;
