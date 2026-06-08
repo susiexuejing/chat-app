@@ -301,17 +301,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                       timelineSchedules.length = 0;
                       console.log(`[Deep] 取消未触发的timers: ${timersCancelled}个`);
 
-                      // 2. 清空待播队列中未展示的内容（不打断当前typing）
+                      // 2. 如果当前正在打字（某段Companion还没打完）→ 缓存deep，等当前段自然打完再展示
+                      if (typingTimer) {
+                        deepBuffer = parsed.content;
+                        console.log(`[Deep] 正在typing，缓存deep，不打断当前段`);
+                        return;
+                      }
+
+                      // 3. 不在打字 → 清空待播队列（当前段已打完，后续段不再需要）
                       const queueCancelled = textQueue.length;
                       textQueue.length = 0;
                       console.log(`[Deep] 清空待播队列: ${queueCancelled}项`);
-
-                      // 3. 如果当前正在打字（某段Companion还没打完）→ 缓存deep，等当前段打完再展示
-                      if (typingTimer) {
-                        deepBuffer = parsed.content;
-                        console.log(`[Deep] 当前正在typing，缓存deep，等当前段打完`);
-                        return;
-                      }
 
                       // 4. 如果正在显示等待提示 → 替换等待提示为deep
                       if (isWaiting) {
