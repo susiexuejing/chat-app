@@ -289,64 +289,66 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               onChunk: (chunk: string) => {
                 try {
                   const parsed = JSON.parse(chunk);
-                  if (parsed.content) {
-                    if (!isDeepStarted) {
-                      isDeepStarted = true;
-                      const now = Date.now();
-                      console.log(`[Deep] 首次chunk到达: ${now - chatStartTime}ms`);
+                  if (!parsed.content) {
+                    if (parsed.done) {
+                      isDeepDone = true;
+                      scheduleNext();
+                    }
+                    return;
+                  }
 
-                      // 1. 清空所有未触发的时间线定时器（取消未来companion段）
-                      const timersCancelled = timelineSchedules.length;
-                      timelineSchedules.forEach(t => clearTimeout(t));
-                      timelineSchedules.length = 0;
-                      console.log(`[Deep] 取消未触发的timers: ${timersCancelled}个`);
+                  // ── 首次 Deep chunk 到达：触发接管 ──
+                  if (!isDeepStarted) {
+                    isDeepStarted = true;
+                    const now = Date.now();
+                    console.log(`[Deep] 首次chunk到达: ${now - chatStartTime}ms`);
 
-                      // 2. 如果当前正在打字（某段Companion还没打完）→ 缓存deep，等当前段自然打完再展示
-                      if (typingTimer) {
-                        deepBuffer = parsed.content;
-                        console.log(`[Deep] 正在typing，缓存deep，不打断当前段`);
-                        return;
-                      }
+                    // 1. 取消所有未触发的 Companion 定时器（停止后续段）
+                    const timersCancelled = timelineSchedules.length;
+                    timelineSchedules.forEach(t => clearTimeout(t));
+                    timelineSchedules.length = 0;
+                    console.log(`[Deep] 取消未触发的timers: ${timersCancelled}个`);
 
-                      // 3. 不在打字 → 清空待播队列（当前段已打完，后续段不再需要）
-                      const queueCancelled = textQueue.length;
-                      textQueue.length = 0;
-                      console.log(`[Deep] 清空待播队列: ${queueCancelled}项`);
+                    // 2. 清空队列中未渲染的后续内容
+                    textQueue.length = 0;
 
-                      // 4. 如果正在显示等待提示 → 替换等待提示为deep
-                      if (isWaiting) {
-                        isWaiting = false;
-                        displayedContent = displayedContent.substring(0, waitingPos);
-                        waitingPos = -1;
-                        setMessages(prev =>
-                          prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-                        );
-                        const transition = '\n\n';
-                        const toPush = deepBuffer ? transition + deepBuffer : transition + parsed.content;
-                        deepBuffer = '';
-                        pushToQueue(toPush);
-                        console.log(`[Deep] 替换等待提示: ${now - chatStartTime}ms`);
-                        return;
-                      }
+                    // 3. 如果正在 typing（某段还在渲染中）→ 缓存 deep，等当前段打完再追加
+                    if (typingTimer) {
+                      deepBuffer = parsed.content;
+                      console.log(`[Deep] 正在typing，缓存deep，不打断当前段`);
+                      return;
+                    }
 
-                      // 5. 不在打字，不在等待 → 直接追加deep
-                      displayedContent += '\n\n' + parsed.content;
+                    // 4. 如果正在显示等待提示 → 移除等待文案，追加 deep
+                    if (isWaiting) {
+                      isWaiting = false;
+                      // 保留等待提示之前的所有已显示内容
+                      displayedContent = displayedContent.substring(0, waitingPos);
+                      waitingPos = -1;
                       setMessages(prev =>
                         prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
                       );
-                      console.log(`[Deep] 直接追加到气泡: ${now - chatStartTime}ms`);
+                      const toPush = '\n\n' + (deepBuffer ? deepBuffer : parsed.content);
+                      deepBuffer = '';
+                      pushToQueue(toPush);
+                      console.log(`[Deep] 移除等待文案并追加deep: ${now - chatStartTime}ms`);
                       return;
                     }
-                    if (isWaiting) {
-                      // ★ 等待期间：缓存到 deepBuffer，不入队（防止混入 displayedContent 被截断）
-                      deepBuffer += parsed.content;
-                    } else {
-                      pushToQueue(parsed.content);
-                    }
+
+                    // 5. 不在 typing、不在等待 → 直接追加 deep 到当前已显示内容后面
+                    displayedContent += '\n\n' + parsed.content;
+                    setMessages(prev =>
+                      prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+                    );
+                    console.log(`[Deep] 直接追加到已显示内容后: ${now - chatStartTime}ms`);
+                    return;
                   }
-                  if (parsed.done) {
-                    isDeepDone = true;
-                    scheduleNext();
+
+                  // ── 后续 Deep chunk ──
+                  if (isWaiting) {
+                    deepBuffer += parsed.content;
+                  } else {
+                    pushToQueue(parsed.content);
                   }
                 } catch { /* ignore */ }
               },
