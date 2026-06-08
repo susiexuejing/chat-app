@@ -37,6 +37,7 @@ function ChatContent() {
     error,
     clearError,
     deepThinkingContent,
+    chatPhase,
   } = useChat();
 
   const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
@@ -87,9 +88,34 @@ function ChatContent() {
       <View className="flex-1">
         <MessageList onShowIntro={() => setIntroModalVisible(true)} />
         
-        {/* Deep 分析流式内容显示 */}
-        {deepThinkingContent && (
-          <View className="absolute bottom-24 left-4 right-4">
+        {/* 阶段状态横幅 — 让用户始终知道 AI 在做什么 */}
+        {isLoading && !error && (
+          <View className="absolute bottom-24 left-4 right-4 z-10">
+            <View className="bg-gray-50 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
+              <View className="flex-row items-center">
+                <ActivityIndicator size="small" color="#8B5CF6" />
+                <Text className="ml-2 text-sm font-medium text-gray-600 dark:text-gray-300 flex-1">
+                  {chatPhase === 'waiting_deep'
+                    ? `${currentRole?.name || '咨询师'} 正在整理更完整的理解，再等一下……`
+                    : chatPhase === 'deep_arriving'
+                      ? `深度理解正在写入……`
+                      : chatPhase === 'done'
+                        ? `回复完成，你可以继续说了`
+                        : `${currentRole?.name || '咨询师'} 正在理解中……`}
+                </Text>
+              </View>
+              {chatPhase === 'waiting_deep' && (
+                <Text className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
+                  深度回复生成中，大约还需要几秒
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Deep 分析流式内容指示（当 deep 正在到来时） */}
+        {deepThinkingContent && chatPhase !== 'done' && (
+          <View className="absolute bottom-36 left-4 right-4 z-20">
             <View className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-2xl p-4">
               <View className="flex-row items-center mb-2">
                 <ActivityIndicator size="small" color="#8B5CF6" />
@@ -99,18 +125,6 @@ function ChatContent() {
               </View>
               <Text className="text-xs text-purple-600 dark:text-purple-400" numberOfLines={3}>
                 {deepThinkingContent}
-              </Text>
-            </View>
-          </View>
-        )}
-        
-        {/* 加载指示器（仅在没有 Deep 思考内容时显示） */}
-        {isLoading && !deepThinkingContent && (
-          <View className="absolute bottom-24 left-0 right-0 items-center">
-            <View className="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-full flex-row items-center">
-              <ActivityIndicator size="small" color="#8B5CF6" />
-              <Text className="ml-2 text-sm text-gray-500 dark:text-gray-400">
-                {currentRole?.name || '咨询师'} 正在思考...
               </Text>
             </View>
           </View>
@@ -172,6 +186,7 @@ function ChatContent() {
         onSendMessage={handleSendMessage}
         disabled={isLoading}
         isThinking={isLoading && messages.some(m => m.role === 'assistant' && m.content.startsWith('【思考中'))}
+        chatPhase={chatPhase}
       />
 
       {/* 角色选择器 */}

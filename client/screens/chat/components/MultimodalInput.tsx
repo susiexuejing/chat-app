@@ -42,9 +42,10 @@ interface MultimodalInputProps {
   onSendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => void;
   disabled?: boolean;
   isThinking?: boolean;
+  chatPhase?: string;
 }
 
-export function MultimodalInput({ onSendMessage, disabled, isThinking }: MultimodalInputProps) {
+export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase }: MultimodalInputProps) {
   const { inputText, setInputText } = useChat();
   const [isRecording, setIsRecording] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
@@ -221,14 +222,14 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking }: Multimo
         </View>
 
         {/* 底部提示 */}
-        {!disabled && (
-          <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
-            {isThinking 
-              ? '我可以等待，您可以继续补充...'
+        <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
+          {chatPhase === 'done'
+            ? '◎ 回复完成，你可以继续说了'
+            : isThinking
+              ? '我在等你说，不用着急'
               : '选择一个情绪标签或直接输入您的问题'
-            }
-          </Text>
-        )}
+          }
+        </Text>
       </View>
     </KeyboardAvoidingView>
   );

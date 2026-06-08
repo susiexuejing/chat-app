@@ -53,6 +53,7 @@ interface ChatContextValue {
   currentSession: ChatSession | undefined;
   loadSession: (sessionId: string) => void;
   deepThinkingContent: string;
+  chatPhase: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done';
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -68,6 +69,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [lightAnalysis, setLightAnalysis] = useState('');
+  const [chatPhase, setChatPhase] = useState<'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done'>('idle');
   const [inputText, setInputText] = useState('');
   const [showRoleIntro, setShowRoleIntro] = useState(true);
 
@@ -122,6 +124,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         content: userMessage,
         timestamp: Date.now(),
       };
+      setChatPhase('responding');
       setMessages(prev => [...prev, userMsg]);
       setIsThinking(true);
       setIsLoading(true);
@@ -163,9 +166,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const timelineSchedules: ReturnType<typeof setTimeout>[] = []; // 所有时间线定时器
         let isDeepStarted = false;    // 收到过百炼chunk
         let isDeepDone = false;       // 百炼全部完成
-        let isWaiting = false;        // 等待文案正在显示
-        let waitingPos = -1;          // 等待文案在displayedContent中的起始位置
         let deepBuffer = '';          // 等待期间百炼chunk缓存
+        let remainingCompanionChain: { text: string; delay: number }[] = []; // 链式待播companion段，delay是打字完成后的额外等待
         const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
 
         // ── 打字速度配置 ──
@@ -204,7 +206,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           // ═══ 队列为空 ═══
 
-          // 刚打完一段Companion，deep已就绪且缓存在buffer中 → 刷出deep
+          // 刚打完一段，deep已就绪且缓存在buffer中 → 刷出deep
           if (isDeepStarted && deepBuffer) {
             const content = deepBuffer;
             deepBuffer = '';
@@ -212,70 +214,83 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             setMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
+            setChatPhase('deep_arriving');
             console.log(`[Deep] typing结束后追加deep: ${Date.now() - chatStartTime}ms`);
             scheduleNext();
             return;
           }
 
-          // ====== 队列为空 — 所有展示内容完成后 → 进入等待 ======
-          if (!isDeepStarted && !isDeepDone && !isWaiting && !isNormalChat) {
-            isWaiting = true;
-            waitingPos = displayedContent.length;
-            pushToQueue('\n\n我还在继续理解你刚才那句话……');
-            return;
-          }
-
-          if (isWaiting && isDeepStarted) {
-            // 百炼到达，结束等待 → 清除等待文案 + 追加过渡 + 释放缓存的百炼内容
-            isWaiting = false;
-            displayedContent = displayedContent.substring(0, waitingPos);
-            waitingPos = -1;
-            setMessages(prev =>
-              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-            );
-            const transition = '\n\n';
-            const toPush = deepBuffer ? transition + deepBuffer : transition;
-            deepBuffer = '';
-            pushToQueue(toPush);
+          // 队列为空 → 检查是否有剩余的companion段（链式触发）
+          if (!isDeepStarted && !isDeepDone && !isNormalChat) {
+            if (remainingCompanionChain.length > 0) {
+              const next = remainingCompanionChain.shift()!;
+              setChatPhase('companion');
+              // 当前段打字完成后，等 0.8s 再开始下一段（自然呼吸感）
+              setTimeout(() => {
+                pushToQueue('\n' + next.text);
+              }, next.delay);
+              return;
+            }
+            // 所有companion段都播完了，deep还未到达 → 进入等待deep阶段
+            setChatPhase('waiting_deep');
             return;
           }
 
           // 队列空且没有新内容 → 安静等待
         }
 
-        // ── 调度时间线：根据 displayAt 定时推送 Reactions + Companions ──
+        // ── 调度时间线：Reaction 固定定时 + Companion 链式触发 ──
         function scheduleTimeline() {
-          const allSegments: { displayAt: number; text: string; type: 'reaction' | 'companion' }[] = [];
+          const reactionSegs: { displayAt: number; text: string }[] = [];
+          const companionSegs: { displayAt: number; text: string }[] = [];
 
           if (reactionTimeline && Array.isArray(reactionTimeline)) {
             for (const seg of reactionTimeline) {
               if (seg.displayAt <= 0) continue; // 第1段已在初始内容中
-              allSegments.push({ ...seg, type: 'reaction' });
+              reactionSegs.push(seg);
             }
           }
 
           if (companionTimeline && Array.isArray(companionTimeline)) {
             for (const seg of companionTimeline) {
-              allSegments.push({ ...seg, type: 'companion' });
+              companionSegs.push(seg);
             }
           }
 
-          if (allSegments.length === 0 && companionLayer) {
-            // 无时间线但有关键词版单句Companion → 2s后备
+          // 无时间线但有关键词版单句Companion → 2s后备
+          if (reactionSegs.length === 0 && companionSegs.length === 0 && companionLayer) {
             timelineSchedules.push(setTimeout(() => {
               pushToQueue('\n' + companionLayer);
             }, 2000));
             return;
           }
 
-          if (allSegments.length === 0) return; // 无内容可调度
-
-          for (const seg of allSegments) {
+          // ── Reaction：按固定 displayAt 定时触发 ──
+          for (const seg of reactionSegs) {
             const elapsed = Date.now() - chatStartTime;
             const delayMs = Math.max(0, seg.displayAt * 1000 - elapsed);
             timelineSchedules.push(setTimeout(() => {
               pushToQueue('\n' + seg.text);
             }, delayMs));
+          }
+
+          // ── Companion：链式排入待播队列（不设固定定时器） ──
+          // 第一个companion在最后一个reaction的displayAt + 1s 后开始
+          if (companionSegs.length > 0) {
+            const lastReactionTime = reactionSegs.length > 0
+              ? Math.max(...reactionSegs.map(s => s.displayAt))
+              : 0;
+            const chainStartDelay = Math.max(0, lastReactionTime * 1000 - (Date.now() - chatStartTime)) + 1000;
+            
+            // 首个companion通过定时器触发，后续由 scheduleNext 链式触发
+            const firstComp = companionSegs.shift()!;
+            timelineSchedules.push(setTimeout(() => {
+              setChatPhase('companion');
+              pushToQueue('\n' + firstComp.text);
+            }, chainStartDelay));
+
+            // 剩余的companion段存入链式队列（每个段之间0.8s间隙）
+            remainingCompanionChain = companionSegs.map(s => ({ text: s.text, delay: 800 }));
           }
         }
 
@@ -332,35 +347,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     const timersCancelled = timelineSchedules.length;
                     timelineSchedules.forEach(t => clearTimeout(t));
                     timelineSchedules.length = 0;
+                    remainingCompanionChain = []; // 清空companion链
                     console.log(`[Deep] 取消未触发的timers: ${timersCancelled}个`);
 
-                    // 2. 清空队列中未渲染的后续内容
-                    textQueue.length = 0;
+                    setChatPhase('deep_arriving');
 
-                    // 3. 如果正在 typing（某段还在渲染中）→ 缓存 deep，等当前段打完再追加
+                    // 2. 如果正在 typing（某段还在渲染中）→ 缓存 deep，等当前段打完再追加
                     if (typingTimer) {
                       deepBuffer = parsed.content;
                       console.log(`[Deep] 正在typing，缓存deep，不打断当前段`);
                       return;
                     }
 
-                    // 4. 如果正在显示等待提示 → 移除等待文案，追加 deep
-                    if (isWaiting) {
-                      isWaiting = false;
-                      // 保留等待提示之前的所有已显示内容
-                      displayedContent = displayedContent.substring(0, waitingPos);
-                      waitingPos = -1;
-                      setMessages(prev =>
-                        prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-                      );
-                      const toPush = '\n\n' + (deepBuffer ? deepBuffer : parsed.content);
-                      deepBuffer = '';
-                      pushToQueue(toPush);
-                      console.log(`[Deep] 移除等待文案并追加deep: ${now - chatStartTime}ms`);
-                      return;
-                    }
-
-                    // 5. 不在 typing、不在等待 → 直接追加 deep 到当前已显示内容后面
+                    // 3. 不在 typing → 直接追加 deep 到当前已显示内容后面
                     displayedContent += '\n\n' + parsed.content;
                     setMessages(prev =>
                       prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
@@ -370,11 +369,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   }
 
                   // ── 后续 Deep chunk ──
-                  if (isWaiting) {
-                    deepBuffer += parsed.content;
-                  } else {
-                    pushToQueue(parsed.content);
-                  }
+                  pushToQueue(parsed.content);
                 } catch { /* ignore */ }
               },
               onDone: () => {
@@ -437,6 +432,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         isThinking,
         thinkingContent,
         deepThinkingContent,
+        chatPhase,
         error,
         showHistory,
         lightAnalysis,
