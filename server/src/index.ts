@@ -833,6 +833,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     }
     const decoder = new TextDecoder();
     let reasoningBuffer = '';
+    let deepContentBuffer = '';  // 累积所有content（含推理过程），流结束后清洗再推送
     let streamStartTime = Date.now();
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -862,7 +863,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
                 const content = parsed.choices?.[0]?.delta?.content ||
                                 parsed.output?.choices?.[0]?.delta?.content || '';
                 if (content) {
-                  session.deepChunks.push(content);
+                  deepContentBuffer += content;
                 } else {
                   // 累积 reasoning_content（推理模型将输出放在此字段）
                   const rc = parsed.choices?.[0]?.delta?.reasoning_content ||
@@ -893,6 +894,16 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     }
     if (streamTimeout) clearTimeout(streamTimeout);
 
+    // ── 内容清洗：仅保留最终中文回复 ──
+    // qwen3.6-plus 将推理过程混在 content 字段中，
+    // 需要清洗掉 "Here's a thinking process" 等英文推理，
+    // 只保留最终中文回复
+    const cleaned = extractFinalChineseResponse(deepContentBuffer);
+    if (cleaned.trim()) {
+      session.deepChunks.push(cleaned);
+      console.log(`[Deep] Cleaned content: ${cleaned.length} chars (raw: ${deepContentBuffer.length} chars)`);
+    }
+
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
     // 将 reasoning_content 作为最终内容推给前端
     if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
@@ -910,6 +921,32 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   }
 }
 
+
+
+// ─── 内容清洗：提取最终中文回复 ────────────────────────
+// qwen3.6-plus 把思考过程（Here's a thinking process…）混在 content 字段，
+// 此函数过滤英文推理段落，只保留中文最终回复
+function extractFinalChineseResponse(raw: string): string {
+  if (!raw || raw.length < 10) return raw;
+
+  // 按空行或换行分段
+  const paragraphs = raw.split(/\n\s*\n/);
+  const chineseParagraphs = paragraphs.filter(p => {
+    const chineseChars = p.match(/[\u4e00-\u9fff]/g);
+    if (!chineseChars) return false;
+    const totalVisible = p.replace(/\s/g, '').length;
+    return totalVisible > 0 && chineseChars.length / totalVisible >= 0.4;
+  });
+
+  if (chineseParagraphs.length > 0) {
+    const result = chineseParagraphs.join('\n\n');
+    console.log(`[Clean] Extracted ${result.length} Chinese chars from ${raw.length} raw chars (${paragraphs.length}→${chineseParagraphs.length} paragraphs)`);
+    return result;
+  }
+
+  // 没找到中文段落，返回原始内容（兜底）
+  return raw;
+}
 
 
 // ─── normal_chat 检测 ──────────────────────────────────
