@@ -920,6 +920,11 @@ function isNormalChat(message: string): boolean {
   if (/^(你好|您好|嗨|hi|hello|hey|早上好|下午好|晚上好|晚安|早[啊呀]?)$/i.test(trimmed)) return true;
   // 询问你是谁/你叫什么/你是什么
   if (/你(是|叫|的名字)[什么谁]|你是谁|你叫什么/.test(trimmed)) return true;
+  // 问你在做什么/你今天做了什么等日常闲聊
+  if (/你(今天|最近|现在)?(在|都)?(做了?|干|忙|想)什么/.test(trimmed)) return true;
+  if (/你在(干嘛|干什么)/.test(trimmed)) return true;
+  // 单纯夸赞/寒暄（不含情绪包袱）
+  if (/^(你真?|你好?)(棒|厉害|可爱|聪明|有趣|好|帅|漂亮)/.test(trimmed)) return true;
   // 询问你今天做什么/你在干嘛
   if (/你(今天|最近|在).{0,8}(做|干|忙)什/.test(trimmed)) return true;
   // 纯问候+角色名
@@ -930,47 +935,48 @@ function isNormalChat(message: string): boolean {
 }
 
 // normal_chat 的引导回复
+// 注意：reaction 必须为空字符串，否则前端优先级 reactionLayer > frontFlowText 会先展示 reaction
 function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: string; companion: string } {
   const responses: Record<string, { frontFlow: string; reaction: string; companion: string }> = {
     'clever-fox': {
       frontFlow: '我是聪明狐狸。喜欢琢磨那些绕来绕去的事，帮你把乱糟糟的东西理清楚。你愿意聊聊什么？',
-      reaction: '嗯，有人来找我了。',
+      reaction: '',
       companion: '',
     },
     'warm-bear': {
       frontFlow: '我是温暖小熊。我就待在这儿，你要是累了就靠一会儿。有什么事都可以跟我说。',
-      reaction: '哎，你来了。',
+      reaction: '',
       companion: '',
     },
     'wise-owl': {
       frontFlow: '我是深思猫头鹰。我喜欢听那些没说完的话，也喜欢琢磨藏在表面之下的东西。你想聊点什么？',
-      reaction: '嗯。有新对话要开始了。',
+      reaction: '',
       companion: '',
     },
     'emotion-elf': {
       frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
-      reaction: '嗯。感觉到了。',
+      reaction: '',
       companion: '',
     },
     'empathy-fairy': {
       frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
-      reaction: '嗯。感觉到了。',
+      reaction: '',
       companion: '',
     },
     'philosophical-dolphin': {
       frontFlow: '我是哲思海豚。我喜欢陪人一起看看远方，聊聊那些真正重要的事。你最近在想什么？',
-      reaction: '嗯。有新声音。',
+      reaction: '',
       companion: '',
     },
     'family-elephant': {
       frontFlow: '我是团结小象。我最在意人与人之间的连接。你身边的事，可以跟我聊聊。',
-      reaction: '嗯。有新消息。',
+      reaction: '',
       companion: '',
     },
   };
   return responses[roleId] || {
     frontFlow: `我是${ROLE_NAMES[roleId] || roleId}，很高兴认识你！`,
-    reaction: '嗯。',
+    reaction: '',
     companion: '',
   };
 }

@@ -152,7 +152,7 @@ export function getNormalChatResponse(roleId: string): { frontFlow: string; reac
   const frontFlow = ROLE_CHAT_RESPONSES[mappedId] || `我是${mappedId}，很高兴认识你！`;
   return {
     frontFlow,
-    reaction: '哎，有人来了。',
+    reaction: '',   // normal_chat 不需要 reaction，前端直接展示 frontFlowText
     companion: '',
   };
 }
