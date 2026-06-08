@@ -7,6 +7,8 @@ import type { EmotionTag, EventTag } from './flows/frontFlows';
 import { detectUserState, extractKeywords } from './flows/stateDetector';
 import { buildFrontFlowText } from './flows/frontFlowTemplates';
 import { extractSignal } from './flows/signalExtractor';
+import { neuralManager } from './flows/neuralProfileManager';
+import type { NeuralProfile } from './flows/neuralProfileManager';
 import {
   generateReactionTimeline,
   generateCompanionTimeline,
@@ -79,6 +81,8 @@ interface ChatSession {
   deepDone: boolean;            // 是否已完成生成
   deepStreaming: boolean;       // 是否正在流式生成
   deepError: string | null;     // 错误信息
+  userId: string;               // 用户标识（用于神经档案）
+  neuralProfile: NeuralProfile; // 当前用户神经状态
 }
 
 const sessions = new Map<string, ChatSession>();
@@ -110,10 +114,12 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile): string {
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
+
+${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 
 用户已经看到以下前置陪伴内容：
 ${frontFlowText}
@@ -877,7 +883,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   session.deepStreaming = true;
 
   try {
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1175,13 +1181,15 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // ============================================================
 app.post('/api/v1/chat/start', async (req, res) => {
   try {
-    const { roleId, message } = req.body;
+    const { roleId, message, userId: reqUserId } = req.body;
+    const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (!roleId || !message) {
       return res.status(400).json({ error: 'roleId and message are required' });
     }
 
     const roleName = ROLE_NAMES[roleId] || roleId;
+    const neuralProfile = neuralManager.getOrCreateProfile(userId, roleId);
 
     // 0. 检测 normal_chat（纯问候/问身份，不走情感支持）
     const normalChat = isNormalChat(message);
@@ -1241,6 +1249,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const now = Date.now();
     const session: ChatSession = {
       sessionId,
+      userId,
+      neuralProfile,
       roleId,
       roleName,
       userMessage: message,
@@ -1379,6 +1389,15 @@ app.get('/api/v1/chat/stream', (req, res) => {
   req.on('close', () => {
     clearInterval(pollInterval);
     clearTimeout(timeout);
+    // 保存用户神经档案
+    try {
+      if (session.userId && session.neuralProfile) {
+        neuralManager.updateAfterSession(session.userId, session.roleId, session.userMessage, session.deepChunks.join(''));
+        neuralManager.saveProfiles();
+      }
+    } catch (e) {
+      // 静默失败，不影响用户体验
+    }
   });
 });
 
@@ -1410,6 +1429,7 @@ app.get('/api/v1/debug/last-prompt', (_req, res) => {
 // ============================================================
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+  neuralManager.loadProfiles();
   console.log(`DASHSCOPE_API_KEY: ${API_KEY_LIGHT ? 'SET' : 'NOT SET'}`);
   console.log(`DASHSCOPE_API_KEY_DEEP: ${API_KEY_DEEP ? 'SET' : 'NOT SET'}`);
 });
