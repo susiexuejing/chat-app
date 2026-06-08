@@ -166,6 +166,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         let isWaiting = false;        // 等待文案正在显示
         let waitingPos = -1;          // 等待文案在displayedContent中的起始位置
         let deepBuffer = '';          // 等待期间百炼chunk缓存
+        const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -217,7 +218,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
 
           // ====== 队列为空 — 所有展示内容完成后 → 进入等待 ======
-          if (!isDeepStarted && !isDeepDone && !isWaiting) {
+          if (!isDeepStarted && !isDeepDone && !isWaiting && !isNormalChat) {
             isWaiting = true;
             waitingPos = displayedContent.length;
             pushToQueue('\n\n我还在继续理解你刚才那句话……');

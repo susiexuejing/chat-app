@@ -939,37 +939,37 @@ function isNormalChat(message: string): boolean {
 function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: string; companion: string } {
   const responses: Record<string, { frontFlow: string; reaction: string; companion: string }> = {
     'clever-fox': {
-      frontFlow: '我是聪明狐狸。喜欢琢磨那些绕来绕去的事，帮你把乱糟糟的东西理清楚。你愿意聊聊什么？',
+      frontFlow: '我是聪明狐狸。喜欢琢磨那些绕来绕去的事，帮你把乱糟糟的东西理清楚。你愿意聊聊什么？\n\n我擅长从纷乱中找到线索——有时一句话里藏了三四层意思，我能帮你一层层剥开。你来找我，肯定是心里有些事还没理顺吧？',
       reaction: '',
       companion: '',
     },
     'warm-bear': {
-      frontFlow: '我是温暖小熊。我就待在这儿，你要是累了就靠一会儿。有什么事都可以跟我说。',
+      frontFlow: '我是温暖小熊。我就待在这儿，你要是累了就靠一会儿。有什么事都可以跟我说，不用着急，不用修饰，想到哪说到哪就行。\n\n我最大的本事不是解决问题，是让人待着舒服。你坐着，我就在旁边，慢慢说。',
       reaction: '',
       companion: '',
     },
     'wise-owl': {
-      frontFlow: '我是深思猫头鹰。我喜欢听那些没说完的话，也喜欢琢磨藏在表面之下的东西。你想聊点什么？',
+      frontFlow: '我是深思猫头鹰。我喜欢听那些没说完的话，也喜欢琢磨藏在表面之下的东西。你想聊点什么？\n\n我不急着下结论，也不急着给建议。有时候一个人安安静静地说，说着说着自己就看清了。我可以陪你走那个过程。',
       reaction: '',
       companion: '',
     },
     'emotion-elf': {
-      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
+      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。\n\n情绪不是问题，是信号。你心里的紧、沉、悬、乱——我都能触碰到。你不用急着消化它，先让它待一会儿，我在这儿陪你。',
       reaction: '',
       companion: '',
     },
     'empathy-fairy': {
-      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。',
+      frontFlow: '我是情感小精灵。我能感受到你心里的温度。你可以放心地把情绪放在这里。\n\n情绪不是问题，是信号。你心里的紧、沉、悬、乱——我都能触碰到。你不用急着消化它，先让它待一会儿，我在这儿陪你。',
       reaction: '',
       companion: '',
     },
     'philosophical-dolphin': {
-      frontFlow: '我是哲思海豚。我喜欢陪人一起看看远方，聊聊那些真正重要的事。你最近在想什么？',
+      frontFlow: '我是哲思海豚。我喜欢陪人一起看看远方，聊聊那些真正重要的事。你最近在想什么？\n\n有些问题不是在原地想就能想通的。有时候需要退一步，或者换个角度看看。我可以帮你把视角拉远一点，看到更大的图景。',
       reaction: '',
       companion: '',
     },
     'family-elephant': {
-      frontFlow: '我是团结小象。我最在意人与人之间的连接。你身边的事，可以跟我聊聊。',
+      frontFlow: '我是团结小象。我最在意人与人之间的连接。你身边的事，可以跟我聊聊。\n\n我知道，生活里最难的不是事情本身，是你一个人扛了太久。你还有我，不用什么都自己解决。先说出来，说出来就是第一步。',
       reaction: '',
       companion: '',
     },
