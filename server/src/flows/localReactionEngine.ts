@@ -21,14 +21,14 @@ export interface TimelineSegment {
 
 export interface LocalReactionResult {
   reactionLayer: string;          // 单句摘要（给frontend预览）
-  reactionTimeline: TimelineSegment[];   // [0s, 3s, 6s]
-  companionTimeline: TimelineSegment[];  // [8s, 18s, 30s, 45s, 60s, 75s, 90s]
+  reactionTimeline: TimelineSegment[];   // [0s, 2s, 4s, 6s, 8s]
+  companionTimeline: TimelineSegment[];  // [10s, 20s, 32s, 45s, 58s, 72s, 85s]
 }
 
 // ─── 时间锚点 ──────────────────────────────────────────
 
-const REACTION_TIMES = [0, 3, 6] as const;
-const COMPANION_TIMES = [8, 18, 30, 45, 60, 75, 90] as const;
+const REACTION_TIMES = [0, 2, 4, 6, 8] as const;
+const COMPANION_TIMES = [10, 20, 32, 45, 58, 72, 85] as const;
 
 // ─── 模板替换 ──────────────────────────────────────────
 
@@ -76,14 +76,14 @@ function buildTimeline(
   profileName: string,
   eventHint: EventHint,
 ): LocalReactionResult {
-  // Reaction：取前3段（0s, 3s, 6s）
-  const reactions = templates.reactions.slice(0, 3);
+  // Reaction：取前5段（0s, 2s, 4s, 6s, 8s）
+  const reactions = templates.reactions.slice(0, 5);
   const reactionTimeline: TimelineSegment[] = reactions.map((text, i) => ({
     displayAt: REACTION_TIMES[i],
     text: fillTemplate(text, keyword),
   }));
 
-  // Companion：取前7段（8s, 18s, 30s, 45s, 60s, 75s, 90s）
+  // Companion：取前7段（10s, 20s, 32s, 45s, 58s, 72s, 85s）
   const companions = templates.companions.slice(0, 7);
   const companionTimeline: TimelineSegment[] = companions.map((text, i) => ({
     displayAt: COMPANION_TIMES[i],
@@ -104,20 +104,22 @@ function buildTimeline(
 
 function generateGenericFallback(): LocalReactionResult {
   return {
-    reactionLayer: '嗯。我听到了。',
+    reactionLayer: '嗯。',
     reactionTimeline: [
-      { displayAt: 0, text: '嗯。我听到了。' },
-      { displayAt: 3, text: '我先把这件事放在心里。' },
-      { displayAt: 6, text: '你继续说。' },
+      { displayAt: 0, text: '嗯。' },
+      { displayAt: 2, text: '我听到了。' },
+      { displayAt: 4, text: '这事先放这儿。' },
+      { displayAt: 6, text: '不急着想。' },
+      { displayAt: 8, text: '我帮你看着。' },
     ],
     companionTimeline: [
-      { displayAt: 8, text: '不急。我在这儿。' },
-      { displayAt: 18, text: '你说的话我都记着。' },
-      { displayAt: 30, text: '我们慢慢来。' },
+      { displayAt: 10, text: '不急。我在这儿。' },
+      { displayAt: 20, text: '你说的话我都记着。' },
+      { displayAt: 32, text: '我们慢慢来。' },
       { displayAt: 45, text: '你不用急着想清楚。' },
-      { displayAt: 60, text: '我帮你看着。' },
-      { displayAt: 75, text: '放心。我一直都在。' },
-      { displayAt: 90, text: '你的事就是我的事。' },
+      { displayAt: 58, text: '我帮你看着。' },
+      { displayAt: 72, text: '放心。我一直都在。' },
+      { displayAt: 85, text: '你的事就是我的事。' },
     ],
   };
 }
