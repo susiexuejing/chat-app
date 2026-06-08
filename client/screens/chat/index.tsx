@@ -89,19 +89,29 @@ function ChatContent() {
         <MessageList onShowIntro={() => setIntroModalVisible(true)} />
         
         {/* 阶段状态横幅 — 让用户始终知道 AI 在做什么 */}
-        {isLoading && !error && (
+        {chatPhase !== 'idle' && !error && (
           <View className="absolute bottom-24 left-4 right-4 z-10">
             <View className="bg-gray-50 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
               <View className="flex-row items-center">
-                <ActivityIndicator size="small" color="#8B5CF6" />
+                {chatPhase !== 'done' ? (
+                  <ActivityIndicator size="small" color="#8B5CF6" />
+                ) : (
+                  <View className="w-4 h-4 rounded-full bg-green-500 items-center justify-center">
+                    <Text className="text-white text-[10px] font-bold">✓</Text>
+                  </View>
+                )}
                 <Text className="ml-2 text-sm font-medium text-gray-600 dark:text-gray-300 flex-1">
                   {chatPhase === 'waiting_deep'
                     ? `${currentRole?.name || '咨询师'} 正在整理更完整的理解，再等一下……`
                     : chatPhase === 'deep_arriving'
                       ? `深度理解正在写入……`
-                      : chatPhase === 'done'
-                        ? `回复完成，你可以继续说了`
-                        : `${currentRole?.name || '咨询师'} 正在理解中……`}
+                      : chatPhase === 'companion'
+                        ? `${currentRole?.name || '咨询师'} 正在陪你……`
+                        : chatPhase === 'responding'
+                          ? `${currentRole?.name || '咨询师'} 正在回应你……`
+                          : chatPhase === 'done'
+                            ? `${currentRole?.name || '我'} 说完了，轮到你了`
+                            : `${currentRole?.name || '咨询师'} 正在理解中……`}
                 </Text>
               </View>
               {chatPhase === 'waiting_deep' && (

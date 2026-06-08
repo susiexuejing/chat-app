@@ -179,6 +179,31 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 45;
         }
 
+        // ── Deep 段落化显示：按自然段分批出现，每段1.5s ──
+        function showDeepByParagraphs(fullText: string) {
+          const paragraphs = fullText.split('\n\n').filter(p => p.trim());
+          if (paragraphs.length === 0) {
+            setChatPhase('done');
+            return;
+          }
+
+          let pIdx = 0;
+          function showNextPara() {
+            displayedContent += (pIdx === 0 ? '' : '\n\n') + paragraphs[pIdx];
+            setMessages(prev =>
+              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+            );
+            pIdx++;
+            if (pIdx < paragraphs.length) {
+              setTimeout(showNextPara, 1500);
+            } else {
+              setChatPhase('done');
+            }
+          }
+          setChatPhase('deep_arriving');
+          showNextPara();
+        }
+
         // ── 核心：把文本加入队列 ──
         function pushToQueue(text: string) {
           for (const ch of text) textQueue.push(ch);
@@ -206,17 +231,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           // ═══ 队列为空 ═══
 
-          // 刚打完一段，deep已就绪且缓存在buffer中 → 刷出deep
+          // 刚打完一段，deep已就绪且缓存在buffer中 → 按自然段分批显现
           if (isDeepStarted && deepBuffer) {
             const content = deepBuffer;
             deepBuffer = '';
-            displayedContent += '\n\n' + content;
-            setMessages(prev =>
-              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-            );
-            setChatPhase('deep_arriving');
             console.log(`[Deep] typing结束后追加deep: ${Date.now() - chatStartTime}ms`);
-            scheduleNext();
+            showDeepByParagraphs(content);
             return;
           }
 
@@ -359,12 +379,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                       return;
                     }
 
-                    // 3. 不在 typing → 直接追加 deep 到当前已显示内容后面
-                    displayedContent += '\n\n' + parsed.content;
-                    setMessages(prev =>
-                      prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-                    );
+                    // 3. 不在 typing → 按自然段分批显现 Deep
                     console.log(`[Deep] 直接追加到已显示内容后: ${now - chatStartTime}ms`);
+                    showDeepByParagraphs(parsed.content);
                     return;
                   }
 

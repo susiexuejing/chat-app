@@ -224,7 +224,7 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
         {/* 底部提示 */}
         <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
           {chatPhase === 'done'
-            ? '◎ 回复完成，你可以继续说了'
+            ? '◎ 我说完了，轮到你了'
             : isThinking
               ? '我在等你说，不用着急'
               : '选择一个情绪标签或直接输入您的问题'
