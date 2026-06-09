@@ -13,6 +13,8 @@ import {
   generateReactionTimeline,
   generateCompanionTimeline,
 } from './flows/localReactionEngine';
+import { analyzeFlow } from './flows/index';
+import type { FlowResult } from './flows/flowTypes';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -83,6 +85,7 @@ interface ChatSession {
   deepError: string | null;     // 错误信息
   userId: string;               // 用户标识（用于神经档案）
   neuralProfile: NeuralProfile; // 当前用户神经状态
+  flowResult: FlowResult | null; // Flow System 心理流向分析结果
 }
 
 const sessions = new Map<string, ChatSession>();
@@ -114,7 +117,42 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null): string {
+  let flowBlock = '';
+  if (flowResult) {
+    const pos = flowResult.position;
+    const pf = flowResult.primaryFlow;
+    const sf = flowResult.secondaryFlow;
+    const lines: string[] = [];
+    lines.push('===== Flow System =====');
+    lines.push('[Position]');
+    lines.push(`  认知: ${pos.cognition.toFixed(1)}`);
+    lines.push(`  归因: ${pos.attribution.toFixed(1)}`);
+    lines.push(`  行动: ${pos.agency.toFixed(1)}`);
+    lines.push(`  抽象: ${pos.abstraction}`);
+    lines.push('[State]');
+    lines.push(`  ${flowResult.status}`);
+    lines.push('[Flow]');
+    if (pf && !flowResult.isMixed) {
+      lines.push(`  当前流向: ${pf.flowType}`);
+      lines.push(`  流向描述: ${pf.from} → ${pf.to}`);
+      lines.push(`  流向强度: ${pf.strength.toFixed(2)}`);
+      lines.push(`  置信度: ${pf.confidence.toFixed(2)}`);
+      if (sf && pf.confidence < 0.7) {
+        lines.push(`  次流向: ${sf.flowType} (${sf.confidence.toFixed(2)})`);
+      }
+    } else if (flowResult.isMixed) {
+      lines.push('  mixed（多流向冲突，交给人格判断）');
+    } else {
+      lines.push('  (未匹配到显著流向)');
+    }
+    if (flowResult.isTransitioning) {
+      lines.push('  [方向突变]');
+    }
+    lines.push('=======================');
+    flowBlock = '\n' + lines.join('\n') + '\n';
+  }
+
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
@@ -123,7 +161,7 @@ ${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 
 用户已经看到以下前置陪伴内容：
 ${frontFlowText}
-
+${flowBlock}
 请严格遵守：
 - 不要重复以上前置陪伴内容
 - 不要输出 JSON
@@ -883,7 +921,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   session.deepStreaming = true;
 
   try {
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1267,6 +1305,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       deepDone,
       deepStreaming,
       deepError: null,
+      flowResult: null,
     };
     sessions.set(sessionId, session);
 
@@ -1289,6 +1328,16 @@ app.post('/api/v1/chat/start', async (req, res) => {
       console.log(`[Start] Session ${sessionId}: NORMAL_CHAT role=${roleName}, skipped deep analysis`);
     } else {
       console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
+
+      // 7a. Flow System 心理流向分析
+      try {
+        session.flowResult = analyzeFlow(userId, roleId, message);
+        console.log(`[Flow] Session ${sessionId}: pattern=${session.flowResult.primaryFlow?.flowType || 'none'}, status=${session.flowResult.status}`);
+      } catch (flowErr) {
+        console.error(`[Flow] Session ${sessionId} error:`, flowErr);
+        session.flowResult = null;
+      }
+
       startDeepAnalysis(session).catch(err => {
         console.error(`[Deep] Session ${sessionId} error:`, err);
         session.deepError = err instanceof Error ? err.message : 'Unknown error';
