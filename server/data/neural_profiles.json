@@ -688,11 +688,252 @@
       "actionGuidance": 0.3,
       "reflectiveSpace": 0.4,
       "totalInteractions": 0,
-      "dominantEmotions": [],
-      "recentTopics": [],
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
       "lastUpdated": 1780987721019
     },
     "createdAt": 1780987721019,
     "updatedAt": 1780987721019
+  },
+  "six_test_clever-fox::clever-fox": {
+    "userId": "six_test_clever-fox",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988347439
+    },
+    "createdAt": 1780987997173,
+    "updatedAt": 1780988347439
+  },
+  "six_test_warm-bear::warm-bear": {
+    "userId": "six_test_warm-bear",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988346938
+    },
+    "createdAt": 1780987997180,
+    "updatedAt": 1780988346938
+  },
+  "six_test_wise-owl::wise-owl": {
+    "userId": "six_test_wise-owl",
+    "roleId": "wise-owl",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988339630
+    },
+    "createdAt": 1780987997184,
+    "updatedAt": 1780988339630
+  },
+  "six_test_emotion-elf::emotion-elf": {
+    "userId": "six_test_emotion-elf",
+    "roleId": "emotion-elf",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988341533
+    },
+    "createdAt": 1780987997189,
+    "updatedAt": 1780988341533
+  },
+  "six_test_philosophical-dolphin::philosophical-dolphin": {
+    "userId": "six_test_philosophical-dolphin",
+    "roleId": "philosophical-dolphin",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988338126
+    },
+    "createdAt": 1780987997193,
+    "updatedAt": 1780988338126
+  },
+  "six_test_family-elephant::family-elephant": {
+    "userId": "six_test_family-elephant",
+    "roleId": "family-elephant",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.351,
+      "emotionalSupport": 0.408,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.352,
+      "totalInteractions": 15,
+      "dominantEmotions": [
+        "累",
+        "压力",
+        "焦虑",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作",
+        "焦虑",
+        "家庭",
+        "人生方向",
+        "社交"
+      ],
+      "lastUpdated": 1780988339430
+    },
+    "createdAt": 1780987997196,
+    "updatedAt": 1780988339430
+  },
+  "fix_v2_fox::clever-fox": {
+    "userId": "fix_v2_fox",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.374,
+      "emotionalSupport": 0.423,
+      "actionGuidance": 0.274,
+      "reflectiveSpace": 0.374,
+      "totalInteractions": 2,
+      "dominantEmotions": [],
+      "recentTopics": [
+        "社交"
+      ],
+      "lastUpdated": 1780988483610
+    },
+    "createdAt": 1780988417695,
+    "updatedAt": 1780988483610
+  },
+  "fix_v2_ele::family-elephant": {
+    "userId": "fix_v2_ele",
+    "roleId": "family-elephant",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [],
+      "recentTopics": [
+        "社交"
+      ],
+      "lastUpdated": 1780988452977
+    },
+    "createdAt": 1780988417751,
+    "updatedAt": 1780988452977
   }
 }

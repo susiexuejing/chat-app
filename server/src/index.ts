@@ -1089,11 +1089,12 @@ function extractFinalChineseResponse(raw: string): string {
   const paragraphs = raw.split(/\n\s*\n/);
 
   if (hasThinkingMarker) {
-    // ── 有思考标记 → 结构式截取 ──
-    // 思考过程特征：编号段落（1. 2. 3.）、结束标记（Proceeds.）、自查段落
-    // 最终回复在这些结构之后，且不编号
+    // ── 有思考标记 → 行级别截取（更鲁棒） ──
+    // 核心策略：按行切分 → 找到最后一个编号行（"N. **..."）→ 取之后的所有行
+    // 无论模型是否使用\n\n分隔，都能正确处理
 
-    const numberedSection = /^\s*\d+\.\s+/; // 行首数字编号
+    const lines = raw.split('\n');
+    const numberedLine = /^\s*\d+\.\s+/;   // 行首数字编号
     const endMarkers = [
       /proceeds\.?\s*$/i,
       /all good\.?\s*$/i,
@@ -1101,51 +1102,60 @@ function extractFinalChineseResponse(raw: string): string {
       /ready\.?\s*$/i,
     ];
 
-    const lines = raw.split('\n');
-
-    // 1. 从行级别：找到最后一行结束标记之后
-    let lastEndLine = -1;
+    // 1. 找到最后一行编号行 或 结束标记行
+    let lastStructureLine = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (endMarkers.some(m => m.test(lines[i].trim()))) {
-        lastEndLine = i;
+      const trimmed = lines[i].trim();
+      if (numberedLine.test(trimmed) || endMarkers.some(m => m.test(trimmed))) {
+        lastStructureLine = i;
       }
     }
 
-    // 2. 从段落级别：排除所有以数字编号开头的段落
-    //    最终回复不开头于编号
-    const nonNumberedParagraphs = paragraphs.filter(p => {
-      const trimmed = p.trim();
-      return !numberedSection.test(trimmed);
-    });
+    // 2. 取最后一个结构行之后的所有内容
+    const afterStructure = lastStructureLine >= 0
+      ? lines.slice(lastStructureLine + 1).join('\n').trim()
+      : '';
 
-    // 3. 取 nonNumberedParagraphs 中最后一组连续中文段落
-    //    （从后往前，找相邻中文段落）
-    const reliableParagraphs = nonNumberedParagraphs.filter(p => {
-      const chineseChars = p.match(/[\u4e00-\u9fff]/g);
-      if (!chineseChars) return false;
-      const totalVisible = p.replace(/\s/g, '').length;
-      return totalVisible > 0 && chineseChars.length / totalVisible >= 0.35;
-    });
-
-    if (reliableParagraphs.length > 0) {
-      const result = reliableParagraphs.join('\n\n');
-      console.log(`[Clean] Extracted ${result.length} chars from thinking content (${reliableParagraphs.length} paragraphs)`);
-      return result;
-    }
-
-    // 3b. 🛡️ 二次兜底：取最后一段非编号且有中文的内容
-    //    当 reliableParagraphs 为空时（如所有段都被编号规则过滤），
-    //    尝试从原文中直接找最后一个有中文的段落
-    const allNonNumbered = paragraphs.filter(p => !numberedSection.test(p.trim()));
-    for (let i = allNonNumbered.length - 1; i >= 0; i--) {
-      const cjk = allNonNumbered[i].match(/[\u4e00-\u9fff]/g);
-      if (cjk && cjk.length >= 5) {
-        console.log(`[Clean] Fallback: took last Chinese paragraph (${cjk.length} CJK chars)`);
-        return allNonNumbered[i].trim();
+    // 3. 如果截取到了内容，按段落过滤中文
+    if (afterStructure.length > 0) {
+      const responseParagraphs = afterStructure.split('\n\n').filter(p => p.trim());
+      const chineseParagraphs = responseParagraphs.filter(p => {
+        const chineseChars = p.match(/[\u4e00-\u9fff]/g);
+        if (!chineseChars) return false;
+        const totalVisible = p.replace(/\s/g, '').length;
+        return totalVisible > 0 && chineseChars.length / totalVisible >= 0.3;
+      });
+      if (chineseParagraphs.length > 0) {
+        const result = chineseParagraphs.join('\n\n');
+        console.log(`[Clean] Extracted ${result.length} chars (thinking→last numbered line: ${lastStructureLine})`);
+        return result;
+      }
+      // 兜底：最后一段≥5中文字
+      for (let i = responseParagraphs.length - 1; i >= 0; i--) {
+        const cjk = responseParagraphs[i].match(/[\u4e00-\u9fff]/g);
+        if (cjk && cjk.length >= 5) {
+          console.log(`[Clean] Fallback: took last para after structure (${cjk.length} CJK chars)`);
+          return responseParagraphs[i].trim();
+        }
       }
     }
 
-    console.log(`[Clean] Has thinking marker but no reliable Chinese found (${raw.length} raw chars)`);
+    // 4. 🛡️ 极兜底：全文中最后一段≥5中文字的内容（无结构行时）
+    //    处理 "Here's a thinking process: 1.  **Analyze...**" 同一段落的情况
+    for (let i = paragraphs.length - 1; i >= 0; i--) {
+      const cjk = paragraphs[i].match(/[\u4e00-\u9fff]/g);
+      if (cjk && cjk.length >= 8) {
+        // 检查此段是否包含编号行（如仍在思考过程中）
+        const paraLines = paragraphs[i].split('\n');
+        const hasNumbered = paraLines.some(l => numberedLine.test(l.trim()));
+        if (!hasNumbered) {
+          console.log(`[Clean] Extreme fallback: took para ${i} (${cjk.length} CJK chars, no numbered lines)`);
+          return paragraphs[i].trim();
+        }
+      }
+    }
+
+    console.log(`[Clean] Has thinking marker, no reliable Chinese (${raw.length} raw chars)`);
     return '';
   }
 

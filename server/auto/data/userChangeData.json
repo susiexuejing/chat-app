@@ -452,5 +452,2609 @@
       "isTransitioning": false,
       "trajectoryLength": 1
     }
+  },
+  "six_test_clever-fox::clever-fox": {
+    "history": {
+      "userId": "six_test_clever-fox",
+      "roleId": "clever-fox",
+      "snapshots": [
+        {
+          "timestamp": 1780988027874,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058652,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087554,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118155,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150226,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180818,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195616,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209016,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226516,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233313,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254774,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263856,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285659,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316350,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316350,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "six_test_warm-bear::warm-bear": {
+    "history": {
+      "userId": "six_test_warm-bear",
+      "roleId": "warm-bear",
+      "snapshots": [
+        {
+          "timestamp": 1780988027871,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058655,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087569,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118152,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150222,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180806,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195620,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209024,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226508,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233298,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254781,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263858,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285666,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316343,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316343,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "six_test_wise-owl::wise-owl": {
+    "history": {
+      "userId": "six_test_wise-owl",
+      "roleId": "wise-owl",
+      "snapshots": [
+        {
+          "timestamp": 1780988027878,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058658,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087564,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118161,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150230,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180823,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195623,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209021,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226511,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233302,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254784,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263864,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285651,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316355,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316355,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "six_test_emotion-elf::emotion-elf": {
+    "history": {
+      "userId": "six_test_emotion-elf",
+      "roleId": "emotion-elf",
+      "snapshots": [
+        {
+          "timestamp": 1780988027881,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058661,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087579,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118164,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150233,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180810,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195626,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209019,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226518,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233305,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254778,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263861,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285663,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316366,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316366,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "six_test_philosophical-dolphin::philosophical-dolphin": {
+    "history": {
+      "userId": "six_test_philosophical-dolphin",
+      "roleId": "philosophical-dolphin",
+      "snapshots": [
+        {
+          "timestamp": 1780988027883,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058664,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087559,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118168,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150239,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180825,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195629,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209026,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226521,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233310,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254789,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263865,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285669,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316359,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316359,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "six_test_family-elephant::family-elephant": {
+    "history": {
+      "userId": "six_test_family-elephant",
+      "roleId": "family-elephant",
+      "snapshots": [
+        {
+          "timestamp": 1780988027866,
+          "positionDelta": {
+            "cognitionDelta": -0.14,
+            "attributionDelta": 0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "首次"
+          },
+          "confidence": 0.52,
+          "strength": 0.31,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0.67,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "工作压力太大了，老板天天催进度"
+          }
+        },
+        {
+          "timestamp": 1780988058673,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": -0.67,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我其实也说不清楚到底在焦虑什么"
+          }
+        },
+        {
+          "timestamp": 1780988087573,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.46,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "可能是对自己要求太高了，总觉得不够好"
+          }
+        },
+        {
+          "timestamp": 1780988118171,
+          "positionDelta": {
+            "cognitionDelta": 0.56,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "小时候爸妈对我特别严格，很少夸我"
+          }
+        },
+        {
+          "timestamp": 1780988150236,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "深化"
+          },
+          "confidence": 0.5,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988180814,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "保持"
+          },
+          "confidence": 0.46,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988195633,
+          "positionDelta": {
+            "cognitionDelta": 0.67,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "anger_to_hurt",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "我现在做什么都怕做错，追求完美到累"
+          }
+        },
+        {
+          "timestamp": 1780988209028,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 1,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0.18,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988226514,
+          "positionDelta": {
+            "cognitionDelta": -0.67,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.09,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.67,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "有时候会突然心慌，感觉喘不过气"
+          }
+        },
+        {
+          "timestamp": 1780988233316,
+          "positionDelta": {
+            "cognitionDelta": 0.08,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "analysis_to_feeling",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988254787,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "analysis_to_feeling",
+            "flowTypeCurrent": "avoidance_to_action",
+            "directionChange": "转移"
+          },
+          "confidence": 0.47,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 1,
+            "abstraction": 0,
+            "rawText": "我试过冥想，但坚持不下来"
+          }
+        },
+        {
+          "timestamp": 1780988263868,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": -1,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "avoidance_to_action",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        },
+        {
+          "timestamp": 1780988285655,
+          "positionDelta": {
+            "cognitionDelta": -0.59,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.08,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.59,
+            "attribution": 1,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+          }
+        },
+        {
+          "timestamp": 1780988316371,
+          "positionDelta": {
+            "cognitionDelta": 0.59,
+            "attributionDelta": -1,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.5,
+          "strength": 0.1,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "其实我就想要有人能真正理解我"
+          }
+        }
+      ],
+      "updatedAt": 1780988316371,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.071,
+        "cognitionTrend": 0.038,
+        "flowDepthTrend": -1,
+        "selfBlameChange": 0.19,
+        "agencyChange": 0.29,
+        "reflectionChange": -0.43
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "其实我就想要有人能真正理解我"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.4,
+          "confidence": 0.5,
+          "strength": 0.1
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.08
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.26,
+          "confidence": 0.5,
+          "strength": 0.07
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.05
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.4,
+        "confidence": 0.5,
+        "strength": 0.1
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.08
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 5
+    }
+  },
+  "fix_v2_fox::clever-fox": {
+    "history": {
+      "userId": "fix_v2_fox",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1780988417700
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -0.59,
+        "attribution": 1,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "朋友说我太敏感了，但我觉得他们不懂"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "fix_v2_ele::family-elephant": {
+    "history": {
+      "userId": "fix_v2_ele",
+      "roleId": "family-elephant",
+      "snapshots": [],
+      "updatedAt": 1780988417753
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 1,
+        "abstraction": 0,
+        "rawText": "我试过冥想，但坚持不下来"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
   }
 }
