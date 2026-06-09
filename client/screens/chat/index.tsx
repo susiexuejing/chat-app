@@ -87,101 +87,84 @@ function ChatContent() {
       {/* 消息列表 */}
       <View className="flex-1">
         <MessageList onShowIntro={() => setIntroModalVisible(true)} />
-        
-        {/* 阶段状态横幅 — 让用户始终知道 AI 在做什么 */}
-        {chatPhase !== 'idle' && !error && (
-          <View className="absolute bottom-24 left-4 right-4 z-10">
-            <View className="bg-gray-50 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
-              <View className="flex-row items-center">
-                {chatPhase !== 'done' ? (
-                  <ActivityIndicator size="small" color="#8B5CF6" />
-                ) : (
-                  <View className="w-4 h-4 rounded-full bg-green-500 items-center justify-center">
-                    <Text className="text-white text-[10px] font-bold">✓</Text>
-                  </View>
-                )}
-                <Text className="ml-2 text-sm font-medium text-gray-600 dark:text-gray-300 flex-1">
-                  {chatPhase === 'waiting_deep'
-                    ? `${currentRole?.name || '咨询师'} 正在整理更完整的理解，再等一下……`
-                    : chatPhase === 'deep_arriving'
-                      ? `深度理解正在写入……`
-                      : chatPhase === 'companion'
-                        ? `${currentRole?.name || '咨询师'} 正在陪你……`
-                        : chatPhase === 'responding'
-                          ? `${currentRole?.name || '咨询师'} 正在回应你……`
-                          : chatPhase === 'done'
-                            ? `${currentRole?.name || '我'} 说完了，轮到你了`
-                            : `${currentRole?.name || '咨询师'} 正在理解中……`}
-                </Text>
-              </View>
-              {chatPhase === 'waiting_deep' && (
-                <Text className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
-                  深度回复生成中，大约还需要几秒
-                </Text>
-              )}
-            </View>
-          </View>
-        )}
+      </View>
 
-        {/* Deep 分析流式内容指示（当 deep 正在到来时） */}
-        {deepThinkingContent && chatPhase !== 'done' && (
-          <View className="absolute bottom-36 left-4 right-4 z-20">
-            <View className="bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-2xl p-4">
-              <View className="flex-row items-center mb-2">
+      {/* 阶段状态条 — 在消息区和输入区之间，不遮挡消息 */}
+      {chatPhase !== 'idle' && !error && (
+        <View className="px-4 pb-1">
+          <View className="bg-gray-50 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
+            <View className="flex-row items-center">
+              {chatPhase !== 'done' ? (
                 <ActivityIndicator size="small" color="#8B5CF6" />
-                <Text className="ml-2 text-sm font-medium text-purple-700 dark:text-purple-300">
-                  深度分析中...
-                </Text>
-              </View>
-              <Text className="text-xs text-purple-600 dark:text-purple-400" numberOfLines={3}>
-                {deepThinkingContent}
+              ) : (
+                <View className="w-4 h-4 rounded-full bg-green-500 items-center justify-center">
+                  <Text className="text-white text-[10px] font-bold">✓</Text>
+                </View>
+              )}
+              <Text className="ml-2 text-sm font-medium text-gray-600 dark:text-gray-300 flex-1">
+                {chatPhase === 'waiting_deep'
+                  ? `${currentRole?.name || '咨询师'} 正在整理更完整的理解……`
+                  : chatPhase === 'deep_arriving'
+                    ? `深度理解正在写入……`
+                    : chatPhase === 'companion'
+                      ? `${currentRole?.name || '咨询师'} 正在陪你……`
+                      : chatPhase === 'responding'
+                        ? `${currentRole?.name || '咨询师'} 正在回应你……`
+                        : chatPhase === 'done'
+                          ? `${currentRole?.name || '我'} 说完了，轮到你了`
+                          : `${currentRole?.name || '咨询师'} 正在理解中……`}
               </Text>
             </View>
+            {/* 只有 waiting_deep 且 deep 内容还未抵达时显示预估时间 */}
+            {chatPhase === 'waiting_deep' && !deepThinkingContent && (
+              <Text className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
+                深度回复生成中，大约还需要几秒
+              </Text>
+            )}
           </View>
-        )}
-        
-        {/* 错误提示 */}
-        {error && !isLoading && (
-          <View className="absolute bottom-24 left-4 right-4">
-            <View className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl p-4">
-              <View className="flex-row items-start">
-                <View className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/50 items-center justify-center mr-3">
-                  <Ionicons name="alert-circle" size={18} color="#dc2626" />
-                </View>
-                <View className="flex-1">
-                  <Text className="text-sm font-medium text-red-700 dark:text-red-400 mb-1">
-                    {error || '请求超时'}
-                  </Text>
-                  <Text className="text-xs text-red-600 dark:text-red-300 mb-2">
-                    请检查网络后重试，或点击「重试」重新发送
-                  </Text>
-                  <View className="flex-row">
-                    <TouchableOpacity
-                      className="bg-red-500 px-3 py-1.5 rounded-lg mr-2"
-                      onPress={() => {
-                        clearError();
-                        // 重试上一条消息
-                        const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-                        if (lastUserMessage) {
-                          handleSendMessage(lastUserMessage.content);
-                        }
-                      }}
-                    >
-                      <Text className="text-xs text-white font-medium">重试</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      className="bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg"
-                      onPress={clearError}
-                    >
-                      <Text className="text-xs text-gray-600 dark:text-gray-300">忽略</Text>
-                    </TouchableOpacity>
-                  </View>
+        </View>
+      )}
+
+      {/* 错误提示 — 同样放在消息区和输入区之间 */}
+      {error && !isLoading && (
+        <View className="px-4 pb-1">
+          <View className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl p-4">
+            <View className="flex-row items-start">
+              <View className="w-8 h-8 rounded-full bg-red-100 dark:bg-red-900/50 items-center justify-center mr-3">
+                <Ionicons name="alert-circle" size={18} color="#dc2626" />
+              </View>
+              <View className="flex-1">
+                <Text className="text-sm font-medium text-red-700 dark:text-red-400 mb-1">
+                  {error || '请求超时'}
+                </Text>
+                <Text className="text-xs text-red-600 dark:text-red-300 mb-2">
+                  请检查网络后重试，或点击「重试」重新发送
+                </Text>
+                <View className="flex-row">
+                  <TouchableOpacity
+                    className="bg-red-500 px-3 py-1.5 rounded-lg mr-2"
+                    onPress={() => {
+                      clearError();
+                      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+                      if (lastUserMessage) {
+                        handleSendMessage(lastUserMessage.content);
+                      }
+                    }}
+                  >
+                    <Text className="text-xs text-white font-medium">重试</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    className="bg-gray-100 dark:bg-gray-700 px-3 py-1.5 rounded-lg"
+                    onPress={clearError}
+                  >
+                    <Text className="text-xs text-gray-600 dark:text-gray-300">忽略</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             </View>
           </View>
-        )}
-      </View>
+        </View>
+      )}
 
       {/* 免责声明 */}
       <View className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800 flex-row items-center justify-center">
