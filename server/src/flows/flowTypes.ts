@@ -105,3 +105,67 @@ export interface FlowBufferData {
   positions: FlowPosition[];
   updatedAt: number;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 5 — Change System Type Definitions
+// 用户变化感知系统：量化用户在长期对话中的心理演化
+// ═══════════════════════════════════════════════════════════════
+
+/** 单轮变化快照 */
+export interface ChangeSnapshot {
+  timestamp: number;
+  /** 四维位置差值（与上一轮对比） */
+  positionDelta: ChangeVector;
+  /** 流动模式变化 */
+  patternDelta: FlowPatternDelta;
+  /** 当前匹配置信度 */
+  confidence: number;
+  /** 当前流动强度 */
+  strength: number;
+  /** 当前流动状态 */
+  status: FlowStatus;
+  /** 当前真实消息的 FlowPosition（用于后期回溯） */
+  position: FlowPosition;
+}
+
+/** 四维变化向量 */
+export interface ChangeVector {
+  cognitionDelta: number;
+  attributionDelta: number;
+  agencyDelta: number;
+  abstractionDelta: number;
+}
+
+/** 流动模式变化 */
+export interface FlowPatternDelta {
+  flowTypePrevious: string | null;
+  flowTypeCurrent: string | null;
+  directionChange: '保持' | '深化' | '转移' | '首次';
+}
+
+/** 变化历史档案 */
+export interface ChangeHistory {
+  userId: string;
+  roleId: string;
+  snapshots: ChangeSnapshot[];
+  /** 最近20轮的趋势分析 */
+  trendAnalysis?: {
+    /** 归因变化趋势（正=外归↑/负=内归↑） */
+    attributionTrend: number;
+    /** 行动力趋势（正=掌控↑/负=无力↑） */
+    agencyTrend: number;
+    /** 抽象层趋势（正=模式觉察↑） */
+    abstractionTrend: number;
+    /** 认知轴趋势（正=分析化↑/负=感受化↑） */
+    cognitionTrend: number;
+    /** 流向深化度趋势 */
+    flowDepthTrend: number;
+    /** 自我责备变化（负=减少→正向变化） */
+    selfBlameChange: number;
+    /** 行动感变化（正=提升→正向变化） */
+    agencyChange: number;
+    /** 模式觉察变化（正=提升→正向变化） */
+    reflectionChange: number;
+  };
+  updatedAt: number;
+}

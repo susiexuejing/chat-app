@@ -1,9 +1,9 @@
 // ═══════════════════════════════════════════════════════════════
-// EmotionFlow V4 — Flow System 统一入口
+// EmotionFlow V4/V5 — Flow System + Change System 统一入口
 // 独立模块，不接入百炼 / 不接入前端 / 不修改现有系统
 // ═══════════════════════════════════════════════════════════════
 
-import type { FlowPosition, FlowResult, FlowBufferData } from './flowTypes';
+import type { FlowPosition, FlowResult, FlowBufferData, ChangeSnapshot } from './flowTypes';
 import { extractFlowSignals } from './flowSignals';
 import {
   createFlowBuffer,
@@ -14,6 +14,7 @@ import {
 } from './flowBuffer';
 import { determineFlowStatus } from './flowState';
 import { matchFlowPatterns } from './flowMatcher';
+import { recordChange, getChangeBlock } from './changeSystem';
 
 // ─── 内存缓存（当前不持久化，仅用于独立模块测试） ──────
 
@@ -187,3 +188,10 @@ export function formatFlowResult(result: FlowResult): string {
 
   return lines.join('\n');
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Phase 5 — Change System 导出
+// ═══════════════════════════════════════════════════════════════
+
+export { recordChange, getChangeBlock, resetAllChangeHistory } from './changeSystem';
+export type { ChangeSnapshot, ChangeHistory } from './flowTypes';

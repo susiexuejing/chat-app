@@ -1,0 +1,132 @@
+{
+  "change_test_cs::warm-bear": {
+    "history": {
+      "userId": "change_test_cs",
+      "roleId": "warm-bear",
+      "snapshots": [
+        {
+          "timestamp": 1780986646054,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "chaos_to_structure",
+            "directionChange": "首次"
+          },
+          "confidence": 0.45,
+          "strength": 0.25,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 2,
+            "rawText": "我完全不知道从哪说起"
+          }
+        },
+        {
+          "timestamp": 1780986646055,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -2
+          },
+          "patternDelta": {
+            "flowTypePrevious": "chaos_to_structure",
+            "flowTypeCurrent": "chaos_to_structure",
+            "directionChange": "保持"
+          },
+          "confidence": 0.44,
+          "strength": 0.32,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "你能帮我理一理吗"
+          }
+        }
+      ],
+      "updatedAt": 1780986646055,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": -1,
+        "cognitionTrend": 0,
+        "flowDepthTrend": -2,
+        "selfBlameChange": 0,
+        "agencyChange": 0,
+        "reflectionChange": -2
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "你能帮我理一理吗"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.32,
+          "confidence": 0.44,
+          "strength": 0.32
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.44,
+          "strength": 0.3
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.15,
+          "confidence": 0.44,
+          "strength": 0.15
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.15,
+          "confidence": 0.44,
+          "strength": 0.15
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "chaos_to_structure",
+        "from": "chaos",
+        "to": "structure",
+        "matchScore": 0.32,
+        "confidence": 0.44,
+        "strength": 0.32
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.44,
+        "strength": 0.3
+      },
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 3
+    }
+  }
+}

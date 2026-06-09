@@ -588,5 +588,25 @@
     },
     "createdAt": 1780980347583,
     "updatedAt": 1780980370219
+  },
+  "change_test_01::clever-fox": {
+    "userId": "change_test_01",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.4,
+      "emotionalSupport": 0.5,
+      "actionGuidance": 0.3,
+      "reflectiveSpace": 0.4,
+      "totalInteractions": 0,
+      "dominantEmotions": [],
+      "recentTopics": [],
+      "lastUpdated": 1780986567030
+    },
+    "createdAt": 1780986567030,
+    "updatedAt": 1780986567030
   }
 }

@@ -13,7 +13,7 @@ import {
   generateReactionTimeline,
   generateCompanionTimeline,
 } from './flows/localReactionEngine';
-import { analyzeFlow } from './flows/index';
+import { analyzeFlow, recordChange, getChangeBlock } from './flows/index';
 import type { FlowResult } from './flows/flowTypes';
 
 // 调试：打印环境变量
@@ -117,7 +117,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -162,6 +162,7 @@ ${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 用户已经看到以下前置陪伴内容：
 ${frontFlowText}
 ${flowBlock}
+${changeBlock || ''}
 请严格遵守：
 - 不要重复以上前置陪伴内容
 - 不要输出 JSON
@@ -921,7 +922,8 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   session.deepStreaming = true;
 
   try {
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult);
+    const changeBlock = getChangeBlock(session.userId, session.roleId);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1333,6 +1335,14 @@ app.post('/api/v1/chat/start', async (req, res) => {
       try {
         session.flowResult = analyzeFlow(userId, roleId, message);
         console.log(`[Flow] Session ${sessionId}: pattern=${session.flowResult.primaryFlow?.flowType || 'none'}, status=${session.flowResult.status}`);
+        
+        // 7a'. Change System 用户变化感知
+        const changeSnapshot = recordChange(userId, roleId, session.flowResult);
+        if (changeSnapshot) {
+          console.log(`[Change] Session ${sessionId}: dir=${changeSnapshot.patternDelta.directionChange}, Δatt=${changeSnapshot.positionDelta.attributionDelta}, Δage=${changeSnapshot.positionDelta.agencyDelta}`);
+        } else {
+          console.log(`[Change] Session ${sessionId}: first record (no change snapshot)`);
+        }
       } catch (flowErr) {
         console.error(`[Flow] Session ${sessionId} error:`, flowErr);
         session.flowResult = null;
