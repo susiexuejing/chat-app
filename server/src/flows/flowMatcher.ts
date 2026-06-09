@@ -28,6 +28,10 @@ const PATTERNS: FlowPatternDefinition[] = [
       [0, 1, 2],
       [0, 2, 3],
       [0, 1, 2, 3],
+      [0, 0, 2],
+      [0, 0, 2, 3],
+      [0, 2, 2],       // 新增: [0,2,2]
+      [0, 2, 2, 3],    // 新增: [0,2,2,3]
     ],
     signals: [
       '是不是我说错', '是不是我的问题', '是不是我做错了',
@@ -35,9 +39,17 @@ const PATTERNS: FlowPatternDefinition[] = [
       '是我的问题', '我做错了', '我不该', '都是我不好',
       '我不好', '我不够好', '我太差', '我能力不行',
       '是我的错', '我错了',
+      // ─── 增强：自己开头的自责 ───
+      '自己不好', '自己不行', '觉得自己不好',
+      '觉得自己不行', '觉得自己能力不够',
+      // ─── 增强：童年/模式类自责 ───
+      '从小', '从小就', '从小就这样',
+      '一遇到', '一有', '总觉得自己',
+      '觉得自己就是', '我就是不行',
+      '我就是不好', '我怎么都',
     ],
     shortMessageSignals: [     // ≤4字消息的信号词
-      '怪我', '我错', '我的错', '我不好',
+      '怪我', '我错', '我的错', '我不好', '自己不好',
     ],
     conflictsWith: ['attachment_anxiety', 'anger_to_hurt'],
   },
@@ -80,15 +92,17 @@ const PATTERNS: FlowPatternDefinition[] = [
     abstractionPattern: [
       [0, 1],
       [0, 1, 1],
+      [0, 1, 0, 0],
       [1, 1, 2],
     ],
     signals: [
       '凭什么', '太过分', '凭什么要我', '凭什么这样',
       '不公平', '他凭什么', '他们凭什么',
       '凭什么我', '凭什么总是我', '为什么偏偏是我',
+      '其实我只想', '我只想要', '其实我', '我只是想', '想被理解', '被理解', '想被看见',
     ],
     shortMessageSignals: [
-      '凭什么', '太过分', '不公平',
+      '凭什么', '太过分', '不公平', '其实我', '我只想', '被理解',
     ],
     conflictsWith: ['self_blame', 'external_blame_to_self_contact'],
   },
@@ -97,7 +111,7 @@ const PATTERNS: FlowPatternDefinition[] = [
     fromLabel: 'control_attempt',
     toLabel: 'helplessness',
     expectedDirection: {
-      agencyFrom: 0.2,         // 曾有掌控感
+      agencyFrom: 0,            // 曾尝试过（不一定高掌控）
       agencyTo: -0.3,          // 滑向无力
       abstractionTrend: 'flat',
     },
@@ -105,6 +119,10 @@ const PATTERNS: FlowPatternDefinition[] = [
       [0, 1],
       [1, 1],
       [0, 1, 1],
+      [0, 0, 1],
+      [3, 0],       // 高抽象开始 → 回到事件层
+      [3, 0, 0],    // 高抽象 → 连续事件层
+      [3, 0, 0, 0],
     ],
     signals: [
       '试了很多方法', '试了没用', '什么方法都试了',
@@ -116,9 +134,14 @@ const PATTERNS: FlowPatternDefinition[] = [
       '没任何用', '没意义', '有啥用', '有什么用',
       '改变不了什么', '控制不了', '无能为力',
       '不得不', '只好', '认了', '接受不了',
+      // ─── 增强：更加细粒度 ───
+      '试了好多', '试了很多', '试了各种',
+      '都没用', '全没用', '一点用没有',
+      '都改变不了', '什么都改变不了',
     ],
     shortMessageSignals: [
       '没用', '算了', '白费', '徒劳', '认了', '没救',
+      '没戏', '完了', '不行了',
     ],
     conflictsWith: ['avoidance_to_action'],
   },
@@ -135,6 +158,9 @@ const PATTERNS: FlowPatternDefinition[] = [
       [2, 1],
       [2, 1, 1],
       [2, 2, 1],
+      [1, 1, 1],
+      [1, 0, 1],
+      [1, 1, 0, 1],  // 分析→分析→中性→感受
     ],
     signals: [
       '道理我都懂', '我知道应该', '按理说', '理性上',
@@ -147,11 +173,17 @@ const PATTERNS: FlowPatternDefinition[] = [
       // 身体感受信号
       '胸口堵', '心里堵', '心堵', '发紧',
       '身体紧', '胃里沉', '喘不上气', '堵得慌',
+      // ─── 更精细的感受信号 ───
+      '但我', '可是心里', '可是胸口',
+      '胸口还是', '心里还是', '心口',
+      '还是堵', '还是难受', '还是闷',
+      '心里难受', '心里发紧', '胸口发闷',
+      '喘不过气', '呼吸不过来', '堵在那里',
     ],
     shortMessageSignals: [
       '堵', '心堵', '胸口', '发紧', '憋',
     ],
-    conflictsWith: [],
+    conflictsWith: ['avoidance_to_action'],
   },
   {
     type: 'chaos_to_structure',
@@ -168,6 +200,10 @@ const PATTERNS: FlowPatternDefinition[] = [
       [2, 0],
       [2, 1, 0],
       [1, 2, 0],
+      [0, 2, 0],
+      [0, 0, 2],
+      [2, 2, 0],    // 持续混乱 → 结构化
+      [2, 2, 2, 0], // 持续混乱 → 最终结构化
     ],
     signals: [
       '好乱', '太乱了', '不知道从哪说起', '不知道从哪说',
@@ -176,11 +212,13 @@ const PATTERNS: FlowPatternDefinition[] = [
       // ─── 短消息增强 ───
       '乱', '脑子乱', '卡住了', '心里乱',
       '我好乱', '从何说起', '说不好',
+      // ─── 进一步增强 ───
+      '很乱', '特别乱', '先说什么', '先想哪个',
     ],
     shortMessageSignals: [
-      '乱', '卡住',
+      '乱', '卡住', '很乱', '理不清',
     ],
-    conflictsWith: ['control_to_helplessness'],
+    conflictsWith: ['control_to_helplessness', 'surface_event_to_deep_pattern'],
   },
   {
     type: 'avoidance_to_action',
@@ -197,11 +235,19 @@ const PATTERNS: FlowPatternDefinition[] = [
       [1, 0],
       [2, 0],
       [1, 1, 0],
+      [0, 0, 0],
     ],
     signals: [
       '什么都不想做', '提不起劲', '不想动', '躺了一天',
       '起不来', '动不了', '洗了个澡', '终于',
       '强迫自己', '逼自己', '试着做了',
+      // ─── 增强 ───
+      '躺在床上', '发呆', '躺着', '不想做',
+      '应该做点什么', '应该动', '不能再躺',
+      '挣扎着', '爬起来', '从床上', '下床',
+    ],
+    shortMessageSignals: [
+      '不想', '不想动', '躺着', '发呆',
     ],
     conflictsWith: ['control_to_helplessness'],
   },
@@ -217,16 +263,23 @@ const PATTERNS: FlowPatternDefinition[] = [
       abstractionTrend: 'flat',
     },
     abstractionPattern: [
+      [0, 0],      // 同层转移（外归→内省，归因变化但抽象不变）
       [0, 2],
       [0, 1, 2],
       [0, 0, 2],
+      [0, 1, 1, 2],
     ],
     signals: [
       '他们太过分', '他们不懂', '没人理解',
       '其实我只是', '说到底', '我只是想要',
       '我只希望', '我真正需要的是',
+      // ─── 增强 ───
+      '其实我', '我其实', '说到底就是',
     ],
-    conflictsWith: ['anger_to_hurt', 'self_blame'],
+    shortMessageSignals: [
+      '其实', '凭什么', '太过分',
+    ],
+    conflictsWith: ['anger_to_hurt', 'self_blame', 'surface_event_to_deep_pattern'],
   },
   {
     type: 'surface_event_to_deep_pattern',
@@ -242,11 +295,22 @@ const PATTERNS: FlowPatternDefinition[] = [
       [0, 1, 3],
       [0, 3],
       [0, 2, 3, 3],
+      [0, 0, 3],
+      [1, 3],
+      [0, 0, 0, 3],
+      [0, 0, 3, 3],
     ],
     signals: [
       '又', '又一次', '每次都', '每次都是',
       '我发现我总', '我好像一直', '从小到大',
       '总是这样', '历史重演', '老毛病',
+      // ─── 增强 ───
+      '从来都', '一直以来', '总是', '每次',
+      '我意识到', '我发现了', '我才发现',
+      '反复', '一次次', '一次又一次',
+    ],
+    shortMessageSignals: [
+      '又', '总是', '每次', '从来',
     ],
     conflictsWith: ['self_blame', 'emptiness_to_meaning'],
   },
@@ -268,6 +332,8 @@ const PATTERNS: FlowPatternDefinition[] = [
       [3, 4],
       [1, 3, 4],
       [2, 3, 4],
+      [0, 0, 4],
+      [1, 1, 4],
     ],
     signals: [
       '没意思', '没意义', '活着干嘛', '为什么活着',
@@ -277,9 +343,13 @@ const PATTERNS: FlowPatternDefinition[] = [
       '没意思', '活着', '人生', '价值', '自由',
       '空心', '麻木', '图什么', '有啥意思',
       '毫无意义', '没有意义',
+      // ─── 进一步增强 ───
+      '重复', '每天都是', '天天这样',
+      '到底想要什么', '真正想要',
+      '什么对我重要', '什么才是',
     ],
     shortMessageSignals: [
-      '没意思', '空', '麻木', '虚无',
+      '没意思', '空', '麻木', '虚无', '没意义',
     ],
     conflictsWith: ['control_to_helplessness'],
   },
@@ -349,8 +419,7 @@ function scoreAbstractionPattern(
 
   let bestMatch = 0;
   for (const template of pattern.abstractionPattern) {
-    // 从轨迹开头开始匹配，而非末尾
-    // 因为心理流向的"起点"比"终点"更关键
+    // 方案A：从头匹配（起点是关键）
     let matches = 0;
     const minLen = Math.min(absSeq.length, template.length);
     for (let i = 0; i < minLen; i++) {
@@ -358,8 +427,22 @@ function scoreAbstractionPattern(
         matches++;
       }
     }
-    const rate = matches / Math.max(template.length, 1);
+    let rate = matches / Math.max(template.length, 1);
     if (rate > bestMatch) bestMatch = rate;
+
+    // 方案B：从尾匹配（终点是关键，适用于长序列后半段才出现显著位移）
+    // 取 trajectory 的最后 template.length 个元素
+    if (absSeq.length >= template.length) {
+      matches = 0;
+      const offset = absSeq.length - template.length;
+      for (let i = 0; i < template.length; i++) {
+        if (absSeq[offset + i] === template[i]) {
+          matches++;
+        }
+      }
+      rate = matches / Math.max(template.length, 1);
+      if (rate > bestMatch) bestMatch = rate;
+    }
   }
 
   return bestMatch;
@@ -483,7 +566,7 @@ export function matchFlowPatterns(
   const rawScores: { pattern: FlowPatternDefinition; score: number }[] = [];
 
   for (const pattern of PATTERNS) {
-    const dirScore = scoreDirection(trajectory, pattern);
+    let dirScore = scoreDirection(trajectory, pattern);
     const absScore = scoreAbstractionPattern(trajectory, pattern);
     let sigScore = scoreSignals(recentTexts, pattern);
 
@@ -501,20 +584,38 @@ export function matchFlowPatterns(
     // ─── external_blame_to_self_contact 降权 ───
     // 这个 pattern 太容易被误匹配，除非有明确的"其实我只是"类转折词，否则降权
     if (pattern.type === 'external_blame_to_self_contact') {
-      // 检查是否有真正的转范畴信号
-      const combined = recentTexts.join(' ');
-      const hasTransition = /其实|说到底|我只是|我只是想要|我只希望/.test(combined);
+      // 检查是否有真正的转范畴信号（仅检查当前消息）
+      const currentMsg = recentTexts[recentTexts.length - 1] || '';
+      const hasTransition = /其实|说到底|我只是|我只是想要|我只希望|我意识到|我发现|原来|我真正/.test(currentMsg);
       if (!hasTransition) {
-        sigScore *= 0.4; // 无转折词时大幅降低信号权重
+        sigScore *= 0.3; // 无转折词时大幅降低信号权重
+        dirScore *= 0.5; // 同时降低方向得分，减少对自我责备/表层→深层流向的误抢
       }
     }
 
     // 加权求和
-    const baseScore = dirScore * 0.4 + absScore * 0.3 + sigScore * 0.2;
+    let baseScore = dirScore * 0.4 + absScore * 0.3 + sigScore * 0.2;
+    
+    // ─── control_to_helplessness 无信号降权 ───
+    // 如果当前消息没有任何控制/无力信号词，表明该模式仅靠方向+抽象层匹配获胜
+    // 这种纯机械匹配往往是误判（如用户只是叙事而非表达无力）
+    if (pattern.type === 'control_to_helplessness' && sigScore === 0) {
+      baseScore *= 0.5;
+    }
+
+    // ─── surface_event_to_deep_pattern 长期模式信号升权 ───
+    // 当消息包含"从小到大/总是这样/一直如此"等长期模式信号时，
+    // 给予小幅加分，打破与 external_blame 的机械平局
+    if (pattern.type === 'surface_event_to_deep_pattern' && sigScore > 0) {
+      const currentMsg = recentTexts[recentTexts.length - 1] || '';
+      if (/从小到大|总是这样|一直都是|从来|每次都是|历史重演/.test(currentMsg)) {
+        baseScore = Math.min(baseScore + 0.04, 1);
+      }
+    }
 
     rawScores.push({ pattern, score: baseScore });
-  }
-
+    
+    }
   // 按分数排序
   rawScores.sort((a, b) => b.score - a.score);
 

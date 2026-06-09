@@ -438,5 +438,155 @@
     },
     "createdAt": 1780977802977,
     "updatedAt": 1780977802977
+  },
+  "prod_sb_01::clever-fox": {
+    "userId": "prod_sb_01",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.362,
+      "emotionalSupport": 0.386,
+      "actionGuidance": 0.262,
+      "reflectiveSpace": 0.439,
+      "totalInteractions": 4,
+      "dominantEmotions": [
+        "生气",
+        "难受",
+        "堵",
+        "慌",
+        "害怕"
+      ],
+      "recentTopics": [
+        "工作",
+        "人生方向",
+        "焦虑"
+      ],
+      "lastUpdated": 1780980010406
+    },
+    "createdAt": 1780979912035,
+    "updatedAt": 1780980010406
+  },
+  "prod_ah_01::emotion-elf": {
+    "userId": "prod_ah_01",
+    "roleId": "emotion-elf",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.362,
+      "emotionalSupport": 0.578,
+      "actionGuidance": 0.262,
+      "reflectiveSpace": 0.362,
+      "totalInteractions": 4,
+      "dominantEmotions": [
+        "生气",
+        "难受",
+        "堵",
+        "慌",
+        "害怕"
+      ],
+      "recentTopics": [
+        "工作",
+        "人生方向",
+        "焦虑"
+      ],
+      "lastUpdated": 1780980109789
+    },
+    "createdAt": 1780980011410,
+    "updatedAt": 1780980109789
+  },
+  "prod_aa_01::warm-bear": {
+    "userId": "prod_aa_01",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.362,
+      "emotionalSupport": 0.561,
+      "actionGuidance": 0.262,
+      "reflectiveSpace": 0.538,
+      "totalInteractions": 4,
+      "dominantEmotions": [
+        "生气",
+        "难受",
+        "堵",
+        "慌",
+        "害怕"
+      ],
+      "recentTopics": [
+        "工作",
+        "人生方向",
+        "焦虑"
+      ],
+      "lastUpdated": 1780980222310
+    },
+    "createdAt": 1780980110794,
+    "updatedAt": 1780980222310
+  },
+  "prod_aa_v3::warm-bear": {
+    "userId": "prod_aa_v3",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.362,
+      "emotionalSupport": 0.561,
+      "actionGuidance": 0.262,
+      "reflectiveSpace": 0.538,
+      "totalInteractions": 4,
+      "dominantEmotions": [
+        "生气",
+        "难受",
+        "堵",
+        "慌",
+        "害怕"
+      ],
+      "recentTopics": [
+        "工作",
+        "人生方向",
+        "焦虑"
+      ],
+      "lastUpdated": 1780980261139
+    },
+    "createdAt": 1780980198713,
+    "updatedAt": 1780980261139
+  },
+  "prod_aa_v4::warm-bear": {
+    "userId": "prod_aa_v4",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.62,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "生气",
+        "难受",
+        "堵",
+        "慌",
+        "害怕"
+      ],
+      "recentTopics": [
+        "工作",
+        "人生方向",
+        "焦虑"
+      ],
+      "lastUpdated": 1780980370219
+    },
+    "createdAt": 1780980347583,
+    "updatedAt": 1780980370219
   }
 }
