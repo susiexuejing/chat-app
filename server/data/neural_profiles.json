@@ -38,10 +38,10 @@
     "longTermChangeLog": [],
     "subconscious": {
       "analyticalDepth": 0.201,
-      "emotionalSupport": 0.53,
+      "emotionalSupport": 0.412,
       "actionGuidance": 0.251,
-      "reflectiveSpace": 0.364,
-      "totalInteractions": 19,
+      "reflectiveSpace": 0.514,
+      "totalInteractions": 22,
       "dominantEmotions": [
         "焦虑",
         "委屈",
@@ -54,10 +54,10 @@
         "亲密关系",
         "家庭"
       ],
-      "lastUpdated": 1780967963165
+      "lastUpdated": 1780968049539
     },
     "createdAt": 1780967681651,
-    "updatedAt": 1780967963165
+    "updatedAt": 1780968049539
   },
   "test_user_C_identity::clever-fox": {
     "userId": "test_user_C_identity",
