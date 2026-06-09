@@ -395,3 +395,11 @@ export function loadChangeHistoryFromFile(userId: string, roleId: string): Chang
   const entry = map.get(key);
   return entry?.history || null;
 }
+
+/**
+ * 获取用户变化档案（简化版，用于测试）
+ */
+export function getChangeHistory(userId: string, roleId: string): ChangeHistory | null {
+  const { history } = getOrCreateChangeHistory(userId, roleId);
+  return history.snapshots.length > 0 ? history : null;
+}

@@ -128,5 +128,329 @@
       "isTransitioning": false,
       "trajectoryLength": 3
     }
+  },
+  "prod_reg_clever-fox::clever-fox": {
+    "history": {
+      "userId": "prod_reg_clever-fox",
+      "roleId": "clever-fox",
+      "snapshots": [
+        {
+          "timestamp": 1780987268988,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": -0.56,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "首次"
+          },
+          "confidence": 0.48,
+          "strength": 0.33,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "但仔细想想，可能真的是我做得不够好"
+          }
+        },
+        {
+          "timestamp": 1780987294162,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": -0.56,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.47,
+          "strength": 0.35,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": -0.56,
+            "abstraction": 0,
+            "rawText": "我从小就这样，一被否定就觉得自己没用"
+          }
+        }
+      ],
+      "updatedAt": 1780987294163,
+      "trendAnalysis": {
+        "attributionTrend": -0.28,
+        "agencyTrend": -0.28,
+        "abstractionTrend": 0,
+        "cognitionTrend": -0.28,
+        "flowDepthTrend": 0,
+        "selfBlameChange": 0,
+        "agencyChange": -0.56,
+        "reflectionChange": 0
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -0.56,
+        "attribution": 0,
+        "agency": -0.56,
+        "abstraction": 0,
+        "rawText": "我从小就这样，一被否定就觉得自己没用"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.35,
+          "confidence": 0.47,
+          "strength": 0.35
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.47,
+          "strength": 0.3
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.28,
+          "confidence": 0.47,
+          "strength": 0.28
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.24,
+          "confidence": 0.47,
+          "strength": 0.24
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.47,
+          "strength": 0.2
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.35,
+        "confidence": 0.47,
+        "strength": 0.35
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.47,
+        "strength": 0.3
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 3
+    }
+  },
+  "prod_reg_warm-bear::warm-bear": {
+    "history": {
+      "userId": "prod_reg_warm-bear",
+      "roleId": "warm-bear",
+      "snapshots": [
+        {
+          "timestamp": 1780987337997,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": -0.56,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "首次"
+          },
+          "confidence": 0.48,
+          "strength": 0.33,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "但仔细想想，可能真的是我做得不够好"
+          }
+        },
+        {
+          "timestamp": 1780987365054,
+          "positionDelta": {
+            "cognitionDelta": -0.56,
+            "attributionDelta": 0,
+            "agencyDelta": -0.56,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "保持"
+          },
+          "confidence": 0.47,
+          "strength": 0.35,
+          "status": "flowing",
+          "position": {
+            "cognition": -0.56,
+            "attribution": 0,
+            "agency": -0.56,
+            "abstraction": 0,
+            "rawText": "我从小就这样，一被否定就觉得自己没用"
+          }
+        }
+      ],
+      "updatedAt": 1780987365054,
+      "trendAnalysis": {
+        "attributionTrend": -0.28,
+        "agencyTrend": -0.28,
+        "abstractionTrend": 0,
+        "cognitionTrend": -0.28,
+        "flowDepthTrend": 0,
+        "selfBlameChange": 0,
+        "agencyChange": -0.56,
+        "reflectionChange": 0
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -0.56,
+        "attribution": 0,
+        "agency": -0.56,
+        "abstraction": 0,
+        "rawText": "我从小就这样，一被否定就觉得自己没用"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.35,
+          "confidence": 0.47,
+          "strength": 0.35
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.47,
+          "strength": 0.3
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.28,
+          "confidence": 0.47,
+          "strength": 0.28
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.24,
+          "confidence": 0.47,
+          "strength": 0.24
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.47,
+          "strength": 0.2
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "external_blame_to_self_contact",
+        "from": "external_blame",
+        "to": "self_need",
+        "matchScore": 0.35,
+        "confidence": 0.47,
+        "strength": 0.35
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.47,
+        "strength": 0.3
+      },
+      "isMixed": false,
+      "isTransitioning": true,
+      "trajectoryLength": 3
+    }
+  },
+  "fix_test::clever-fox": {
+    "history": {
+      "userId": "fix_test",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1780987599765
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 1,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "领导批评方案"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "fix_verify::clever-fox": {
+    "history": {
+      "userId": "fix_verify",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1780987721024
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 1,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "领导批评我"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
   }
 }

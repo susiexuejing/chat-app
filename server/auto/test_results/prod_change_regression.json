@@ -1,0 +1,50 @@
+[
+  {
+    "personality": "🦊 clever-fox (CBT)",
+    "roleId": "clever-fox",
+    "rounds": [
+      {
+        "round": 1,
+        "msg": "领导在会上批评了我的方案，说完全不行",
+        "sessionId": "bf69d459-9c82-40ac-9c67-948b2e5f420c",
+        "deep": "Here's a thinking process:\n\n1.  **Analyze User Input:**\n   - User says: \"领导在会上批评了我的方案，说完全不行\" (The leader criticized my proposal in the meeting, saying it's completely unworkable.)\n   - This is a direct, emotionally charged statement about a workplace setback.\n   - The system prompt indicates I've already given a preliminary陪伴 (companionship) response: \"我听到了，你说「领导在会上批评了我的方案」。愿意把此刻的感受说出来，这本身就是一种勇气。我们不需要马上找到答案，也不用急着解决什么。这里可以先放松一些。让我陪你一起，慢慢把你说的这件事展开来看一看。从你提到的「领导在会上批评了我的方案」开始，你觉得最让你在意的，是哪个部分？\"\n   - I need to continue naturally from that point, without repeating it.\n   - Constraints: No JSON, no markdown code blocks, natural language only, start from a deeper layer of analysis, keep it under 150 Chinese characters, concise and powerful. Maintain the \"聪明狐狸\" (CBT expert) persona: rational, structured, gentle, focuses on cognitive patterns, avoids over-psychologizing unless needed, uses a friend-like tone.\n\n2.  **Identify Key CBT/Psychological Elements (Internal Processing):**\n   - The user is experiencing a strong negative reaction to public criticism.\n   - Likely cognitive distortions: All-or-nothing thinking (\"完全不行\" - completely unworkable), personalization, catastrophizing.\n   - The goal is to gently guide them to separate the *fact* from the *interpretation*, and explore what specifically stings.\n   - I need to ask a focused, grounding question that helps them deconstruct the \"完全不行\" (completely unworkable) statement, without being clinical.\n\n3.  **Draft - Mental Refinement (Aim for <150 chars):**\n   “完全不行”这四个字，听起来像是一记重锤。人在被当众否定时，大脑很容易把“方案不行”直接翻译成“我不行”。我们先不急着反驳或自责，试着把这句话拆开看看：领导具体指出了哪一点不落地？是数据、逻辑，还是方向？有时候，把模糊的否定变成具体的问题，心里的重量就会轻一半。你愿意试着回忆一下，他当时原话里，最具体的一句是什么吗？\n\n4.  **Check Constraints:**\n   - No repetition of previous text? Yes.\n   - No JSON/Markdown? Yes.\n   - Natural language? Yes.\n   - Deeper layer analysis? Yes, addresses the cognitive leap from \"proposal rejected\" to \"I am rejected\", introduces CBT concept of separating fact from interpretation, gently guides to specificity.\n   - Under 150 Chinese characters? Let's count:\n     “完全不行”这四个字，听起来像是一记重锤。(21)\n     人在被当众否定时，大脑很容易把“方案不行”直接翻译成“我不行”。(33)\n     我们先不急着反驳或自责，试着把这句话拆开看看：领导具体指出了哪一点不落地？(38)\n     是数据、逻辑，还是方向？(12)\n     有时候，把模糊的否定变成具体的问题，心里的重量就会轻一半。(29)\n     你愿意试着回忆一下，他当时原话里，最具体的一句是什么吗？(28)\n     Total: ~161 chars. Slightly over. Need to trim.\n\n5.  **Refine (Target <150):**\n   “完全不行”像一记重锤。人在被当众否定时，大脑常会悄悄把“方案不行”翻译成“我不行”。我们先不急着自责，试着把这句话拆开：他具体卡在哪一点？是数据、逻辑，还是方向？把模糊的否定还原成具体问题，心里的重量往往会轻一半。你愿意回忆一下，他原话里最具体的一句是什么吗？\n   Count: \n   “完全不行”像一记重锤。(12)\n   人在被当众否定时，大脑常会悄悄把“方案不行”翻译成“我不行”。(31)\n   我们先不急着自责，试着把这句话拆开：他具体卡在哪一点？(27)\n   是数据、逻辑，还是方向？(12)\n   把模糊的否定还原成具体问题，心里的重量往往会轻一半。(26)\n   你愿意回忆一下，他原话里最具体的一句是什么吗？(23)\n   Total: ~131 chars. Perfect.\n   Matches persona: gentle, CBT-aligned (cognitive distortion identification, behavioral activation/specificity), conversational, structured but not clinical.\n   Follows flow: continues from the previous prompt's question naturally.\n\n   One minor adjustment to ensure it flows perfectly from the system's prompt: The system prompt ended with \"你觉得最让你在意的，是哪个部分？\". My draft starts with analyzing \"完全不行\", which is good. I'll make sure it directly addresses the cognitive leap and asks for specificity.\n\n   Final check of the draft against constraints:\n   - No repetition: ✓\n   - No JSON/Markdown: ✓\n   - Natural language: ✓\n   - Deeper analysis: ✓ (identifies personalization/all-or-nothing, guides to concrete facts)\n   - <150 chars: ✓ (~130)\n   - Persona: ✓ (CBT, rational, gentle, fox-like observation)\n\n   Ready. Output matches the refined draft. \n   Self-Correction/Verification during thought: \n   The prompt says \"从更深一层的分析开始\". My draft does exactly that by pointing out the cognitive translation (\"方案不行\" -> \"我不行\"). It's concise. It fits the CBT framework without jargon. It maintains the companion tone. All constraints met.✅\n   Output generation. \n   “完全不行”像一记重锤。人在被当众否定时，大脑常会悄悄把“方案不行”翻译成“我不行”。我们先不急着自责，试着把这句话拆开：他具体卡在哪一点？是数据、逻辑，还是方向？把模糊的否定还原成具体问题，心里的重量往往会轻一半。你愿意回忆一下，他原话里最具体的一句是什么吗？ (128 chars with punctuation) -> Perfect. \n   Proceeds. \n   [Output Generation] -> *Proceeds*\n   *(Note: I will output exactly the refined text without any extra formatting or meta-commentary.)*\n   “完全不行”像一记重锤。人在被当众否定时，大脑常会悄悄把“方案不行”翻译成“我不行”。我们先不急着自责，试着把这句话拆开：他具体卡在哪一点？是数据、逻辑，还是方向？把模糊的否定还原成具体问题，心里的重量往往会轻一半。你愿意回忆一下，他原话里最具体的一句是什么吗？ \n   *(Self-Correction/Verification during output prep)*: Wait, the prompt says \"从更深一层的分析开始\". I should ensure it directly follows the conversational flow. The draft does. It's under 150. It's natural. It's CBT-aligned. All good.✅\n   Output matches exactly. \n   [Final Check of the Prompt]: \"请接着前端陪伴流自然续写，让用户感受到是同一个「聪明狐狸」一直在陪伴ta。\" -> The flow system shows [State] flowing. I will just output the text. No extra words. Length: ~128 Chinese characters including punctuation. Meets all constraints.✅\n   Proceeds. \n   *(Output Generation)* -> “完全不行”像一记重锤。人在被当众否定时，大脑常会悄悄把“方案不行”翻译成“我不行”。我们先不急着自责，试着把这句话"
+      },
+      {
+        "round": 2,
+        "msg": "但仔细想想，可能真的是我做得不够好",
+        "sessionId": "906331c7-4ede-4a4f-9bcc-185d75ba243e",
+        "deep": "这句话背后藏着一个常见的思维陷阱：把“某件事没做好”直接等同于“我不够好”。但事情有边界，人没有。我们可以把镜头拉近：具体是哪一步卡住了？是信息不足、节奏太赶，还是标准定得太高？把“我”和“事”拆开，内耗就会少一半。愿意一起把它拆成三个小环节看看吗？"
+      },
+      {
+        "round": 3,
+        "msg": "我从小就这样，一被否定就觉得自己没用",
+        "sessionId": "14979a8b-26a9-4d29-8928-621ea61f8d1a",
+        "deep": "从小形成的反应，就像大脑里早就铺好的一条高速公路。一听到否定，念头就自动拐进“我没用”的岔道。但这只是神经习惯，不是客观事实。\n\n我们可以试着设个小路障：下次那种感觉涌上来时，先停三秒，问自己一句：“被否定的是这件事，还是我整个人？”\n\n把“行为”和“自我价值”拆开，那条老路就会慢慢变窄。愿意下次试试看吗？"
+      }
+    ]
+  },
+  {
+    "personality": "🐻 warm-bear (人本)",
+    "roleId": "warm-bear",
+    "rounds": [
+      {
+        "round": 1,
+        "msg": "领导在会上批评了我的方案，说完全不行",
+        "sessionId": "10dd5a19-14cb-45a0-b1b3-4da9d103a1c7",
+        "deep": "当众被说“完全不行”，这几个字砸下来真的很重。那一刻心里肯定又空又紧，委屈也一定不少吧。\n\n先不管方案，此刻你最需要的是喘口气。肩膀是不是还僵着？试着把背靠向椅背，慢慢呼出一口气。\n\n那只是对一份文件的反馈，不是对你这个人的判决。你愿意把这份沉重带到这里，已经很勇敢了。我陪着你，慢慢缓。"
+      },
+      {
+        "round": 2,
+        "msg": "但仔细想想，可能真的是我做得不够好",
+        "sessionId": "cdc2acba-0233-49ba-8cc1-e02ace0e2ea0",
+        "deep": "那种“不够好”的感觉，往往不是因为你做错了什么，而是你心里装了太多重量，却忘了给自己留喘息的空间。你已经撑了很久，累的时候，大脑会习惯用自责来解释疲惫。我们先不急着证明好不好，好吗？此刻就算只是安静停一会儿，你也完全值得被温柔接住。我在。"
+      },
+      {
+        "round": 3,
+        "msg": "我从小就这样，一被否定就觉得自己没用",
+        "sessionId": "4a74fc71-2b2c-4bb2-8440-b6d3f1be574f",
+        "deep": "原来这个声音陪你走了这么久。小时候的你，一定是在很多个瞬间学会了把别人的评价当成衡量自己的尺子。那不是你的错，只是那时的你太需要被肯定了。现在我们可以慢慢把尺子放下。你不必立刻变得“有用”，此刻愿意把脆弱交出来，就已经很好了。我会陪着你，慢慢找回自己的节奏。"
+      }
+    ]
+  }
+]

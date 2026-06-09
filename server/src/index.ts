@@ -1026,6 +1026,16 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     if (cleaned.trim()) {
       session.deepChunks.push(cleaned);
       console.log(`[Deep] Cleaned content: ${cleaned.length} chars (raw: ${deepContentBuffer.length} chars)`);
+    } else if (deepContentBuffer.trim()) {
+      // 🛡️ 极兜底：清洗返回空但原始内容不为空 → 截取最后300字
+      const last300 = deepContentBuffer.slice(-300).trim();
+      const cjk = last300.match(/[\u4e00-\u9fff]/g);
+      if (cjk && cjk.length >= 10) {
+        session.deepChunks.push(last300);
+        console.log(`[Deep] Last-resort fallback: ${last300.length} chars (${cjk.length} CJK)`);
+      } else {
+        console.log(`[Deep] Cleaning returned empty AND no CJK in last 300 chars (raw: ${deepContentBuffer.length} chars)`);
+      }
     }
 
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
@@ -1123,6 +1133,18 @@ function extractFinalChineseResponse(raw: string): string {
       return result;
     }
 
+    // 3b. 🛡️ 二次兜底：取最后一段非编号且有中文的内容
+    //    当 reliableParagraphs 为空时（如所有段都被编号规则过滤），
+    //    尝试从原文中直接找最后一个有中文的段落
+    const allNonNumbered = paragraphs.filter(p => !numberedSection.test(p.trim()));
+    for (let i = allNonNumbered.length - 1; i >= 0; i--) {
+      const cjk = allNonNumbered[i].match(/[\u4e00-\u9fff]/g);
+      if (cjk && cjk.length >= 5) {
+        console.log(`[Clean] Fallback: took last Chinese paragraph (${cjk.length} CJK chars)`);
+        return allNonNumbered[i].trim();
+      }
+    }
+
     console.log(`[Clean] Has thinking marker but no reliable Chinese found (${raw.length} raw chars)`);
     return '';
   }
@@ -1139,6 +1161,15 @@ function extractFinalChineseResponse(raw: string): string {
     const result = chineseParagraphs.join('\n\n');
     console.log(`[Clean] Extracted ${result.length} Chinese chars from ${raw.length} raw chars (${paragraphs.length}→${chineseParagraphs.length} paragraphs)`);
     return result;
+  }
+
+  // 🛡️ 二次兜底：取最后一段≥5个中文字的内容
+  for (let i = paragraphs.length - 1; i >= 0; i--) {
+    const cjk = paragraphs[i].match(/[\u4e00-\u9fff]/g);
+    if (cjk && cjk.length >= 5) {
+      console.log(`[Clean] Fallback: took last Chinese paragraph (${cjk.length} CJK chars)`);
+      return paragraphs[i].trim();
+    }
   }
 
   console.log(`[Clean] No Chinese paragraphs found in ${raw.length} raw chars, returning empty`);

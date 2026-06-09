@@ -608,5 +608,91 @@
     },
     "createdAt": 1780986567030,
     "updatedAt": 1780986567030
+  },
+  "prod_reg_clever-fox::clever-fox": {
+    "userId": "prod_reg_clever-fox",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.367,
+      "emotionalSupport": 0.401,
+      "actionGuidance": 0.267,
+      "reflectiveSpace": 0.367,
+      "totalInteractions": 3,
+      "dominantEmotions": [],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1780987314625
+    },
+    "createdAt": 1780987237866,
+    "updatedAt": 1780987314625
+  },
+  "prod_reg_warm-bear::warm-bear": {
+    "userId": "prod_reg_warm-bear",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.367,
+      "emotionalSupport": 0.401,
+      "actionGuidance": 0.267,
+      "reflectiveSpace": 0.367,
+      "totalInteractions": 3,
+      "dominantEmotions": [],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1780987391096
+    },
+    "createdAt": 1780987314629,
+    "updatedAt": 1780987391096
+  },
+  "fix_test::clever-fox": {
+    "userId": "fix_test",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.4,
+      "emotionalSupport": 0.5,
+      "actionGuidance": 0.3,
+      "reflectiveSpace": 0.4,
+      "totalInteractions": 0,
+      "dominantEmotions": [],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1780987599764
+    },
+    "createdAt": 1780987599764,
+    "updatedAt": 1780987599764
+  },
+  "fix_verify::clever-fox": {
+    "userId": "fix_verify",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.4,
+      "emotionalSupport": 0.5,
+      "actionGuidance": 0.3,
+      "reflectiveSpace": 0.4,
+      "totalInteractions": 0,
+      "dominantEmotions": [],
+      "recentTopics": [],
+      "lastUpdated": 1780987721019
+    },
+    "createdAt": 1780987721019,
+    "updatedAt": 1780987721019
   }
 }
