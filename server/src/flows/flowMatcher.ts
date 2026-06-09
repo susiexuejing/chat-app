@@ -24,13 +24,20 @@ const PATTERNS: FlowPatternDefinition[] = [
       abstractionTrend: 'up',  // 抽象层上升（事件→模式）
     },
     abstractionPattern: [
+      [0, 2],
       [0, 1, 2],
       [0, 2, 3],
       [0, 1, 2, 3],
     ],
     signals: [
-      '是不是我', '我做错了', '我不好', '我不够',
-      '我太差', '是我的错', '我能力不行',
+      '是不是我说错', '是不是我的问题', '是不是我做错了',
+      '会不会是我', '可能是我不好', '一定是我不好', '都怪我',
+      '是我的问题', '我做错了', '我不该', '都是我不好',
+      '我不好', '我不够好', '我太差', '我能力不行',
+      '是我的错', '我错了',
+    ],
+    shortMessageSignals: [     // ≤4字消息的信号词
+      '怪我', '我错', '我的错', '我不好',
     ],
     conflictsWith: ['attachment_anxiety', 'anger_to_hurt'],
   },
@@ -51,6 +58,11 @@ const PATTERNS: FlowPatternDefinition[] = [
     signals: [
       '没回', '已读不回', '冷淡', '敷衍',
       '不喜欢我', '不在乎', '不重要', '烦我了',
+      '是不是讨厌我', '是不是不在意我',
+      '是不是嫌弃我', '对我有意见',
+    ],
+    shortMessageSignals: [
+      '没回', '不回', '冷淡', '敷衍',
     ],
     conflictsWith: ['self_blame'],
   },
@@ -73,6 +85,10 @@ const PATTERNS: FlowPatternDefinition[] = [
     signals: [
       '凭什么', '太过分', '凭什么要我', '凭什么这样',
       '不公平', '他凭什么', '他们凭什么',
+      '凭什么我', '凭什么总是我', '为什么偏偏是我',
+    ],
+    shortMessageSignals: [
+      '凭什么', '太过分', '不公平',
     ],
     conflictsWith: ['self_blame', 'external_blame_to_self_contact'],
   },
@@ -94,6 +110,15 @@ const PATTERNS: FlowPatternDefinition[] = [
       '试了很多方法', '试了没用', '什么方法都试了',
       '改变不了', '没办法', '只能', '算了', '就这样吧',
       '尽力了', '能做的都做了',
+      // ─── 短消息增强 ───
+      '没用', '没用了', '白费', '白费力气',
+      '做什么都没用', '徒劳', '没一点用',
+      '没任何用', '没意义', '有啥用', '有什么用',
+      '改变不了什么', '控制不了', '无能为力',
+      '不得不', '只好', '认了', '接受不了',
+    ],
+    shortMessageSignals: [
+      '没用', '算了', '白费', '徒劳', '认了', '没救',
     ],
     conflictsWith: ['avoidance_to_action'],
   },
@@ -115,6 +140,16 @@ const PATTERNS: FlowPatternDefinition[] = [
       '道理我都懂', '我知道应该', '按理说', '理性上',
       '道理明白', '知道该', '但心里', '但胸口',
       '但身体', '但还是难受',
+      // ─── 增强 ───
+      '道理', '理性', '认知上', '理智上',
+      '但胃', '但心', '但就是', '我知道',
+      '我明白', '我懂', '理论上',
+      // 身体感受信号
+      '胸口堵', '心里堵', '心堵', '发紧',
+      '身体紧', '胃里沉', '喘不上气', '堵得慌',
+    ],
+    shortMessageSignals: [
+      '堵', '心堵', '胸口', '发紧', '憋',
     ],
     conflictsWith: [],
   },
@@ -135,9 +170,15 @@ const PATTERNS: FlowPatternDefinition[] = [
       [1, 2, 0],
     ],
     signals: [
-      '好乱', '太乱了', '不知道从哪说起', '太多事',
-      '脑子很乱', '一团乱', '乱七八糟', '理不清',
+      '好乱', '太乱了', '不知道从哪说起', '不知道从哪说',
+      '太多事', '脑子很乱', '一团乱', '乱七八糟', '理不清',
       '帮我理理', '不知道该先想哪个',
+      // ─── 短消息增强 ───
+      '乱', '脑子乱', '卡住了', '心里乱',
+      '我好乱', '从何说起', '说不好',
+    ],
+    shortMessageSignals: [
+      '乱', '卡住',
     ],
     conflictsWith: ['control_to_helplessness'],
   },
@@ -221,8 +262,10 @@ const PATTERNS: FlowPatternDefinition[] = [
       abstractionTrend: 'up',  // 走向存在层
     },
     abstractionPattern: [
-      [3, 4],
+      [0, 4],
+      [1, 4],
       [2, 4],
+      [3, 4],
       [1, 3, 4],
       [2, 3, 4],
     ],
@@ -230,6 +273,13 @@ const PATTERNS: FlowPatternDefinition[] = [
       '没意思', '没意义', '活着干嘛', '为什么活着',
       '不知道为了什么', '虚无', '空', '空洞',
       '不知道自己要什么', '方向在哪', '意义在哪',
+      // ─── 短消息增强 ───
+      '没意思', '活着', '人生', '价值', '自由',
+      '空心', '麻木', '图什么', '有啥意思',
+      '毫无意义', '没有意义',
+    ],
+    shortMessageSignals: [
+      '没意思', '空', '麻木', '虚无',
     ],
     conflictsWith: ['control_to_helplessness'],
   },
@@ -299,11 +349,12 @@ function scoreAbstractionPattern(
 
   let bestMatch = 0;
   for (const template of pattern.abstractionPattern) {
-    // 使用最长公共子序列思想简化匹配
+    // 从轨迹开头开始匹配，而非末尾
+    // 因为心理流向的"起点"比"终点"更关键
     let matches = 0;
     const minLen = Math.min(absSeq.length, template.length);
     for (let i = 0; i < minLen; i++) {
-      if (absSeq[absSeq.length - minLen + i] === template[i]) {
+      if (absSeq[i] === template[i]) {
         matches++;
       }
     }
@@ -315,8 +366,26 @@ function scoreAbstractionPattern(
 }
 
 /**
+ * 判断消息是否是短消息（≤4个字）
+ */
+function isShortMessage(text: string): boolean {
+  const chineseChars = text.replace(/[^\u4e00-\u9fff]/g, '');
+  return chineseChars.length <= 4 && chineseChars.length > 0;
+}
+
+/**
+ * 判断上一轮消息是否偏向分析侧（用于 analysis_to_feeling 序列感知）
+ */
+function isLastMessageAnalytical(trajectory: FlowPosition[]): boolean {
+  if (trajectory.length < 2) return false;
+  const last = trajectory[trajectory.length - 2];
+  return last.cognition > 0.15;
+}
+
+/**
  * 信号词匹配得分（权重 0.2）
  * 在最近两条消息中搜索 pattern 的典型信号词
+ * 对短消息（≤4字）使用 shortMessageSignals 进行补充匹配
  */
 function scoreSignals(
   recentTexts: string[],
@@ -324,12 +393,24 @@ function scoreSignals(
 ): number {
   const combined = recentTexts.join(' ');
   let matchCount = 0;
+  const isShort = recentTexts.some(t => isShortMessage(t));
 
+  // 使用主信号词匹配
   for (const signal of pattern.signals) {
     const escaped = signal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'g');
     const found = combined.match(regex);
     if (found) matchCount += found.length;
+  }
+
+  // 如果是短消息且该 pattern 有 shortMessageSignals，额外匹配
+  if (isShort && pattern.shortMessageSignals) {
+    for (const signal of pattern.shortMessageSignals) {
+      const escaped = signal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'g');
+      const found = combined.match(regex);
+      if (found) matchCount += found.length * 1.5; // 短消息匹配权重更高
+    }
   }
 
   // 归一化到 0~1
@@ -373,13 +454,60 @@ export function matchFlowPatterns(
   const results: FlowMatch[] = [];
   const matchedTypes: FlowPatternType[] = [];
 
+  // ─── 短消息兜底检查 ───
+  // 如果最近一条消息 ≤4 个字，且没有任何 pattern 的 strongSignalMatch > 0.3
+  // 则返回 null flowType（不强行匹配）
+  const lastText = recentTexts[recentTexts.length - 1] || '';
+  const isShortMsg = isShortMessage(lastText);
+  const lastPosition = trajectory[trajectory.length - 1];
+  
+  // 短消息且所有轴均为中性 → 信号不足，不匹配任何 pattern
+  const isNeutralPosition = 
+    Math.abs(lastPosition.cognition) < 0.05 &&
+    Math.abs(lastPosition.attribution) < 0.05 &&
+    Math.abs(lastPosition.agency) < 0.05;
+
+  // 如果短消息且中性位置，提前检查是否有任何 pattern 的 strongSignalMatch
+  let hasStrongSignal = false;
+  if (isShortMsg) {
+    for (const pattern of PATTERNS) {
+      const sigScore = scoreSignals(recentTexts, pattern);
+      if (sigScore > 0.3) {
+        hasStrongSignal = true;
+        break;
+      }
+    }
+  }
+
   // 第一轮：计算所有 pattern 的分数
   const rawScores: { pattern: FlowPatternDefinition; score: number }[] = [];
 
   for (const pattern of PATTERNS) {
     const dirScore = scoreDirection(trajectory, pattern);
     const absScore = scoreAbstractionPattern(trajectory, pattern);
-    const sigScore = scoreSignals(recentTexts, pattern);
+    let sigScore = scoreSignals(recentTexts, pattern);
+
+    // ─── 序列感知：analysis_to_feeling ───
+    // 如果上一轮消息偏向分析侧，且当前消息有感受信号 → 给予加分
+    if (pattern.type === 'analysis_to_feeling' && isLastMessageAnalytical(trajectory)) {
+      const currentText = recentTexts[recentTexts.length - 1] || '';
+      const feelingSignals = ['难受', '堵', '胸口', '心里', '身体', '胃', '紧', '沉', '闷'];
+      const hasFeelingSignal = feelingSignals.some(s => currentText.includes(s));
+      if (hasFeelingSignal) {
+        sigScore = Math.min(sigScore + 0.4, 1);
+      }
+    }
+
+    // ─── external_blame_to_self_contact 降权 ───
+    // 这个 pattern 太容易被误匹配，除非有明确的"其实我只是"类转折词，否则降权
+    if (pattern.type === 'external_blame_to_self_contact') {
+      // 检查是否有真正的转范畴信号
+      const combined = recentTexts.join(' ');
+      const hasTransition = /其实|说到底|我只是|我只是想要|我只希望/.test(combined);
+      if (!hasTransition) {
+        sigScore *= 0.4; // 无转折词时大幅降低信号权重
+      }
+    }
 
     // 加权求和
     const baseScore = dirScore * 0.4 + absScore * 0.3 + sigScore * 0.2;
@@ -424,6 +552,17 @@ export function matchFlowPatterns(
     // strength = maxScore × trajectoryDirectionConsistency
     const consistency = getDirectionConsistency(trajectory);
     results[i].strength = Math.round(results[i].matchScore * consistency * 100) / 100;
+  }
+
+  // ─── 第四轮：短消息兜底 ───
+  // 如果短消息 + 中性位置 + 无强信号 → 将 top match 降级为 mixed
+  if (isShortMsg && isNeutralPosition && !hasStrongSignal && results.length > 0) {
+    // 降低置信度
+    const top = results[0];
+    top.matchScore = Math.round(top.matchScore * 0.3 * 100) / 100;
+    top.confidence = 0;
+    top.strength = 0;
+    // 标记为低置信（调用方通过 confidence < 0.4 判断为 mixed）
   }
 
   return results;

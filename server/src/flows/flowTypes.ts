@@ -65,8 +65,12 @@ export interface FlowPatternDefinition {
   abstractionPattern: number[][];
   /** 核心信号词（用于文本匹配） */
   signals: string[];
+  /** ≤4字短消息专用信号词（用于短消息弱信号场景） */
+  shortMessageSignals?: string[];
   /** 冲突排除：不应同时匹配的 pattern */
   conflictsWith: FlowPatternType[];
+  /** 是否要求至少匹配1个信号词才生效（默认false） */
+  requireSignalMatch?: boolean;
 }
 
 // ─── 匹配结果 ──────────────────────────────────────────
