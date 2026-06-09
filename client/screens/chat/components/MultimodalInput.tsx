@@ -192,14 +192,14 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
             disabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
           }`}>
             <TextInput
-              value={disabled ? getThinkingTip() : inputText}
-              onChangeText={disabled ? undefined : setInputText}
-              placeholder={disabled ? '' : "输入你的问题..."}
-              placeholderTextColor={disabled ? 'transparent' : "#9CA3AF"}
+              value={chatPhase !== 'idle' ? '' : inputText}
+              onChangeText={chatPhase !== 'idle' ? undefined : setInputText}
+              placeholder={chatPhase !== 'idle' ? '' : "输入你的问题..."}
+              placeholderTextColor={chatPhase !== 'idle' ? 'transparent' : "#9CA3AF"}
               multiline
               maxLength={1000}
               style={styles.input}
-              editable={!disabled}
+              editable={chatPhase === 'idle'}
             />
           </View>
 
@@ -221,12 +221,12 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
           </TouchableOpacity>
         </View>
 
-        {/* 底部提示 */}
+        {/* 底部提示 — chatPhase 活跃时状态条已显示，输入框只保持干净 */}
         <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
           {chatPhase === 'done'
             ? '◎ 我说完了，轮到你了'
-            : isThinking
-              ? '我在等你说，不用着急'
+            : chatPhase !== 'idle'
+              ? '　'
               : '选择一个情绪标签或直接输入您的问题'
           }
         </Text>

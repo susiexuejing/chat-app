@@ -91,36 +91,28 @@ function ChatContent() {
 
       {/* 阶段状态条 — 在消息区和输入区之间，不遮挡消息 */}
       {chatPhase !== 'idle' && !error && (
-        <View className="px-4 pb-1">
-          <View className="bg-gray-50 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 rounded-2xl p-3 shadow-sm">
-            <View className="flex-row items-center">
-              {chatPhase !== 'done' ? (
-                <ActivityIndicator size="small" color="#8B5CF6" />
-              ) : (
-                <View className="w-4 h-4 rounded-full bg-green-500 items-center justify-center">
-                  <Text className="text-white text-[10px] font-bold">✓</Text>
-                </View>
-              )}
-              <Text className="ml-2 text-sm font-medium text-gray-600 dark:text-gray-300 flex-1">
-                {chatPhase === 'waiting_deep'
-                  ? `${currentRole?.name || '咨询师'} 正在整理更完整的理解……`
-                  : chatPhase === 'deep_arriving'
-                    ? `深度理解正在写入……`
-                    : chatPhase === 'companion'
-                      ? `${currentRole?.name || '咨询师'} 正在陪你……`
-                      : chatPhase === 'responding'
-                        ? `${currentRole?.name || '咨询师'} 正在回应你……`
-                        : chatPhase === 'done'
-                          ? `${currentRole?.name || '我'} 说完了，轮到你了`
-                          : `${currentRole?.name || '咨询师'} 正在理解中……`}
-              </Text>
-            </View>
-            {/* 只有 waiting_deep 且 deep 内容还未抵达时显示预估时间 */}
-            {chatPhase === 'waiting_deep' && !deepThinkingContent && (
-              <Text className="text-[11px] text-gray-400 dark:text-gray-500 mt-1 ml-0.5">
-                深度回复生成中，大约还需要几秒
-              </Text>
+        <View className="px-4 pb-0">
+          <View className="flex-row items-center py-2 px-2">
+            {chatPhase !== 'done' ? (
+              <ActivityIndicator size="small" color="#8B5CF6" />
+            ) : (
+              <View className="w-3 h-3 rounded-full bg-green-500 items-center justify-center">
+                <Text className="text-white text-[8px] font-bold">✓</Text>
+              </View>
             )}
+            <Text className="ml-2 text-xs font-medium text-gray-500 dark:text-gray-400 flex-1">
+              {chatPhase === 'waiting_deep'
+                ? `${currentRole?.name || '咨询师'} 深度理解生成中……`
+                : chatPhase === 'deep_arriving'
+                  ? `补充更多理解……`
+                  : chatPhase === 'companion'
+                    ? `${currentRole?.name || '咨询师'} 正在回应你……`
+                    : chatPhase === 'responding'
+                      ? `${currentRole?.name || '咨询师'} 正在回应你……`
+                      : chatPhase === 'done'
+                        ? `✓ 说完了，轮到你了`
+                        : `${currentRole?.name || '咨询师'} 正在理解中……`}
+            </Text>
           </View>
         </View>
       )}
