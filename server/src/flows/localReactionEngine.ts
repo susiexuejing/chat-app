@@ -7,8 +7,10 @@
  * 不依赖百炼，不调用重模型，不随机选取
  */
 
-import { PersonalityLocalProfile, getLocalProfile, EventHint } from './localProfiles';
-import { Signal, extractSignal } from './signalExtractor';
+import { getLocalProfile } from './localProfiles';
+import type { PersonalityLocalProfile, EventHint } from './localProfiles';
+import { extractSignal } from './signalExtractor';
+import type { Signal } from './signalExtractor';
 
 // ─── 时间线段 ──────────────────────────────────────────
 

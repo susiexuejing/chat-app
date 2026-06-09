@@ -5,7 +5,7 @@
  * 不依赖百炼，不调用任何重模型，纯规则匹配
  */
 
-import { EventHint, FeelingHint } from './localProfiles';
+import type { EventHint, FeelingHint } from './localProfiles';
 
 export interface Signal {
   keyword: string;
