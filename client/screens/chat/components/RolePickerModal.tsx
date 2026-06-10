@@ -1,7 +1,3 @@
-/**
- * 角色选择弹框组件
- */
-
 import React from 'react';
 import {
   View,
@@ -9,147 +5,116 @@ import {
   Modal,
   TouchableOpacity,
   ScrollView,
-  Image,
+  Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
-import { FontAwesome6 } from '@expo/vector-icons';
-import { PsychologistRole } from '../constants/roles';
+import { roles, type PsychologistRole } from '@/screens/chat/constants/roles';
 
 interface RolePickerModalProps {
   visible: boolean;
-  roles: PsychologistRole[];
-  currentRole: PsychologistRole | null;
-  onSelectRole: (role: PsychologistRole) => void;
+  onSelect: (role: PsychologistRole) => void;
   onClose: () => void;
 }
 
-export function RolePickerModal({
-  visible,
-  roles,
-  currentRole,
-  onSelectRole,
-  onClose,
-}: RolePickerModalProps) {
-  // 只有 visible 为 true 时才渲染
-  if (!visible) return null;
+const ROLE_INITIALS: Record<string, string> = {
+  'clever-fox': '狐',
+  'warm-bear': '熊',
+  'wise-owl': '猫',
+  'emotion-elf': '精',
+  'philosophical-dolphin': '海',
+  'family-elephant': '象',
+};
 
-  const handleSelect = (role: PsychologistRole) => {
-    onSelectRole(role);
-    onClose();
-  };
+const ROLE_SUITABLE: Record<string, string> = {
+  'clever-fox': '想理清、想行动、脑子很乱',
+  'warm-bear': '很累、很委屈、需要被接住',
+  'wise-owl': '反复卡住、想看清模式',
+  'emotion-elf': '麻木、空、感受不到自己',
+  'philosophical-dolphin': '迷茫、意义感下降、人生困惑',
+  'family-elephant': '关系冲突、孤独、缺少支持',
+};
 
+const ROLE_BRIEF: Record<string, string> = {
+  'clever-fox': '帮你把卡住的念头拆开一点',
+  'warm-bear': '先陪你安稳下来，不急着解决',
+  'wise-owl': '陪你看见事情背后的深层结构',
+  'emotion-elf': '陪你慢慢找回真实感受',
+  'philosophical-dolphin': '陪你重新看见方向和意义',
+  'family-elephant': '陪你重新连接人和关系',
+};
+
+export function RolePickerModal({ visible, onSelect, onClose }: RolePickerModalProps) {
   return (
-    <Modal
-      visible={true}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
+    <Modal visible={visible} transparent animationType="slide">
       <TouchableOpacity
-        className="flex-1 bg-black/50"
         activeOpacity={1}
         onPress={onClose}
+        className="flex-1 bg-black/40 justify-end"
       >
-        <View className="flex-1 justify-end">
-          <View className="bg-white dark:bg-gray-800 rounded-t-3xl">
-              {/* 顶部装饰条 */}
-              <View className="items-center pt-3 pb-2">
-                <View className="w-10 h-1 bg-gray-300 dark:bg-gray-600 rounded-full" />
-              </View>
-
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View className="bg-white dark:bg-gray-900 rounded-t-3xl max-h-[80%]">
               {/* 标题 */}
-              <View className="px-5 pb-3">
-                <Text className="text-lg font-semibold text-gray-900 dark:text-white text-center">
-                  选择一种更适合你的陪伴方式
+              <View className="px-5 pt-5 pb-3 border-b border-gray-100 dark:border-gray-800">
+                <Text className="text-lg font-bold text-gray-900 dark:text-white text-center">
+                  切换陪伴方式
                 </Text>
-                <Text className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">
-                  每个陪伴者都擅长不同的状态
+                <Text className="text-xs text-gray-500 dark:text-gray-400 text-center mt-1">
+                  如果当前方式不适合你，可以换一种陪伴方式。
                 </Text>
               </View>
 
-              {/* 角色列表 */}
-              <ScrollView
-                className="px-5 pb-8"
-                showsVerticalScrollIndicator={false}
-                style={{ maxHeight: 450 }}
-              >
-                {roles.map((role) => {
-                  const isSelected = currentRole?.id === role.id;
-                  return (
-                    <TouchableOpacity
-                      key={role.id}
-                      className={`flex-row items-center p-4 rounded-2xl mb-3 ${
-                        isSelected
-                          ? 'border-2'
-                          : 'bg-gray-50 dark:bg-gray-700/50'
-                      }`}
-                      style={
-                        isSelected
-                          ? { borderColor: role.themeColor, backgroundColor: role.themeColor + '08' }
-                          : undefined
-                      }
-                      onPress={() => handleSelect(role)}
-                    >
-                      {/* 头像 */}
-                      <View className="relative">
-                        <Image
-                          source={{ uri: role.avatar }}
-                          className="w-14 h-14 rounded-full"
-                        />
-                        {isSelected && (
-                          <View
-                            className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full items-center justify-center"
-                            style={{ backgroundColor: role.themeColor }}
-                          >
-                            <FontAwesome6 name="check" size={12} color="white" />
-                          </View>
-                        )}
-                      </View>
+              {/* 列表 */}
+              <ScrollView className="px-4 py-3" showsVerticalScrollIndicator={false}>
+                {roles.map((role) => (
+                  <TouchableOpacity
+                    key={role.id}
+                    onPress={() => onSelect(role)}
+                    className="flex-row items-center py-3.5 border-b border-gray-50 dark:border-gray-800"
+                  >
+                    {/* 头像 */}
+                    <View className="w-12 h-12 rounded-full items-center justify-center mr-3 overflow-hidden">
+                      <View className="absolute inset-0 opacity-20" style={{ backgroundColor: role.themeColor }} />
+                      <Text className="text-lg font-bold" style={{ color: role.themeColor }}>
+                        {ROLE_INITIALS[role.id] || role.name[0]}
+                    </Text>
+                    </View>
 
-                      {/* 信息 */}
-                      <View className="flex-1 ml-4">
-                        <View className="flex-row items-center">
-                          <Text className="text-base font-semibold text-gray-900 dark:text-white">
-                            {role.name}
-                          </Text>
-                          <View
-                            className="ml-2 px-2 py-0.5 rounded-full"
-                            style={{ backgroundColor: role.themeColor + '20' }}
-                          >
-                            <Text
-                              className="text-xs font-medium"
-                              style={{ color: role.themeColor }}
-                            >
-                              {role.therapyType.split('(')[0].trim()}
-                            </Text>
-                          </View>
-                        </View>
-                        <Text
-                          className="text-sm text-gray-500 dark:text-gray-400 mt-1"
-                          numberOfLines={2}
-                        >
-                          {role.description}
-                        </Text>
-                      </View>
-
-                      {/* 箭头 */}
-                      <FontAwesome6
-                        name="chevron-right"
-                        size={16}
-                        color="#9CA3AF"
-                      />
-                    </TouchableOpacity>
-                  );
-                })}
-
-                {/* 底部提示 */}
-                <View className="mt-4 mb-4">
-                  <Text className="text-xs text-gray-400 dark:text-gray-500 text-center">
-                    点击切换
-                  </Text>
-                </View>
+                    {/* 内容 */}
+                    <View className="flex-1">
+                      <Text className="text-sm font-bold text-gray-900 dark:text-white">
+                        {role.name}
+                      </Text>
+                      <Text className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                        适合：{ROLE_SUITABLE[role.id] || ''}
+                      </Text>
+                      <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-4">
+                        {ROLE_BRIEF[role.id] || role.description}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
               </ScrollView>
+
+              {/* 底部 */}
+              <View className="px-5 py-4">
+                <TouchableOpacity
+                  onPress={onClose}
+                  className="bg-gray-100 dark:bg-gray-800 rounded-xl py-3 items-center"
+                >
+                  <Text className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                    取消
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-        </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </TouchableOpacity>
     </Modal>
   );

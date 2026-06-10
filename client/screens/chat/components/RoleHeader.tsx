@@ -1,125 +1,82 @@
-/**
- * 角色头部组件
- * 显示当前选择的陪伴者和操作按钮
- * 左上角：角色图标+名称，点击弹出角色选择
- */
-
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { FontAwesome6 } from '@expo/vector-icons';
-import { useChat } from '../contexts/ChatContext';
+import { Ionicons } from '@expo/vector-icons';
+import { useChat } from '@/screens/chat/contexts/ChatContext';
+import { roles } from '@/screens/chat/constants/roles';
 
-// 角色图标映射（FontAwesome6 Free Solid 有效图标）
-const ROLE_ICONS: Record<string, string> = {
-  'clever-fox': 'brain',               // 机智聪明 → 大脑
-  'warm-bear': 'hand-holding-heart',   // 温暖治愈 → 暖心
-  'wise-owl': 'graduation-cap',        // 深思智慧 → 学识帽
-  'emotion-elf': 'sparkles',           // 情感精灵 → 闪光
-  'philosophical-dolphin': 'fish',     // 哲思海豚 → 鱼
-  'family-elephant': 'people-group',   // 团结大象 → 人群
+const ROLE_INITIALS: Record<string, string> = {
+  'clever-fox': '狐',
+  'warm-bear': '熊',
+  'wise-owl': '猫',
+  'emotion-elf': '精',
+  'philosophical-dolphin': '海',
+  'family-elephant': '象',
 };
-
-// 获取角色对应的图标名
-function getRoleIcon(roleId?: string): string {
-  if (!roleId) return 'user';
-  return ROLE_ICONS[roleId] || 'user';
-}
 
 interface RoleHeaderProps {
   onShowRolePicker: () => void;
   onShowRoleDetail: () => void;
   onShowHistory: () => void;
   onNewChat: () => void;
-  hasHistory?: boolean;
+  hasHistory: boolean;
 }
 
 export function RoleHeader({
   onShowRolePicker,
   onShowRoleDetail,
-  onShowHistory,
   onNewChat,
-  hasHistory = false,
+  hasHistory,
 }: RoleHeaderProps) {
   const { currentRole } = useChat();
-  const insets = useSafeAreaInsets();
-  const themeColor = currentRole?.themeColor || '#6B7280';
+  const role = currentRole || roles[0];
+  if (!role) return null;
 
   return (
-    <View
-      className="px-4 py-3 border-b border-gray-200 dark:border-gray-700"
-      style={{
-        paddingTop: insets.top + 8,
-        backgroundColor: themeColor + '08',
-      }}
-    >
-      <View className="flex-row items-center justify-between">
-        {/* 左侧：角色图标+名称，点击弹出角色选择 */}
-        <TouchableOpacity
-          onPress={onShowRolePicker}
-          className="flex-row items-center flex-shrink-0"
-        >
-          <View
-            className="w-11 h-11 rounded-full items-center justify-center"
-            style={{ backgroundColor: themeColor + '20' }}
-          >
-            <FontAwesome6
-              name={getRoleIcon(currentRole?.id) as any}
-              size={22}
-              color={themeColor}
-            />
-          </View>
-          <View className="ml-2.5 mr-3">
-            <View className="flex-row items-center">
-              <Text className="text-base font-semibold text-gray-900 dark:text-white">
-                {currentRole?.name}
-              </Text>
-              <FontAwesome6
-                name="chevron-down"
-                size={12}
-                color="#9CA3AF"
-                className="ml-1"
-              />
-            </View>
-            <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              切换陪伴方式
+    <View className="px-4 pt-3 pb-2 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
+      <View className="flex-row items-center">
+        {/* 头像 - 彩色文字圆圈 */}
+        <TouchableOpacity onPress={onShowRoleDetail} className="mr-3">
+          <View className="w-10 h-10 rounded-full items-center justify-center overflow-hidden">
+            <View className="absolute inset-0 opacity-20" style={{ backgroundColor: role.themeColor }} />
+            <Text className="text-base font-bold" style={{ color: role.themeColor }}>
+              {ROLE_INITIALS[role.id] || role.name[0]}
             </Text>
           </View>
         </TouchableOpacity>
 
-        {/* 右侧按钮组 */}
-        <View className="flex-row items-center">
-          {/* 历史按钮 */}
-          {hasHistory && (
-            <TouchableOpacity
-              onPress={onShowHistory}
-              className="w-10 h-10 items-center justify-center"
-            >
-              <FontAwesome6 name="clock-rotate-left" size={18} color="#6B7280" />
-            </TouchableOpacity>
-          )}
+        {/* 名称 + 描述 */}
+        <TouchableOpacity onPress={onShowRoleDetail} className="flex-1">
+          <Text className="text-sm font-bold text-gray-900 dark:text-white">
+            {role.name}
+            <Text className="text-xs font-normal text-gray-400 dark:text-gray-500"> 正在陪你</Text>
+          </Text>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            {role.shortDesc}
+          </Text>
+        </TouchableOpacity>
 
-          {/* 新建对话按钮 */}
-          <TouchableOpacity
-            onPress={onNewChat}
-            className="px-3 py-2 rounded-full"
-            style={{ backgroundColor: themeColor + '15' }}
+        {/* 切换陪伴者 */}
+        <TouchableOpacity
+          onPress={onShowRolePicker}
+          className="flex-row items-center bg-amber-50 dark:bg-amber-900/20 rounded-full px-3 py-1.5 ml-2"
+        >
+          <Ionicons name="swap-horizontal" size={14} color="#D97706" />
+          <Text className="text-xs text-amber-600 dark:text-amber-400 ml-1 font-medium">
+            切换陪伴者
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 操作栏 */}
+      <View className="flex-row justify-end mt-2 space-x-2 gap-2">
+        {hasHistory && (
+          <TouchableOpacity onPress={onNewChat}
+            className="flex-row items-center bg-gray-100 dark:bg-gray-800 rounded-full px-3 py-1"
           >
-            <View className="flex-row items-center">
-              <FontAwesome6
-                name="plus"
-                size={12}
-                color={themeColor}
-              />
-              <Text
-                className="ml-1.5 text-xs font-medium"
-                style={{ color: themeColor }}
-              >
-                新建
-              </Text>
-            </View>
+            <Ionicons name="add-circle-outline" size={14} color="#6B7280" />
+            <Text className="text-xs text-gray-500 dark:text-gray-400 ml-1">新建</Text>
           </TouchableOpacity>
-        </View>
+        )}
       </View>
     </View>
   );

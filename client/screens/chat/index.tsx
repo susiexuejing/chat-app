@@ -1,20 +1,21 @@
 /**
- * 多角色陪伴对话主页
- * 支持角色切换、文本/语音/图片多模态输入、历史对话管理
+ * EmotionFlow 主页面
+ * V3.1: 状态驱动入口 → 陪伴对话 → 状态变化感知
  */
-
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
-  ActivityIndicator,
   Text,
-  Modal,
+  TextInput,
   TouchableOpacity,
+  ScrollView,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
+import { useSafeRouter } from '@/hooks/useSafeRouter';
 import {
-  RoleSelector,
   RoleIntroModal,
   RoleDetailModal,
   RolePickerModal,
@@ -22,48 +23,160 @@ import {
   MessageList,
   MultimodalInput,
   HistoryList,
+  ChangeSystemCard,
 } from './components';
 import { ChatProvider, useChat } from './contexts/ChatContext';
+import { DEFAULT_ROLES } from './constants/roles';
+
+const STATE_ENTRIES = ['我很累', '我很乱', '我很烦', '我很空', '说不清'];
 
 function ChatContent() {
   const {
     currentRole,
     messages,
     sessions,
-    roles,
     sendMessage,
     isLoading,
     createNewChat,
+    setCurrentRole,
     error,
     clearError,
-    deepThinkingContent,
     chatPhase,
   } = useChat();
 
-  const [roleSelectorVisible, setRoleSelectorVisible] = useState(false);
+  const [showHome, setShowHome] = useState(true);
+  const [homeInput, setHomeInput] = useState('');
+  const inputRef = useRef<TextInput>(null);
+
   const [introModalVisible, setIntroModalVisible] = useState(false);
   const [roleDetailVisible, setRoleDetailVisible] = useState(false);
   const [rolePickerVisible, setRolePickerVisible] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // 处理发送消息（由 ChatContext 统一处理 API 调用）
-  const handleSendMessage = useCallback(
-    async (text: string) => {
-      await sendMessage(text);
-    },
-    [sendMessage]
-  );
+  // Change System 状态（当前使用兜底数据，后续对接后端字段）
+  const [changeSystem, setChangeSystem] = useState({
+    currentState: '理解中',
+    shift: '还在浮现',
+    source: undefined as string | undefined,
+    deeperFeeling: undefined as string | undefined,
+    recoveryClue: undefined as string | undefined,
+  });
 
-  // 显示角色简介（首次进入或无历史时）
-  useEffect(() => {
-    if (messages.length === 0 && sessions.length === 0) {
-      const timer = setTimeout(() => {
-        setIntroModalVisible(true);
-      }, 500);
-      return () => clearTimeout(timer);
-    }
+  // 切换提示消息
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
+
+  // 开始对话：从首页进入聊天
+  const handleStartChat = useCallback(async () => {
+    const text = homeInput.trim();
+    if (!text) return;
+
+    // 设置默认陪伴者（聪明狐狸）
+    const defaultRole = DEFAULT_ROLES.find(r => r.id === 'clever-fox') || DEFAULT_ROLES[0];
+    setCurrentRole(defaultRole);
+    createNewChat(defaultRole);
+
+    // 切换到聊天视图
+    setShowHome(false);
+
+    // 发送用户消息
+    await sendMessage(text);
+  }, [homeInput, setCurrentRole, createNewChat, sendMessage]);
+
+  // 状态入口按钮点击
+  const handleStateEntry = useCallback((text: string) => {
+    setHomeInput(text);
+    inputRef.current?.focus();
   }, []);
 
+  // 切换陪伴者
+  const handleRoleSwitch = useCallback((role: typeof DEFAULT_ROLES[0]) => {
+    setCurrentRole(role);
+    setRolePickerVisible(false);
+    // 添加切换提示
+    setSwitchNotice(`已切换为${role.name}继续陪你。`);
+    setTimeout(() => setSwitchNotice(null), 4000);
+  }, [setCurrentRole]);
+
+  // 如果是首页模式且消息列表为空 → 显示首页
+  if (showHome && messages.length === 0) {
+    return (
+      <Screen className="bg-white dark:bg-gray-900">
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* 标题 */}
+          <View className="items-center mb-8">
+            <Text className="text-3xl font-bold text-amber-600 dark:text-amber-400 mb-2">
+              EmotionFlow
+            </Text>
+            <View className="w-12 h-0.5 bg-amber-200 dark:bg-amber-800 rounded-full mb-4" />
+            <Text className="text-base text-gray-600 dark:text-gray-400 text-center leading-6">
+              你不用先搞清楚自己怎么了。{'\n'}
+              把此刻最真实的一句话放在这里，{'\n'}
+              我们一起看见它正在发生什么。
+            </Text>
+          </View>
+
+          {/* 大输入框 */}
+          <View className="mb-6">
+            <View className="bg-gray-50 dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 px-5 py-4">
+              <TextInput
+                ref={inputRef}
+                value={homeInput}
+                onChangeText={setHomeInput}
+                placeholder="今天真的好累"
+                placeholderTextColor="#9CA3AF"
+                multiline
+                className="text-base text-gray-900 dark:text-white min-h-[60px] leading-6"
+                textAlignVertical="top"
+              />
+            </View>
+          </View>
+
+          {/* 开始按钮 */}
+          <TouchableOpacity
+            onPress={handleStartChat}
+            disabled={!homeInput.trim() || isLoading}
+            className={`rounded-2xl py-4 items-center mb-8 ${
+              homeInput.trim() && !isLoading
+                ? 'bg-amber-500 active:bg-amber-600'
+                : 'bg-gray-200 dark:bg-gray-700'
+            }`}
+          >
+            <Text className={`text-base font-bold ${
+              homeInput.trim() && !isLoading
+                ? 'text-white'
+                : 'text-gray-400 dark:text-gray-500'
+            }`}>
+              {isLoading ? '正在连接...' : '开始'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* 状态入口 */}
+          <View className="items-center">
+            <Text className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+              不知道怎么开始？
+            </Text>
+            <View className="flex-row flex-wrap justify-center gap-2">
+              {STATE_ENTRIES.map((text) => (
+                <TouchableOpacity
+                  key={text}
+                  onPress={() => handleStateEntry(text)}
+                  className="px-4 py-2 rounded-full bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+                >
+                  <Text className="text-sm text-amber-700 dark:text-amber-300">{text}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </ScrollView>
+      </Screen>
+    );
+  }
+
+  // ═══ 聊天视图 ═══
   return (
     <Screen className="bg-white dark:bg-gray-900">
       {/* 历史对话列表（Modal 形式） */}
@@ -75,26 +188,41 @@ function ChatContent() {
         <HistoryList onClose={() => setShowHistory(false)} />
       </Modal>
 
-      {/* 角色头部 */}
+      {/* 当前陪伴者头部 */}
       <RoleHeader
         onShowRolePicker={() => setRolePickerVisible(true)}
         onShowRoleDetail={() => setRoleDetailVisible(true)}
         onShowHistory={() => setShowHistory(true)}
-        onNewChat={() => createNewChat()}
+        onNewChat={() => {
+          createNewChat();
+          setShowHome(true);
+        }}
         hasHistory={sessions.length > 0}
       />
+
+      {/* Change System 状态变化卡片 */}
+      <ChangeSystemCard data={changeSystem} />
+
+      {/* 切换提示 */}
+      {switchNotice && (
+        <View className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
+          <Text className="text-xs text-amber-700 dark:text-amber-300 text-center">
+            {switchNotice}
+          </Text>
+        </View>
+      )}
 
       {/* 消息列表 */}
       <View className="flex-1">
         <MessageList onShowIntro={() => setIntroModalVisible(true)} />
       </View>
 
-      {/* 阶段状态条 — 在消息区和输入区之间，不遮挡消息 */}
+      {/* 阶段状态条 */}
       {chatPhase !== 'idle' && !error && (
         <View className="px-4 pb-0">
           <View className="flex-row items-center py-2 px-2">
             {chatPhase !== 'done' ? (
-              <ActivityIndicator size="small" color="#8B5CF6" />
+              <ActivityIndicator size="small" color="#D97706" />
             ) : (
               <View className="w-3 h-3 rounded-full bg-green-500 items-center justify-center">
                 <Text className="text-white text-[8px] font-bold">✓</Text>
@@ -115,7 +243,7 @@ function ChatContent() {
         </View>
       )}
 
-      {/* 错误提示 — 同样放在消息区和输入区之间 */}
+      {/* 错误提示 */}
       {error && !isLoading && (
         <View className="px-4 pb-1">
           <View className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-2xl p-4">
@@ -137,7 +265,7 @@ function ChatContent() {
                       clearError();
                       const lastUserMessage = messages.filter(m => m.role === 'user').pop();
                       if (lastUserMessage) {
-                        handleSendMessage(lastUserMessage.content);
+                        sendMessage(lastUserMessage.content);
                       }
                     }}
                   >
@@ -166,16 +294,10 @@ function ChatContent() {
 
       {/* 输入区域 */}
       <MultimodalInput
-        onSendMessage={handleSendMessage}
+        onSendMessage={sendMessage}
         disabled={isLoading}
         isThinking={isLoading && messages.some(m => m.role === 'assistant' && m.content.startsWith('【思考中'))}
         chatPhase={chatPhase}
-      />
-
-      {/* 角色选择器 */}
-      <RoleSelector
-        visible={roleSelectorVisible}
-        onClose={() => setRoleSelectorVisible(false)}
       />
 
       {/* 角色简介弹窗 */}
@@ -192,23 +314,18 @@ function ChatContent() {
         onClose={() => setRoleDetailVisible(false)}
       />
 
-      {/* 角色选择弹窗 */}
+      {/* 切换陪伴者弹窗 */}
       <RolePickerModal
         visible={rolePickerVisible}
-        roles={roles}
-        currentRole={currentRole}
-        onSelectRole={(role) => {
-          // 选择角色后创建新对话
-          createNewChat(role);
-        }}
+        onSelect={handleRoleSwitch}
         onClose={() => setRolePickerVisible(false)}
       />
 
-      {/* 版本号标识 - 生产环境只显示版本，开发环境加 DEV 前缀 */}
+      {/* 版本号标识 */}
       <View className="absolute bottom-2 right-3">
         <View className="bg-gray-100/80 dark:bg-gray-800/80 px-2 py-0.5 rounded-md">
           <Text className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
-            {__DEV__ ? 'DEV' : 'PROD'} - v2.0.1
+            {__DEV__ ? 'DEV' : 'PROD'} - v3.1.0
           </Text>
         </View>
       </View>
