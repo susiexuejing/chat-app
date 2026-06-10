@@ -14,7 +14,7 @@ import {
   generateCompanionTimeline,
 } from './flows/localReactionEngine';
 import { analyzeFlow, recordChange, getChangeBlock } from './flows/index';
-import type { FlowResult } from './flows/flowTypes';
+import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -86,6 +86,7 @@ interface ChatSession {
   userId: string;               // 用户标识（用于神经档案）
   neuralProfile: NeuralProfile; // 当前用户神经状态
   flowResult: FlowResult | null; // Flow System 心理流向分析结果
+  flowContext: FlowContext | null; // Step1: 结构化 FlowContext（用于 Deep prompt）
 }
 
 const sessions = new Map<string, ChatSession>();
@@ -117,7 +118,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -159,8 +160,8 @@ ${getRoleStyle(roleId)}
 
 ${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 
-用户已经看到以下前置陪伴内容：
-${frontFlowText}
+用户当前心理状态（结构化分析，供参考）：
+${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
 ${flowBlock}
 ${changeBlock || ''}
 请严格遵守：
@@ -924,7 +925,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 
   try {
     const changeBlock = getChangeBlock(session.userId, session.roleId);
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1072,6 +1073,61 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 }
 
 
+
+// ─── 构建结构化 FlowContext（替代纯文本 frontFlowText 注入 Deep prompt）─
+// 将 emotionTag / eventTag / state 映射为 FlowContext JSON
+function buildFlowContext(state: string, emotionTag: string, eventTag: string, keywords: string[]): FlowContext {
+  // 1) 映射 flowType
+  const flowType = ((): FlowContextType => {
+    // 自我怀疑/自责 → self_blame
+    if (state === 'self_doubt' || emotionTag === 'guilt') return 'self_blame';
+    // 愤怒/受伤 → anger_to_hurt
+    if (state === 'anger' || emotionTag === 'anger' || emotionTag === 'hurt') return 'anger_to_hurt';
+    // 关系冲突
+    if (state === 'relationship_conflict' || eventTag === 'relationship_conflict' || eventTag === 'family_issue') return 'relationship_conflict';
+    // 焦虑/恐惧 → anxiety_overwhelm
+    if (state === 'anxiety' || emotionTag === 'anxiety' || emotionTag === 'fear') return 'anxiety_overwhelm';
+    // 身体紧绷
+    if (state === 'body_tension') return 'body_tension';
+    // 悲伤/孤独 → sadness_isolation
+    if (state === 'sadness' || emotionTag === 'sadness' || emotionTag === 'loneliness') return 'sadness_isolation';
+    // 迷茫 → analysis_to_feeling
+    if (emotionTag === 'confusion') return 'analysis_to_feeling';
+    // 空/麻木 → emptiness_numbness
+    // (没有直接匹配，用 general 兜底)
+    // 依恋焦虑
+    if (emotionTag === 'loneliness') return 'attachment_anxiety';
+    return 'general_flow';
+  })();
+
+  // 2) 初始 stage 总是 beginning（后续轮次由 Deep 分析更新）
+  const flowStage: FlowContextStage = 'beginning';
+
+  // 3) flowStrength: 基于 emotionTag 是否精确匹配 + 消息长度
+  const isExactEmotion = (
+    (state === 'anger' && emotionTag === 'anger') ||
+    (state === 'sadness' && emotionTag === 'sadness') ||
+    (state === 'anxiety' && emotionTag === 'anxiety') ||
+    (state === 'self_doubt' && (emotionTag === 'guilt' || eventTag === 'self_doubt')) ||
+    (state === 'relationship_conflict' && (eventTag === 'relationship_conflict' || eventTag === 'family_issue'))
+  );
+  const lengthFactor = Math.min(keywords.join('').length / 30, 0.3);
+  const flowStrength = Math.min((isExactEmotion ? 0.5 : 0.3) + lengthFactor, 0.9);
+
+  // 4) flowConfidence
+  const flowConfidence = isExactEmotion ? 0.6 + lengthFactor : 0.35 + lengthFactor;
+
+  // 5) flowRisk: 检测升级风险/反刍风险
+  const fullText = keywords.join(' ');
+  let flowRisk: FlowContextRisk | undefined;
+  if (/想死|活不下去|死了算了|自杀|不想活了|撑不住了/.test(fullText)) {
+    flowRisk = 'escalating';
+  } else if (/反复想|一直想|停不下来|越想越|钻牛角尖/.test(fullText)) {
+    flowRisk = 'rumination';
+  }
+
+  return { flowType, flowStage, flowStrength: Math.round(flowStrength * 100) / 100, flowConfidence: Math.round(flowConfidence * 100) / 100, flowRisk, keywords };
+}
 
 // ─── 内容清洗：提取最终中文回复 ────────────────────────
 // qwen3.6-plus 可能把完整的思考链（Here's a thinking process…）写在 content 字段，
@@ -1303,6 +1359,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     let deepReadyAt: number;
     let deepDone: boolean;
     let deepStreaming: boolean;
+    let flowContext: FlowContext | null = null;
 
     if (normalChat) {
       // normal_chat：不走情感识别，不走深度分析
@@ -1319,6 +1376,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       deepReadyAt = Date.now();
       deepDone = true;
       deepStreaming = false;
+      flowContext = null; // normal_chat 不生成 flowContext
     } else {
       // 1. 情绪识别
       emotionTag = recognizeEmotion(message);
@@ -1328,6 +1386,9 @@ app.post('/api/v1/chat/start', async (req, res) => {
       state = detectUserState(message);
       keywords = extractKeywords(message);
       frontFlowText = buildFrontFlowText(roleId, state, keywords);
+
+      // 3.5 生成结构化 FlowContext（替代纯文本 frontFlowText 注入 Deep prompt）
+      flowContext = buildFlowContext(state, emotionTag, eventTag, keywords);
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
@@ -1365,6 +1426,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       deepStreaming,
       deepError: null,
       flowResult: null,
+      flowContext,
     };
     sessions.set(sessionId, session);
 

@@ -107,6 +107,45 @@ export interface FlowBufferData {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// Step 1 — Simplified FlowContext (for Deep prompt injection)
+//  替代纯文本 frontFlowText 的结构化 JSON
+// ═══════════════════════════════════════════════════════════════
+
+export type FlowContextType =
+  | 'self_blame'
+  | 'anger_to_hurt'
+  | 'attachment_anxiety'
+  | 'analysis_to_feeling'
+  | 'sadness_isolation'
+  | 'anxiety_overwhelm'
+  | 'body_tension'
+  | 'relationship_conflict'
+  | 'emptiness_numbness'
+  | 'general_flow';
+
+export type FlowContextStage = 'beginning' | 'deepening' | 'stuck' | 'loosening';
+export type FlowContextRisk = 'none' | 'escalating' | 'rumination';
+
+/**
+ * 简化版 FlowContext
+ * 用于注入 Deep prompt，替代纯文本 frontFlowText
+ */
+export interface FlowContext {
+  /** 当前主导心理流向类型 */
+  flowType: FlowContextType;
+  /** 流向阶段 */
+  flowStage: FlowContextStage;
+  /** 流向强度 0~1 */
+  flowStrength: number;
+  /** 置信度 0~1 */
+  flowConfidence: number;
+  /** 潜在风险（可选） */
+  flowRisk?: FlowContextRisk;
+  /** 用户原始消息关键词（供人格参考） */
+  keywords: string[];
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Phase 5 — Change System Type Definitions
 // 用户变化感知系统：量化用户在长期对话中的心理演化
 // ═══════════════════════════════════════════════════════════════
