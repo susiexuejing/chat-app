@@ -3056,5 +3056,53 @@
       "isTransitioning": false,
       "trajectoryLength": 1
     }
+  },
+  "anon_1781058673290_5nvahx::clever-fox": {
+    "history": {
+      "userId": "anon_1781058673290_5nvahx",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1781058673296
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -1,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "我感觉我说不清"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "anon_1781058673352_z8v07q::clever-fox": {
+    "history": {
+      "userId": "anon_1781058673352_z8v07q",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1781058673354
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -1,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "我感觉我说不清"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
   }
 }

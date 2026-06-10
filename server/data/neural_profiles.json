@@ -935,5 +935,45 @@
     },
     "createdAt": 1780988417751,
     "updatedAt": 1780988452977
+  },
+  "anon_1781058673290_5nvahx::clever-fox": {
+    "userId": "anon_1781058673290_5nvahx",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.34,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [],
+      "recentTopics": [],
+      "lastUpdated": 1781058692545
+    },
+    "createdAt": 1781058673291,
+    "updatedAt": 1781058692545
+  },
+  "anon_1781058673352_z8v07q::clever-fox": {
+    "userId": "anon_1781058673352_z8v07q",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.4,
+      "emotionalSupport": 0.5,
+      "actionGuidance": 0.3,
+      "reflectiveSpace": 0.4,
+      "totalInteractions": 0,
+      "dominantEmotions": [],
+      "recentTopics": [],
+      "lastUpdated": 1781058673352
+    },
+    "createdAt": 1781058673352,
+    "updatedAt": 1781058673352
   }
 }
