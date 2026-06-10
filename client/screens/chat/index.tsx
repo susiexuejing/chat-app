@@ -1,5 +1,5 @@
 /**
- * 多角色心理咨询对话主页
+ * 多角色陪伴对话主页
  * 支持角色切换、文本/语音/图片多模态输入、历史对话管理
  */
 
@@ -102,16 +102,14 @@ function ChatContent() {
             )}
             <Text className="ml-2 text-xs font-medium text-gray-500 dark:text-gray-400 flex-1">
               {chatPhase === 'waiting_deep'
-                ? `${currentRole?.name || '咨询师'} 深度理解生成中……`
+                ? `让我再靠近一点理解。`
                 : chatPhase === 'deep_arriving'
-                  ? `补充更多理解……`
-                  : chatPhase === 'companion'
-                    ? `${currentRole?.name || '咨询师'} 正在回应你……`
-                    : chatPhase === 'responding'
-                      ? `${currentRole?.name || '咨询师'} 正在回应你……`
-                      : chatPhase === 'done'
-                        ? `✓ 说完了，轮到你了`
-                        : `${currentRole?.name || '咨询师'} 正在理解中……`}
+                  ? `这里似乎有一些重要的东西。`
+                  : chatPhase === 'companion' || chatPhase === 'responding'
+                    ? `我在听。`
+                    : chatPhase === 'done'
+                      ? `轮到你了。`
+                      : `我在听。`}
             </Text>
           </View>
         </View>
@@ -162,7 +160,7 @@ function ChatContent() {
       <View className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800 flex-row items-center justify-center">
         <Ionicons name="warning-outline" size={12} color="#b45309" className="mr-1" />
         <Text className="text-xs text-amber-700 dark:text-amber-400">
-          本产品为 AI 模拟对话，不代表真实心理咨询服务。如有严重心理困扰，请寻求专业帮助。
+          本产品为 AI 模拟对话，不代表真实咨询。如有严重困扰，请寻求专业帮助。
         </Text>
       </View>
 

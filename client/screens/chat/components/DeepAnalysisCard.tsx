@@ -34,8 +34,8 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
       >
         <View className="flex-row items-center justify-between">
           <View className="flex-row items-center">
-            <FontAwesome6 name="brain" size={16} color="white" />
-            <Text className="text-white font-medium ml-2">深度心理分析</Text>
+            <FontAwesome6 name="ear-listen" size={16} color="white" />
+            <Text className="text-white font-medium ml-2">我听见的东西</Text>
           </View>
           <FontAwesome6
             name={expanded ? 'chevron-up' : 'chevron-down'}
@@ -48,13 +48,13 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
       {/* 展开内容 */}
       {expanded && hasContent && (
         <View className="mt-2 bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-100 dark:border-gray-700">
-          {/* 客观事实 */}
+          {/* 发生了什么 */}
           {analysis.fact ? (
             <View className="mb-3">
               <View className="flex-row items-center mb-1">
                 <FontAwesome6 name="eye" size={12} color="#6B7280" />
                 <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
-                  客观事实
+                  发生了什么
                 </Text>
               </View>
               <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
@@ -69,7 +69,7 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
               <View className="flex-row items-center mb-1">
                 <FontAwesome6 name="comment-dots" size={12} color="#6B7280" />
                 <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
-                  你的解读
+                  你心里怎么理解这件事
                 </Text>
               </View>
               <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
@@ -84,7 +84,7 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
               <View className="flex-row items-center mb-1">
                 <FontAwesome6 name="brain" size={12} color="#6B7280" />
                 <Text className="text-xs font-semibold text-gray-500 dark:text-gray-400 ml-1.5 uppercase tracking-wide">
-                  可能认知模式
+                  这里可能卡住的地方
                 </Text>
               </View>
               {Array.isArray(analysis.possible_cognitive_pattern) ? (
@@ -111,7 +111,7 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
               <View className="flex-row items-center mb-1">
                 <FontAwesome6 name="rotate" size={12} color="#059669" />
                 <Text className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 ml-1.5 uppercase tracking-wide">
-                  换个角度
+                  可以先松动的一点
                 </Text>
               </View>
               <Text className="text-sm text-gray-700 dark:text-gray-200 leading-5">
@@ -129,7 +129,7 @@ export function DeepAnalysisCard({ analysis }: DeepAnalysisCardProps) {
           className="mt-1 py-2"
         >
           <Text className="text-xs text-purple-500 text-center">
-            点击展开深度分析
+            点击展开
           </Text>
         </TouchableOpacity>
       )}

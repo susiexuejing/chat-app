@@ -123,7 +123,7 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
                   {role.description}
                 </Text>
 
-                <SectionTitle title="专业领域" color={role.themeColor} />
+                <SectionTitle title="擅长的事" color={role.themeColor} />
                 <View className="flex-row flex-wrap mb-4">
                   {role.professionalBackground.specialties.map((specialty, index) => (
                     <View
@@ -141,7 +141,7 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
                 {/* AI生成提示 */}
                 <View className="bg-amber-50 rounded-xl p-3 mt-2">
                   <Text className="text-xs text-amber-700">
-                    * 这是一位由AI模拟的心理咨询师角色，不代表真实的心理咨询或医学建议。如有严重心理问题，请寻求专业帮助。
+                    * 这是一场AI模拟的陪伴对话。如有严重困扰，请寻求专业帮助。
                   </Text>
                 </View>
               </View>
@@ -182,7 +182,7 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
                 {/* AI生成提示 */}
                 <View className="bg-amber-50 rounded-xl p-3 mt-2">
                   <Text className="text-xs text-amber-700">
-                    * 这是一位由AI模拟的心理咨询师角色，不代表真实的心理咨询或医学建议。如有严重心理问题，请寻求专业帮助。
+                    * 这是一场AI模拟的陪伴对话。如有严重困扰，请寻求专业帮助。
                   </Text>
                 </View>
               </View>
@@ -220,7 +220,7 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
                 {/* AI生成提示 */}
                 <View className="bg-amber-50 rounded-xl p-3 mt-4">
                   <Text className="text-xs text-amber-700">
-                    * 这是一位由AI模拟的心理咨询师角色，不代表真实的心理咨询或医学建议。如有严重心理问题，请寻求专业帮助。
+                    * 这是一场AI模拟的陪伴对话。如有严重困扰，请寻求专业帮助。
                   </Text>
                 </View>
               </View>
@@ -234,7 +234,7 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
               style={{ backgroundColor: role.themeColor }}
               onPress={onClose}
             >
-              <Text className="text-white font-semibold">开始对话</Text>
+              <Text className="text-white font-semibold">开始吧</Text>
             </TouchableOpacity>
           </View>
         </View>

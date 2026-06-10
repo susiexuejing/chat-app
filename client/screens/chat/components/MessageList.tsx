@@ -16,7 +16,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ onShowIntro }: MessageListProps) {
-  const { messages, currentRole, lightAnalysis, isLoading } = useChat();
+  const { messages, currentRole, lightAnalysis, isLoading, setInputText } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
   const [isAITyping, setIsAITyping] = React.useState(false);
   
@@ -74,10 +74,10 @@ export function MessageList({ onShowIntro }: MessageListProps) {
             </View>
             <View className="flex-1">
               <Text className="text-sm font-medium text-gray-700 dark:text-gray-200">
-                了解 {currentRole?.name}
+                了解 {currentRole?.name}的陪伴方式
               </Text>
               <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                点击查看咨询师简介和风格
+                点击查看{currentRole?.name}如何陪你
               </Text>
             </View>
             <FontAwesome6 name="chevron-right" size={14} color="#9CA3AF" />
@@ -85,12 +85,32 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         </TouchableOpacity>
         
         {/* 输入提示 */}
-        <Text className="text-gray-500 dark:text-gray-400 text-center text-sm mb-2">
-          欢迎来到这里，我是 {currentRole?.name}
+        <Text className="text-gray-500 dark:text-gray-400 text-center text-base mb-1">
+          你不需要整理好语言。
         </Text>
-        <Text className="text-gray-400 dark:text-gray-500 text-center text-sm">
-          告诉我你想聊些什么，或者有什么困扰着你
+        <Text className="text-gray-400 dark:text-gray-500 text-center text-sm mb-4">
+          只需要把此刻最真实的一句话放在这里。
         </Text>
+
+        {/* 状态入口按钮 */}
+        <View className="flex-row flex-wrap justify-center gap-2 px-2">
+          {['我很累', '我很乱', '我很烦', '我很空', '我说不清'].map((text) => (
+            <TouchableOpacity
+              key={text}
+              onPress={() => setInputText('我感觉' + text)}
+              className="px-4 py-2 rounded-full"
+              style={{ backgroundColor: (currentRole?.themeColor || '#4F46E5') + '12' }}
+              activeOpacity={0.6}
+            >
+              <Text 
+                className="text-sm font-medium"
+                style={{ color: currentRole?.themeColor || '#4F46E5' }}
+              >
+                {text}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     );
   }

@@ -1,6 +1,6 @@
 /**
  * 角色选择器组件
- * 底部弹出选择不同心理咨询师角色
+ * 底部弹出选择不同陪伴方式
  */
 
 import React, { useState } from 'react';
@@ -51,7 +51,7 @@ export function RoleSelector({ visible, onClose }: RoleSelectorProps) {
           {/* 标题 */}
           <View className="flex-row items-center justify-between mb-4">
             <Text className="text-xl font-bold text-gray-900 dark:text-white">
-              选择咨询师
+              选择陪伴方式
             </Text>
             <TouchableOpacity onPress={onClose} className="p-2">
               <FontAwesome6 name="xmark" size={20} color="#6B7280" />

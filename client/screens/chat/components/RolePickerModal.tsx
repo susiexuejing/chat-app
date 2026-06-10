@@ -59,10 +59,10 @@ export function RolePickerModal({
               {/* 标题 */}
               <View className="px-5 pb-3">
                 <Text className="text-lg font-semibold text-gray-900 dark:text-white text-center">
-                  选择你的咨询师
+                  选择一种更适合你的陪伴方式
                 </Text>
                 <Text className="text-sm text-gray-500 dark:text-gray-400 text-center mt-1">
-                  每个角色都有独特的咨询风格
+                  每个陪伴者都擅长不同的状态
                 </Text>
               </View>
 
@@ -144,7 +144,7 @@ export function RolePickerModal({
                 {/* 底部提示 */}
                 <View className="mt-4 mb-4">
                   <Text className="text-xs text-gray-400 dark:text-gray-500 text-center">
-                    点击任意角色即可切换咨询师
+                    点击切换
                   </Text>
                 </View>
               </ScrollView>

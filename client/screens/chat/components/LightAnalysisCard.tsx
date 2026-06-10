@@ -34,7 +34,7 @@ export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCar
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>
             <Ionicons name="key-outline" size={12} color="#6366F1" />
-            {' '}关键事件
+            {' '}发生了什么
           </Text>
           <Text style={styles.eventText}>&ldquo;{analysis.keyEvent}&rdquo;</Text>
         </View>
@@ -43,7 +43,7 @@ export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCar
       {/* 互动选项 */}
       {analysis.interactionOptions.length > 0 && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>你想深入探讨：</Text>
+          <Text style={styles.sectionLabel}>你想从哪里开始：</Text>
           <View style={styles.optionsContainer}>
             {analysis.interactionOptions.map((option: { label: string; value: string }, index: number) => (
               <TouchableOpacity
@@ -61,7 +61,7 @@ export function LightAnalysisCard({ analysis, onOptionSelect }: LightAnalysisCar
       {/* 分析完成提示 */}
       <View style={styles.footer}>
         <Ionicons name="sparkles" size={14} color="#8B5CF6" />
-        <Text style={styles.footerText}>正在为你生成回复...</Text>
+        <Text style={styles.footerText}>正在理解...</Text>
       </View>
     </View>
   );

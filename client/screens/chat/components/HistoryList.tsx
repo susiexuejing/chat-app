@@ -45,7 +45,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
 
   const getRoleName = (roleId: string) => {
     const role = THERAPIST_ROLES.find(r => r.id === roleId);
-    return role?.name || '未知咨询师';
+    return role?.name || '未知陪伴者';
   };
 
   const getRoleAvatar = (roleId: string) => {
@@ -110,7 +110,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
               className="text-xs text-gray-500 dark:text-gray-400"
               numberOfLines={1}
             >
-              {getRoleName(item.roleId)} · {item.messages.length}条消息
+              {getRoleName(item.roleId)} · {item.messages.length}条记录
             </Text>
           </View>
         </View>
@@ -135,7 +135,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
       <View className="px-4 py-4 border-b border-gray-200 dark:border-gray-700">
         <View className="flex-row items-center justify-between">
           <Text className="text-xl font-bold text-gray-900 dark:text-white">
-            历史对话
+            历史记录
           </Text>
           <TouchableOpacity onPress={onClose} className="p-2">
             <FontAwesome6 name="xmark" size={20} color="#6B7280" />
@@ -154,7 +154,7 @@ export function HistoryList({ onClose }: HistoryListProps) {
           <View className="items-center justify-center py-16">
             <FontAwesome6 name="comments" size={48} color="#E5E7EB" />
             <Text className="text-gray-400 mt-4 text-center">
-              暂无历史对话{'\n'}点击上方开始新对话
+              还没有对话记录{'\n'}点击上方开始新对话
             </Text>
           </View>
         }

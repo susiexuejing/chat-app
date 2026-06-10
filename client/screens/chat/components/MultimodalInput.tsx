@@ -194,7 +194,7 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
             <TextInput
               value={chatPhase !== 'idle' ? '' : inputText}
               onChangeText={chatPhase !== 'idle' ? undefined : setInputText}
-              placeholder={chatPhase !== 'idle' ? '' : "输入你的问题..."}
+              placeholder={chatPhase !== 'idle' ? '' : "把此刻最真实的一句话放在这里"}
               placeholderTextColor={chatPhase !== 'idle' ? 'transparent' : "#9CA3AF"}
               multiline
               maxLength={1000}
@@ -224,10 +224,10 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
         {/* 底部提示 — chatPhase 活跃时状态条已显示，输入框只保持干净 */}
         <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
           {chatPhase === 'done'
-            ? '◎ 我说完了，轮到你了'
+            ? '◎ 轮到你了'
             : chatPhase !== 'idle'
               ? '　'
-              : '选择一个情绪标签或直接输入您的问题'
+              : '直接说，不用整理语言'
           }
         </Text>
       </View>

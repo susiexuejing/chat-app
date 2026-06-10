@@ -1,6 +1,6 @@
 /**
- * 咨询师选择首页
- * 让用户选择合适的心理咨询师
+ * 陪伴者选择首页
+ * 让用户选择合适的陪伴方式
  */
 
 import React, { useState } from 'react';
@@ -42,14 +42,14 @@ export default function SelectCounselorScreen() {
           style={{ backgroundColor: '#F9FAFB' }}
         >
           <Text className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            找到你的倾听者
+            选择一种更适合你的陪伴方式
           </Text>
           <Text className="text-base text-gray-500 dark:text-gray-400">
-            选择一位信任的心理咨询师，开始你的心灵之旅
+            每个人都有不同的状态，每个陪伴者的方式也不一样
           </Text>
         </View>
 
-        {/* 咨询师列表 */}
+        {/* 陪伴者列表 */}
         <ScrollView 
           className="flex-1 px-4 py-6"
           showsVerticalScrollIndicator={false}
@@ -93,7 +93,7 @@ export default function SelectCounselorScreen() {
                         className="text-xs font-medium"
                         style={{ color: role.themeColor }}
                       >
-                        {role.category}
+                        {role.title}
                       </Text>
                     </View>
                   </View>
@@ -105,7 +105,7 @@ export default function SelectCounselorScreen() {
                     {role.shortDesc}
                   </Text>
 
-                  {/* 专长标签 */}
+                  {/* 适合场景标签 */}
                   <View className="flex-row flex-wrap">
                     {role.expertise.slice(0, 3).map((tag: string, index: number) => (
                       <View 

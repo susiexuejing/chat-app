@@ -95,9 +95,8 @@ export function RoleDetailModal({ visible, role, onClose }: RoleDetailModalProps
                     </Text>
                   </View>
                   <Text className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
-                    请注意：以上角色设定仅为模拟，所有信息均由人工智能模型生成，准确性和完整性无法保证。
-                    这些角色的行为和回应仅代表模拟的AI风格，并不代表真实的心理咨询或医学建议。
-                    如果需要心理咨询服务，请咨询专业医师。
+                    请注意：以上信息均为AI模拟设定，仅供陪伴参考。
+                    如有严重心理困扰，请寻求专业帮助。
                   </Text>
                 </View>
 
@@ -174,13 +173,13 @@ export function RoleDetailModal({ visible, role, onClose }: RoleDetailModalProps
                   </View>
                 )}
 
-                {/* 开始咨询按钮 */}
+                {/* 开始陪伴按钮 */}
                 <TouchableOpacity
                   className="rounded-full py-4 items-center mt-4"
                   style={{ backgroundColor: role.themeColor }}
                   onPress={onClose}
                 >
-                  <Text className="text-white font-semibold text-base">开始咨询</Text>
+                  <Text className="text-white font-semibold text-base">开始吧</Text>
                 </TouchableOpacity>
               </ScrollView>
             </View>

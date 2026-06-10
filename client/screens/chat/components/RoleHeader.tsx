@@ -1,6 +1,6 @@
 /**
  * 角色头部组件
- * 显示当前选择的咨询师信息和操作按钮
+ * 显示当前选择的陪伴者和操作按钮
  * 左上角：角色图标+名称，点击弹出角色选择
  */
 
@@ -82,7 +82,7 @@ export function RoleHeader({
               />
             </View>
             <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-              点击切换咨询师
+              切换陪伴方式
             </Text>
           </View>
         </TouchableOpacity>
