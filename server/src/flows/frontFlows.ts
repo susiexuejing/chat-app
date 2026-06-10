@@ -11,7 +11,7 @@ export interface FrontFlowItem {
 }
 
 // 情绪标签
-export type EmotionTag = 'anger' | 'sadness' | 'anxiety' | 'loneliness' | 'guilt' | 'fear' | 'confusion' | 'hurt' | 'general';
+export type EmotionTag = 'anger' | 'sadness' | 'anxiety' | 'loneliness' | 'guilt' | 'fear' | 'confusion' | 'hurt' | 'attachment_anxiety' | 'helplessness' | 'general';
 
 // 事件标签
 export type EventTag = 'relationship_conflict' | 'work_stress' | 'family_issue' | 'self_doubt' | 'grief' | 'loneliness_event' | 'general';

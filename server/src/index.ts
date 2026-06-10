@@ -1175,18 +1175,20 @@ function buildFlowContext(state: string, emotionTag: string, eventTag: string, k
     if (state === 'anger' || emotionTag === 'anger' || emotionTag === 'hurt') return 'anger_to_hurt';
     // 关系冲突
     if (state === 'relationship_conflict' || eventTag === 'relationship_conflict' || eventTag === 'family_issue') return 'relationship_conflict';
+    // 依恋焦虑（优先于普通 anxiety，防止被 anxiety_overwhelm 覆盖）
+    if (state === 'attachment_anxiety') return 'attachment_anxiety';
+    // 无力/失控 → control_to_helplessness
+    if (state === 'helplessness') return 'control_to_helplessness';
     // 焦虑/恐惧 → anxiety_overwhelm
     if (state === 'anxiety' || emotionTag === 'anxiety' || emotionTag === 'fear') return 'anxiety_overwhelm';
     // 身体紧绷
     if (state === 'body_tension') return 'body_tension';
-    // 悲伤/孤独 → sadness_isolation
-    if (state === 'sadness' || emotionTag === 'sadness' || emotionTag === 'loneliness') return 'sadness_isolation';
+    // 悲伤/孤立
+    if (state === 'sadness' || emotionTag === 'sadness') return 'sadness_isolation';
+    // 孤独 → 依恋焦虑兜底
+    if (emotionTag === 'loneliness' || eventTag === 'loneliness_event') return 'attachment_anxiety';
     // 迷茫 → analysis_to_feeling
     if (emotionTag === 'confusion') return 'analysis_to_feeling';
-    // 空/麻木 → emptiness_numbness
-    // (没有直接匹配，用 general 兜底)
-    // 依恋焦虑
-    if (emotionTag === 'loneliness') return 'attachment_anxiety';
     return 'general_flow';
   })();
 
@@ -1195,6 +1197,8 @@ function buildFlowContext(state: string, emotionTag: string, eventTag: string, k
 
   // 3) flowStrength: 基于 emotionTag 是否精确匹配 + 消息长度
   const isExactEmotion = (
+    (state === 'attachment_anxiety' && emotionTag === 'attachment_anxiety') ||
+    (state === 'helplessness' && emotionTag === 'helplessness') ||
     (state === 'anger' && emotionTag === 'anger') ||
     (state === 'sadness' && emotionTag === 'sadness') ||
     (state === 'anxiety' && emotionTag === 'anxiety') ||

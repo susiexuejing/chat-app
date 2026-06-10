@@ -120,6 +120,7 @@ export type FlowContextType =
   | 'anxiety_overwhelm'
   | 'body_tension'
   | 'relationship_conflict'
+  | 'control_to_helplessness'
   | 'emptiness_numbness'
   | 'general_flow';
 
