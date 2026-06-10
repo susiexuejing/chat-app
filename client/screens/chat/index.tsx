@@ -2,7 +2,7 @@
  * EmotionFlow 主页面
  * V3.1: 状态驱动入口 → 陪伴对话 → 状态变化感知
  */
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -64,6 +64,34 @@ function ChatContent() {
 
   // 切换提示消息
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
+
+  // Deep 等待计时（超过15秒显示不同文案）
+  const [deepWaitingElapsed, setDeepWaitingElapsed] = useState(0);
+  const deepStartRef = useRef<number | null>(null);
+  const deepTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (chatPhase === 'waiting_deep') {
+      if (!deepTickRef.current) {
+        deepStartRef.current = Date.now();
+        deepTickRef.current = setInterval(() => {
+          setDeepWaitingElapsed(prev => prev + 1);
+        }, 1000);
+      }
+    } else {
+      if (deepTickRef.current) {
+        clearInterval(deepTickRef.current);
+        deepTickRef.current = null;
+        deepStartRef.current = null;
+      }
+    }
+    return () => {
+      if (deepTickRef.current) {
+        clearInterval(deepTickRef.current);
+        deepTickRef.current = null;
+      }
+    };
+  }, [chatPhase]);
 
   // 开始对话：从首页进入聊天
   const handleStartChat = useCallback(async () => {
@@ -230,9 +258,9 @@ function ChatContent() {
             )}
             <Text className="ml-2 text-xs font-medium text-gray-500 dark:text-gray-400 flex-1">
               {chatPhase === 'waiting_deep'
-                ? `让我再靠近一点理解。`
+                ? (deepWaitingElapsed >= 15 ? '这部分理解需要一点时间，你可以先继续说，我不会打断你。' : '我还在慢慢理解，这里可能需要一点时间。')
                 : chatPhase === 'deep_arriving'
-                  ? `这里似乎有一些重要的东西。`
+                  ? `我整理到了一些更深的东西。`
                   : chatPhase === 'companion' || chatPhase === 'responding'
                     ? `我在听。`
                     : chatPhase === 'done'

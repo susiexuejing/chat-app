@@ -888,9 +888,9 @@ async function callDashScope(
     temperature: 0.6,
   });
 
-  // 30秒超时控制
+  // 60秒超时控制（Deep模型流式回复较慢）
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 30000);
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
 
   try {
     const response = await fetch(url, {
@@ -920,6 +920,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
   }
 
   session.deepStreaming = true;
+  let streamStartTime = Date.now();
 
   try {
     const changeBlock = getChangeBlock(session.userId, session.roleId);
@@ -958,15 +959,18 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     const decoder = new TextDecoder();
     let reasoningBuffer = '';
     let deepContentBuffer = '';  // 累积所有content（含推理过程），流结束后清洗再推送
-    let streamStartTime = Date.now();
+    let firstTokenTime = 0;
+    let usedFallback = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
+    console.log(`[Deep] Stream start for session ${session.sessionId}`);
 
-    // 30秒流读取超时
+    // 60秒流读取超时（Deep模型首次token可能需要较长时间）
     const streamReadTimeout = new Promise<void>((_, reject) => {
-      streamTimeout = setTimeout(() => reject(new Error('Stream read timeout (30s)')), 30000);
+      streamTimeout = setTimeout(() => reject(new Error('Stream read timeout (60s)')), 60000);
     });
 
     const streamReadLoop = (async () => {
+      console.log(`[Deep] Stream start for session ${session.sessionId}`);
       while (true) {
         const { done, value } = await reader!.read();
         if (done) break;
@@ -987,6 +991,10 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
                 const content = parsed.choices?.[0]?.delta?.content ||
                                 parsed.output?.choices?.[0]?.delta?.content || '';
                 if (content) {
+                  if (firstTokenTime === 0) {
+                    firstTokenTime = Date.now();
+                    console.log(`[Deep] First token received for session ${session.sessionId} (${firstTokenTime - streamStartTime}ms)`);
+                  }
                   deepContentBuffer += content;
                 } else {
                   // 累积 reasoning_content（推理模型将输出放在此字段）
@@ -1042,13 +1050,21 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     // 将 reasoning_content 作为最终内容推给前端
     if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
       session.deepChunks.push(reasoningBuffer.trim());
-      console.log(`[Deep] Fallback: used reasoning_content (${reasoningBuffer.length} chars)`);
+      const duration = Date.now() - streamStartTime;
+      console.log(`[Deep] Fallback: used reasoning_content (${reasoningBuffer.length} chars, took ${duration}ms)`);
     }
 
     session.deepDone = true;
-    console.log(`[Deep] Stream complete for session ${session.sessionId} (took ${Date.now() - streamStartTime}ms)`);
+    const completionDuration = Date.now() - streamStartTime;
+    const firstTokenDelay = firstTokenTime > 0 ? (firstTokenTime - streamStartTime) : -1;
+    const hasContent = session.deepChunks.length > 0;
+    const wasFallback = !hasContent && reasoningBuffer.trim().length > 0;
+    console.log(`[Deep] Stream complete for session ${session.sessionId} ` +
+      `(total: ${completionDuration}ms, firstToken: ${firstTokenDelay}ms, ` +
+      `chunks: ${session.deepChunks.length}ch, content: ${(session.deepChunks.join('').length)}ch, fallback: ${wasFallback})`);
   } catch (error) {
-    console.error(`[Deep] Error in startDeepAnalysis:`, error);
+    const errTime = Date.now() - streamStartTime;
+    console.error(`[Deep] Error in startDeepAnalysis (at ${errTime}ms):`, error instanceof Error ? error.message : error);
     session.deepError = error instanceof Error ? error.message : 'Unknown error';
   } finally {
     session.deepStreaming = false;
