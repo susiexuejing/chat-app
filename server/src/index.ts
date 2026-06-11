@@ -1186,6 +1186,15 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
       try {
         const trendData = getChangeTrends(session.userId, session.roleId);
 
+        // 重新读取最新LTU（Deep已完成并更新，避免使用stale profile）
+        let freshLtu = ltuProfile;
+        try {
+          const reloaded = await loadProfile(session.userId, session.roleId);
+          if (reloaded && reloaded.totalInteractions > (ltuProfile?.totalInteractions ?? 0)) {
+            freshLtu = reloaded;
+          }
+        } catch { /* 回退到旧profile */ }
+
         // 从 evolution 日志加载当前权重
         const evolutionDir = path.join(process.cwd(), 'data', 'evolution');
         const logPath = path.join(evolutionDir, `${session.userId}_${session.roleId}.jsonl`);
@@ -1203,10 +1212,10 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
           session.roleId,
           session.flowContext ?? null,
           {
-            totalInteractions: ltuProfile?.totalInteractions ?? 0,
-            recurringFlowPatterns: ltuProfile?.recurringFlowPatterns ?? [],
-            emotionalTriggers: ltuProfile?.emotionalTriggers ?? [],
-            roleSpecific: ltuProfile?.roleSpecific ?? null,
+            totalInteractions: freshLtu?.totalInteractions ?? 0,
+            recurringFlowPatterns: freshLtu?.recurringFlowPatterns ?? [],
+            emotionalTriggers: freshLtu?.emotionalTriggers ?? [],
+            roleSpecific: freshLtu?.roleSpecific ?? null,
           },
           trendData,
           currentWeights,
