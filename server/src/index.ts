@@ -1610,7 +1610,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     };
     sessions.set(sessionId, session);
 
-    // 6. 立即返回前端流 + R+C + 时间线模板（不等待百炼）
+    // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
     res.json({
       sessionId,
       state,
@@ -1622,6 +1622,13 @@ app.post('/api/v1/chat/start', async (req, res) => {
       companionLayer,
       reactionTimeline,
       companionTimeline,
+      flowContext: flowContext ? {
+        flowType: flowContext.flowType,
+        flowStage: flowContext.flowStage,
+        flowStrength: flowContext.flowStrength,
+        flowConfidence: flowContext.flowConfidence,
+        flowRisk: flowContext.flowRisk || null,
+      } : null,
     });
 
     // 7. 后台异步调用百炼（normal_chat 跳过深度分析）
@@ -1682,12 +1689,19 @@ app.get('/api/v1/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  // 先告知前端时间线：reaction → companion → (等待) → deep
+  // 先告知前端时间线 + FlowContext
   res.write(`data: ${JSON.stringify({
     type: 'timeline',
     deepReadyAt: session.deepReadyAt,
     reactionLayer: session.reactionLayer || '',
     companionLayer: session.companionLayer || '',
+    flowContext: session.flowContext ? {
+      flowType: session.flowContext.flowType,
+      flowStage: session.flowContext.flowStage,
+      flowStrength: session.flowContext.flowStrength,
+      flowConfidence: session.flowContext.flowConfidence,
+      flowRisk: session.flowContext.flowRisk || null,
+    } : null,
   })}\n\n`);
 
   let lastIndex = 0;
