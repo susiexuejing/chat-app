@@ -1119,5 +1119,29 @@
     },
     "createdAt": 1781147643756,
     "updatedAt": 1781147667119
+  },
+  "input_test::clever-fox": {
+    "userId": "input_test",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.374,
+      "emotionalSupport": 0.593,
+      "actionGuidance": 0.274,
+      "reflectiveSpace": 0.483,
+      "totalInteractions": 2,
+      "dominantEmotions": [
+        "堵"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781148671157
+    },
+    "createdAt": 1781148619780,
+    "updatedAt": 1781148671157
   }
 }

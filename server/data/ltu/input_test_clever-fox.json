@@ -1,0 +1,34 @@
+{
+  "userId": "input_test",
+  "roleId": "clever-fox",
+  "dominantThemes": [
+    "肩膀好紧",
+    "喘不过气",
+    "领导没回消息",
+    "是不是我做错了什么"
+  ],
+  "recurringFlowPatterns": [
+    "body_tension",
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "胸口堵，喘不过气，肩膀好紧",
+    "领导没回消息，是不是我做错了什么"
+  ],
+  "lastUpdated": 1781148671092,
+  "totalInteractions": 2,
+  "roleSpecific": {
+    "roleId": "clever-fox",
+    "data": {
+      "cognitivePatterns": [],
+      "recurringDistortions": [],
+      "actionBlockers": [],
+      "effectiveReframes": []
+    }
+  }
+}

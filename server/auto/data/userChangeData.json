@@ -3408,5 +3408,109 @@
       "isTransitioning": false,
       "trajectoryLength": 1
     }
+  },
+  "input_test::clever-fox": {
+    "history": {
+      "userId": "input_test",
+      "roleId": "clever-fox",
+      "snapshots": [
+        {
+          "timestamp": 1781148643459,
+          "positionDelta": {
+            "cognitionDelta": -1,
+            "attributionDelta": 1,
+            "agencyDelta": 0,
+            "abstractionDelta": -2
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "chaos_to_structure",
+            "directionChange": "首次"
+          },
+          "confidence": 0.43,
+          "strength": 0.3,
+          "status": "flowing",
+          "position": {
+            "cognition": -1,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "胸口堵，喘不过气，肩膀好紧"
+          }
+        }
+      ],
+      "updatedAt": 1781148643459
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -1,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "胸口堵，喘不过气，肩膀好紧"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.3,
+          "confidence": 0.43,
+          "strength": 0.3
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.43,
+          "strength": 0.3
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.19,
+          "confidence": 0.43,
+          "strength": 0.19
+        },
+        {
+          "flowType": "external_blame_to_self_contact",
+          "from": "external_blame",
+          "to": "self_need",
+          "matchScore": 0.17,
+          "confidence": 0.43,
+          "strength": 0.17
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.11,
+          "confidence": 0.43,
+          "strength": 0.11
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "chaos_to_structure",
+        "from": "chaos",
+        "to": "structure",
+        "matchScore": 0.3,
+        "confidence": 0.43,
+        "strength": 0.3
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.43,
+        "strength": 0.3
+      },
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 2
+    }
   }
 }

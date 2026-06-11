@@ -192,14 +192,14 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
             disabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
           }`}>
             <TextInput
-              value={chatPhase !== 'idle' ? '' : inputText}
-              onChangeText={chatPhase !== 'idle' ? undefined : setInputText}
-              placeholder={chatPhase !== 'idle' ? '' : "把此刻最真实的一句话放在这里"}
-              placeholderTextColor={chatPhase !== 'idle' ? 'transparent' : "#9CA3AF"}
+              value={chatPhase === 'idle' || chatPhase === 'done' ? inputText : ''}
+              onChangeText={chatPhase === 'idle' || chatPhase === 'done' ? setInputText : undefined}
+              placeholder={chatPhase === 'idle' || chatPhase === 'done' ? "把此刻最真实的一句话放在这里" : ''}
+              placeholderTextColor={chatPhase === 'idle' || chatPhase === 'done' ? "#9CA3AF" : 'transparent'}
               multiline
               maxLength={1000}
               style={styles.input}
-              editable={chatPhase === 'idle'}
+              editable={chatPhase === 'idle' || chatPhase === 'done'}
             />
           </View>
 
