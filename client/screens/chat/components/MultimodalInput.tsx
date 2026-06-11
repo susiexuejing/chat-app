@@ -42,11 +42,13 @@ interface MultimodalInputProps {
   onSendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => void;
   disabled?: boolean;
   isThinking?: boolean;
-  chatPhase?: string;
 }
 
-export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase }: MultimodalInputProps) {
-  const { inputText, setInputText } = useChat();
+export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThinking }: MultimodalInputProps) {
+  const { inputText, setInputText, chatPhase } = useChat();
+  // 输入框可编辑状态：完全由 chatPhase 控制（从 context 读取，确保实时同步）
+  const isEditable = chatPhase === 'idle' || chatPhase === 'done';
+  const isDisabled = propDisabled || !isEditable;
   const [isRecording, setIsRecording] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [selectedEmotion, setSelectedEmotion] = useState<string | null>(null);
@@ -90,11 +92,10 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
 
   // 处理情绪标签点击
   const handleEmotionSelect = (emotionId: string) => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     if (selectedEmotion === emotionId) {
       setSelectedEmotion(null);
-    } else {
       setSelectedEmotion(emotionId);
       // 自动添加到输入框
       const emotionTag = EMOTION_TAGS.find(e => e.id === emotionId);
@@ -117,7 +118,7 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
 
   // 处理文本发送
   const handleSend = () => {
-    if (disabled) return;
+    if (isDisabled) return;
     
     const text = inputText.trim();
     if (!text) return;
@@ -189,26 +190,26 @@ export function MultimodalInput({ onSendMessage, disabled, isThinking, chatPhase
         <View className="flex-row items-end">
           {/* 输入框 */}
           <View className={`flex-1 rounded-2xl px-4 py-2 mr-2 ${
-            disabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
+            isDisabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
           }`}>
             <TextInput
-              value={chatPhase === 'idle' || chatPhase === 'done' ? inputText : ''}
-              onChangeText={chatPhase === 'idle' || chatPhase === 'done' ? setInputText : undefined}
-              placeholder={chatPhase === 'idle' || chatPhase === 'done' ? "把此刻最真实的一句话放在这里" : ''}
-              placeholderTextColor={chatPhase === 'idle' || chatPhase === 'done' ? "#9CA3AF" : 'transparent'}
+              value={isEditable ? inputText : ''}
+              onChangeText={isEditable ? setInputText : undefined}
+              placeholder={isEditable ? "把此刻最真实的一句话放在这里" : ''}
+              placeholderTextColor={isEditable ? "#9CA3AF" : 'transparent'}
               multiline
               maxLength={1000}
               style={styles.input}
-              editable={chatPhase === 'idle' || chatPhase === 'done'}
+              editable={!isDisabled}
             />
           </View>
 
           {/* 发送按钮 */}
           <TouchableOpacity
             onPress={handleSend}
-            disabled={disabled || !inputText.trim()}
+            disabled={isDisabled || !inputText.trim()}
             className={`w-10 h-10 items-center justify-center rounded-full ${
-              inputText.trim() && !disabled
+              inputText.trim() && !isDisabled
                 ? 'bg-emerald-500'
                 : 'bg-gray-300 dark:bg-gray-700'
             }`}

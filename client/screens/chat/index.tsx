@@ -369,7 +369,6 @@ function ChatContent() {
         onSendMessage={sendMessage}
         disabled={isLoading}
         isThinking={isLoading && messages.some(m => m.role === 'assistant' && m.content.startsWith('【思考中'))}
-        chatPhase={chatPhase}
       />
 
       {/* 角色简介弹窗 */}

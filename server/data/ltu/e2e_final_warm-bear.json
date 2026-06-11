@@ -1,0 +1,32 @@
+{
+  "userId": "e2e_final",
+  "roleId": "warm-bear",
+  "dominantThemes": [
+    "肩膀好紧",
+    "喘不过气"
+  ],
+  "recurringFlowPatterns": [
+    "body_tension"
+  ],
+  "emotionalTriggers": [],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "胸口堵，喘不过气，肩膀好紧"
+  ],
+  "lastUpdated": 1781150507671,
+  "totalInteractions": 1,
+  "roleSpecific": {
+    "roleId": "warm-bear",
+    "data": {
+      "hurtPoints": [],
+      "safetyNeeds": [],
+      "exhaustionSignals": [],
+      "soothingPatterns": [
+        "需要被允许休息"
+      ]
+    }
+  }
+}

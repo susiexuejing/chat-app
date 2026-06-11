@@ -1143,5 +1143,77 @@
     },
     "createdAt": 1781148619780,
     "updatedAt": 1781148671157
+  },
+  "e2e_final::clever-fox": {
+    "userId": "e2e_final",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.54,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781150494003
+    },
+    "createdAt": 1781150471155,
+    "updatedAt": 1781150494003
+  },
+  "e2e_final::warm-bear": {
+    "userId": "e2e_final",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.62,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781150507743
+    },
+    "createdAt": 1781150494013,
+    "updatedAt": 1781150507743
+  },
+  "e2e_final::emotion-elf": {
+    "userId": "e2e_final",
+    "roleId": "emotion-elf",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.34,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781150523991
+    },
+    "createdAt": 1781150507753,
+    "updatedAt": 1781150523991
   }
 }

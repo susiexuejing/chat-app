@@ -1,0 +1,33 @@
+{
+  "userId": "e2e_final",
+  "roleId": "emotion-elf",
+  "dominantThemes": [
+    "我好怕被丢下"
+  ],
+  "recurringFlowPatterns": [
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [
+    "anxiety"
+  ],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "我好怕被丢下"
+  ],
+  "lastUpdated": 1781150523896,
+  "totalInteractions": 1,
+  "roleSpecific": {
+    "roleId": "emotion-elf",
+    "data": {
+      "emotionalPatterns": [
+        "情绪基调:anxiety"
+      ],
+      "bodySignals": [],
+      "blockedFeelings": [],
+      "expressionChannels": []
+    }
+  }
+}

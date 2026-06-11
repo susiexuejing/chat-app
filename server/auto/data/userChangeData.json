@@ -3512,5 +3512,77 @@
       "isTransitioning": false,
       "trajectoryLength": 2
     }
+  },
+  "e2e_final::clever-fox": {
+    "history": {
+      "userId": "e2e_final",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1781150471156
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": -1,
+        "agency": 0,
+        "abstraction": 2,
+        "rawText": "领导没回消息，是不是我做错了什么"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "e2e_final::warm-bear": {
+    "history": {
+      "userId": "e2e_final",
+      "roleId": "warm-bear",
+      "snapshots": [],
+      "updatedAt": 1781150494016
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": -1,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "胸口堵，喘不过气，肩膀好紧"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "e2e_final::emotion-elf": {
+    "history": {
+      "userId": "e2e_final",
+      "roleId": "emotion-elf",
+      "snapshots": [],
+      "updatedAt": 1781150507755
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "我好怕被丢下"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
   }
 }
