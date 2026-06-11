@@ -8,7 +8,7 @@
  * 规则概要：
  * 1. FlowStage 驱动：stuck→holding↑, deepening+强度高→naming↑, loosening→gentlePush↑
  * 2. LTU 历史驱动：self_blame 重复→Fox cognitiveReframe↑, Bear companion↑
- * 3. ChangeBlock 趋势驱动：agency↑→leaveSpace↑/holding↓, selfBlame↓→Fox cognitiveReframe↓
+ * 3. ChangeBlock 趋势驱动：agency↑→leaveSpace↑/holding↓, selfBlame↑→Fox cognitiveReframe↑
  * 4. 人格偏差加权：Fox cognitiveReframe 2x, Bear companion/safetyRebuild 2x, Elf bodyAwareness 2x
  * 5. 低数据量（<3轮）时调整幅度 ≤0.05
  */
@@ -184,8 +184,8 @@ export function adjustWeights(
     if (selfBlameChange > 0.3) {
       deltas.leaveSpace = (deltas.leaveSpace ?? 0) + maxDelta * 0.3;
       if (roleId === 'clever-fox') {
-        deltas.cognitiveReframe = (deltas.cognitiveReframe ?? 0) - maxDelta * 0.3;
-        reasons.push(`selfBlameChange=${selfBlameChange.toFixed(2)} > 0.3 → cognitiveReframe↓`);
+        deltas.cognitiveReframe = (deltas.cognitiveReframe ?? 0) + maxDelta * 0.3;
+        reasons.push(`selfBlameChange=${selfBlameChange.toFixed(2)} > 0.3 → cognitiveReframe↑`);
       }
     }
 
