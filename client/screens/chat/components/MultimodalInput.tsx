@@ -46,9 +46,10 @@ interface MultimodalInputProps {
 
 export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThinking }: MultimodalInputProps) {
   const { inputText, setInputText, chatPhase } = useChat();
-  // 输入框可编辑状态：完全由 chatPhase 控制（从 context 读取，确保实时同步）
-  const isEditable = chatPhase === 'idle' || chatPhase === 'done';
-  const isDisabled = propDisabled || !isEditable;
+  // ── 核心设计：打字永远可打，只控制发送按钮 ──
+  // editable=true 始终开放，用户永远可以输入文字
+  // 唯一不能发送的情况：正在处理中(propDisabled=true) 或 没有输入文字
+  const isSendDisabled = propDisabled || !inputText.trim();
   const [isRecording, setIsRecording] = useState(false);
   const [hasPermission, setHasPermission] = useState(false);
   const [selectedEmotion, setSelectedEmotion] = useState<string | null>(null);
@@ -92,7 +93,7 @@ export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThink
 
   // 处理情绪标签点击
   const handleEmotionSelect = (emotionId: string) => {
-    if (isDisabled) return;
+    if (propDisabled) return;
     
     if (selectedEmotion === emotionId) {
       setSelectedEmotion(null);
@@ -118,7 +119,7 @@ export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThink
 
   // 处理文本发送
   const handleSend = () => {
-    if (isDisabled) return;
+    if (isSendDisabled) return;
     
     const text = inputText.trim();
     if (!text) return;
@@ -190,26 +191,26 @@ export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThink
         <View className="flex-row items-end">
           {/* 输入框 */}
           <View className={`flex-1 rounded-2xl px-4 py-2 mr-2 ${
-            isDisabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
+            propDisabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
           }`}>
             <TextInput
-              value={isEditable ? inputText : ''}
-              onChangeText={isEditable ? setInputText : undefined}
-              placeholder={isEditable ? "把此刻最真实的一句话放在这里" : ''}
-              placeholderTextColor={isEditable ? "#9CA3AF" : 'transparent'}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder={chatPhase === 'responding' ? '' : "把此刻最真实的一句话放在这里"}
+              placeholderTextColor="#9CA3AF"
               multiline
               maxLength={1000}
               style={styles.input}
-              editable={!isDisabled}
+              editable={true}
             />
           </View>
 
           {/* 发送按钮 */}
           <TouchableOpacity
             onPress={handleSend}
-            disabled={isDisabled || !inputText.trim()}
+            disabled={isSendDisabled}
             className={`w-10 h-10 items-center justify-center rounded-full ${
-              inputText.trim() && !isDisabled
+              !isSendDisabled
                 ? 'bg-emerald-500'
                 : 'bg-gray-300 dark:bg-gray-700'
             }`}
