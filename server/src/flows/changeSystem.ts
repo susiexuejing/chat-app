@@ -403,3 +403,16 @@ export function getChangeHistory(userId: string, roleId: string): ChangeHistory 
   const { history } = getOrCreateChangeHistory(userId, roleId);
   return history.snapshots.length > 0 ? history : null;
 }
+
+/**
+ * 获取变化趋势数据（用于人格演化实验）
+ */
+export function getChangeTrends(userId: string, roleId: string): { selfBlameChange: number; agencyChange: number; reflectionChange: number } | null {
+  const { history } = getOrCreateChangeHistory(userId, roleId);
+  if (!history.trendAnalysis) return null;
+  return {
+    selfBlameChange: history.trendAnalysis.selfBlameChange,
+    agencyChange: history.trendAnalysis.agencyChange,
+    reflectionChange: history.trendAnalysis.reflectionChange,
+  };
+}

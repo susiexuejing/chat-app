@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
+import * as path from 'path';
+import * as fs from 'fs';
 import { recognizeEmotion, recognizeEvent } from './flows/recognizer';
 import type { EmotionTag, EventTag } from './flows/frontFlows';
 import { detectUserState, extractKeywords } from './flows/stateDetector';
@@ -13,9 +15,12 @@ import {
   generateReactionTimeline,
   generateCompanionTimeline,
 } from './flows/localReactionEngine';
-import { analyzeFlow, recordChange, getChangeBlock } from './flows/index';
+import { analyzeFlow, recordChange, getChangeBlock, getChangeTrends } from './flows/index';
 import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
 import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
+import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
+import * as path from 'path';
+import * as fs from 'fs';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -1175,6 +1180,56 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     } catch (ltuErr) {
       console.error(`[Deep] LTU update error:`, ltuErr instanceof Error ? ltuErr.message : ltuErr);
     }
+
+    // ── [Dev-Only] Step 4: Personality Evolution 实验 ──
+    if (process.env.NODE_ENV === 'development') {
+      try {
+        const trendData = getChangeTrends(session.userId, session.roleId);
+
+        // 从 evolution 日志加载当前权重
+        const evolutionDir = path.join(process.cwd(), 'data', 'evolution');
+        const logPath = path.join(evolutionDir, `${session.userId}_${session.roleId}.jsonl`);
+        let currentWeights: ResponseWeights | null = null;
+        if (fs.existsSync(logPath)) {
+          const lines = fs.readFileSync(logPath, 'utf-8').trim().split('\n').filter(Boolean);
+          if (lines.length > 0) {
+            const last = JSON.parse(lines[lines.length - 1]);
+            currentWeights = last.weights;
+          }
+        }
+
+        const result = adjustWeights(
+          session.userId,
+          session.roleId,
+          session.flowContext ?? null,
+          {
+            totalInteractions: ltuProfile?.totalInteractions ?? 0,
+            recurringFlowPatterns: ltuProfile?.recurringFlowPatterns ?? [],
+            emotionalTriggers: ltuProfile?.emotionalTriggers ?? [],
+            roleSpecific: ltuProfile?.roleSpecific ?? null,
+          },
+          trendData,
+          currentWeights,
+        );
+
+        // 记录 JSONL 快照
+        logWeightChange(session.userId, session.roleId, {
+          timestamp: result.weights.updatedAt,
+          weights: result.weights,
+          trigger: result.trigger,
+          flowContext: session.flowContext ? {
+            flowType: session.flowContext.flowType ?? 'unknown',
+            flowStage: session.flowContext.flowStage ?? 'unknown',
+            flowStrength: session.flowContext.flowStrength ?? 0,
+            flowConfidence: session.flowContext.flowConfidence ?? 0,
+          } : null,
+          trendData,
+        });
+
+        console.log(`[Evolution] ${session.roleId}[${session.userId}] weights updated: ${result.trigger.factor} (${result.trigger.detail.slice(0, 80)})`);
+      } catch (e) { /* evolution experiment */ }
+    }
+
   } catch (error) {
     const errTime = Date.now() - streamStartTime;
     console.error(`[Deep] Error in startDeepAnalysis (at ${errTime}ms):`, error instanceof Error ? error.message : error);

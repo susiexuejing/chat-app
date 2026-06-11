@@ -193,5 +193,5 @@ export function formatFlowResult(result: FlowResult): string {
 // Phase 5 — Change System 导出
 // ═══════════════════════════════════════════════════════════════
 
-export { recordChange, getChangeBlock, resetAllChangeHistory } from './changeSystem';
+export { recordChange, getChangeBlock, getChangeTrends, resetAllChangeHistory } from './changeSystem';
 export type { ChangeSnapshot, ChangeHistory } from './flowTypes';
