@@ -15,6 +15,7 @@ import {
 } from './flows/localReactionEngine';
 import { analyzeFlow, recordChange, getChangeBlock } from './flows/index';
 import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
+import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -118,7 +119,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -162,6 +163,7 @@ ${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 
 用户当前心理状态（结构化分析，供参考）：
 ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
+${longTermSummary ? `\n${longTermSummary}\n` : ''}
 ${flowBlock}
 ${changeBlock || ''}
 请严格遵守：
@@ -1015,7 +1017,10 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
 
   try {
     const changeBlock = getChangeBlock(session.userId, session.roleId);
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext);
+    // Load long-term understanding for this user+role
+    const ltuProfile = await loadProfile(session.userId, session.roleId);
+    const longTermSummary = generateLTUSummary(ltuProfile);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1153,6 +1158,23 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     console.log(`[Deep] Stream complete for session ${session.sessionId} ` +
       `(total: ${completionDuration}ms, firstToken: ${firstTokenDelay}ms, ` +
       `chunks: ${session.deepChunks.length}ch, content: ${(session.deepChunks.join('').length)}ch, fallback: ${wasFallback})`);
+
+    // ── Step 3: 更新 Long-Term Understanding ──
+    try {
+      const deepOutput = session.deepChunks.join('');
+      updateProfile(session.userId, session.roleId, {
+        userInput: session.userMessage,
+        state: session.state,
+        keywords: session.keywords,
+        emotionTag: session.emotionTag,
+        eventTag: session.eventTag,
+        flowType: session.flowContext?.flowType,
+        flowStage: session.flowContext?.flowStage,
+        deepSummary: cleaned,
+      });
+    } catch (ltuErr) {
+      console.error(`[Deep] LTU update error:`, ltuErr instanceof Error ? ltuErr.message : ltuErr);
+    }
   } catch (error) {
     const errTime = Date.now() - streamStartTime;
     console.error(`[Deep] Error in startDeepAnalysis (at ${errTime}ms):`, error instanceof Error ? error.message : error);
