@@ -15,10 +15,12 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import {
+import type {
   ResponseWeights,
   WeightSnapshot,
   EvolutionFactor,
+} from './evolutionTypes';
+import {
   DEFAULT_WEIGHTS,
   ROLE_SPECIFIC_DIMENSIONS,
   MAX_DELTA_PER_ROUND,

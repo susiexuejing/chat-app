@@ -1,0 +1,33 @@
+{
+  "userId": "dev_test",
+  "roleId": "clever-fox",
+  "dominantThemes": [
+    "领导没回消息",
+    "是不是我做错了什么",
+    "也没什么",
+    "就是随便聊聊"
+  ],
+  "recurringFlowPatterns": [
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "领导没回消息，是不是我做错了什么",
+    "也没什么，就是随便聊聊"
+  ],
+  "lastUpdated": 1781147618040,
+  "totalInteractions": 2,
+  "roleSpecific": {
+    "roleId": "clever-fox",
+    "data": {
+      "cognitivePatterns": [],
+      "recurringDistortions": [],
+      "actionBlockers": [],
+      "effectiveReframes": []
+    }
+  }
+}

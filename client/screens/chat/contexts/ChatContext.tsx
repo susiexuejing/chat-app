@@ -8,7 +8,7 @@ import React, {
   useMemo,
 } from 'react';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
-import { chatStart, chatStream } from '../api/cozeApi';
+import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
 
 
 interface ChatMessage {
@@ -41,6 +41,7 @@ interface ChatContextValue {
   inputText: string;
   showRoleIntro: boolean;
   roles: typeof roles;
+  flowContext: FlowContext | null;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
@@ -72,6 +73,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [chatPhase, setChatPhase] = useState<'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done'>('idle');
   const [inputText, setInputText] = useState('');
   const [showRoleIntro, setShowRoleIntro] = useState(true);
+  const [flowContext, setFlowContext] = useState<FlowContext | null>(null);
 
 
 
@@ -138,7 +140,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           userMessage
         );
 
-        const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline } = sessionInfo;
+        const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
+        setFlowContext(fc);
 
         // ====== 第二阶段：EmotionFlow V3 动态缓冲引擎 ======
         // Reaction（8s→18s→30s）→ Companion（动态填充，Deep就绪时立即切断接管）
@@ -450,6 +453,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         thinkingContent,
         deepThinkingContent,
         chatPhase,
+        flowContext,
         error,
         showHistory,
         lightAnalysis,

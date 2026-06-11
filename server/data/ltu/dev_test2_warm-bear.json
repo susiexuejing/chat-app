@@ -1,0 +1,33 @@
+{
+  "userId": "dev_test2",
+  "roleId": "warm-bear",
+  "dominantThemes": [
+    "我好怕被丢下"
+  ],
+  "recurringFlowPatterns": [
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [
+    "anxiety"
+  ],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "我好怕被丢下"
+  ],
+  "lastUpdated": 1781147667037,
+  "totalInteractions": 1,
+  "roleSpecific": {
+    "roleId": "warm-bear",
+    "data": {
+      "hurtPoints": [],
+      "safetyNeeds": [],
+      "exhaustionSignals": [],
+      "soothingPatterns": [
+        "需要被允许休息"
+      ]
+    }
+  }
+}

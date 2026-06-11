@@ -7,6 +7,11 @@ interface ChangeSystemData {
   deeperFeeling?: string;
   shift?: string;
   recoveryClue?: string;
+  /** 原始字段，调试用 */
+  flowType?: string | null;
+  flowStage?: string | null;
+  flowStrength?: number | null;
+  flowConfidence?: number | null;
 }
 
 interface ChangeSystemCardProps {
@@ -14,21 +19,20 @@ interface ChangeSystemCardProps {
 }
 
 export function ChangeSystemCard({ data }: ChangeSystemCardProps) {
-  // 无数据或无字段 → 显示兜底初始态
-  const hasData = data && Object.values(data).some((v) => v && v.trim());
+  // 无数据或置信度 < 0.4 → 显示"还在理解中"
+  const lowConfidence = data?.flowConfidence !== null && data?.flowConfidence !== undefined && data.flowConfidence < 0.4;
+  const isEmpty = !data || !data.currentState || data.currentState === '还在理解中';
 
-  const fields = hasData
+  const fields = isEmpty || lowConfidence
     ? [
-        { label: '当前状态', value: data?.currentState },
-        { label: '主要来源', value: data?.source },
-        { label: '深层感受', value: data?.deeperFeeling },
-        { label: '变化方向', value: data?.shift },
-        { label: '恢复线索', value: data?.recoveryClue },
-      ].filter((f) => f.value && f.value.trim())
+        { label: '当前状态', value: '还在理解中' },
+        { label: '变化方向', value: '尚不明确' },
+      ]
     : [
-        { label: '当前状态', value: '理解中' },
-        { label: '变化方向', value: '还在浮现' },
-      ];
+        { label: '当前状态', value: data?.currentState },
+        { label: '变化方向', value: data?.shift },
+        { label: '置信度', value: data?.source || '--' },
+      ].filter((f) => f.value && f.value.trim());
 
   return (
     <View className="mx-4 mb-3 bg-white dark:bg-gray-800 rounded-2xl px-4 py-3"

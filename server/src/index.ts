@@ -19,8 +19,6 @@ import { analyzeFlow, recordChange, getChangeBlock, getChangeTrends } from './fl
 import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
 import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
-import * as path from 'path';
-import * as fs from 'fs';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');

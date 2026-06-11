@@ -232,11 +232,20 @@ export interface FrontFlowItem {
   text: string;
 }
 
+export interface FlowContext {
+  flowType: string | null;
+  flowStage: string | null;
+  flowStrength: number | null;
+  flowConfidence: number | null;
+  flowRisk: string | null;
+}
+
 export interface ChatStartResponse {
   sessionId: string;
   emotionTag: string;
   eventKeyword: string;
   frontFlowText: string;
+  flowContext: FlowContext;
   reactionLayer?: string;    // EmotionFlow V3 人格反应层（单句版，向后兼容）
   companionLayer?: string;   // EmotionFlow V3 人格陪伴层（单句版，向后兼容）
   deepReadyAt?: number;      // Deep层就绪时间戳
