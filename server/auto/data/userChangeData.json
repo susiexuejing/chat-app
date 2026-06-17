@@ -3688,5 +3688,515 @@
       "isTransitioning": false,
       "trajectoryLength": 2
     }
+  },
+  "ten_round_test::clever-fox": {
+    "history": {
+      "userId": "ten_round_test",
+      "roleId": "clever-fox",
+      "snapshots": [
+        {
+          "timestamp": 1781657635743,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 1,
+            "agencyDelta": -0.71,
+            "abstractionDelta": -2
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "chaos_to_structure",
+            "directionChange": "首次"
+          },
+          "confidence": 0.43,
+          "strength": 0.3,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": -0.71,
+            "abstraction": 0,
+            "rawText": "我试了很多办法，都没用，算了"
+          }
+        },
+        {
+          "timestamp": 1781657720059,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0.71,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "chaos_to_structure",
+            "flowTypeCurrent": "control_to_helplessness",
+            "directionChange": "转移"
+          },
+          "confidence": 0.44,
+          "strength": 0.16,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "好累，真的撑不住了"
+          }
+        },
+        {
+          "timestamp": 1781657798964,
+          "positionDelta": {
+            "cognitionDelta": 0,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "control_to_helplessness",
+            "flowTypeCurrent": "chaos_to_structure",
+            "directionChange": "转移"
+          },
+          "confidence": 0.43,
+          "strength": 0.15,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "我刚才发了好大的脾气，现在很后悔"
+          }
+        }
+      ],
+      "updatedAt": 1781657798964,
+      "trendAnalysis": {
+        "attributionTrend": 0.333,
+        "agencyTrend": 0,
+        "abstractionTrend": -0.667,
+        "cognitionTrend": 0,
+        "flowDepthTrend": -2,
+        "selfBlameChange": 0,
+        "agencyChange": 0.71,
+        "reflectionChange": 0.5
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "我刚才发了好大的脾气，现在很后悔"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.3,
+          "confidence": 0.43,
+          "strength": 0.15
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.3,
+          "confidence": 0.43,
+          "strength": 0.15
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.2,
+          "confidence": 0.43,
+          "strength": 0.1
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.15,
+          "confidence": 0.43,
+          "strength": 0.08
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "chaos_to_structure",
+        "from": "chaos",
+        "to": "structure",
+        "matchScore": 0.3,
+        "confidence": 0.43,
+        "strength": 0.15
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.3,
+        "confidence": 0.43,
+        "strength": 0.15
+      },
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 4
+    }
+  },
+  "ten_round_test::warm-bear": {
+    "history": {
+      "userId": "ten_round_test",
+      "roleId": "warm-bear",
+      "snapshots": [
+        {
+          "timestamp": 1781657665691,
+          "positionDelta": {
+            "cognitionDelta": 2,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 3
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "surface_event_to_deep_pattern",
+            "directionChange": "首次"
+          },
+          "confidence": 0.6,
+          "strength": 0.37,
+          "status": "flowing",
+          "position": {
+            "cognition": 1,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 3,
+            "rawText": "为什么每次都是我背锅"
+          }
+        },
+        {
+          "timestamp": 1781657750094,
+          "positionDelta": {
+            "cognitionDelta": -1,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": -3
+          },
+          "patternDelta": {
+            "flowTypePrevious": "surface_event_to_deep_pattern",
+            "flowTypeCurrent": "surface_event_to_deep_pattern",
+            "directionChange": "保持"
+          },
+          "confidence": 0.52,
+          "strength": 0.17,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "也没什么，就是随便聊聊"
+          }
+        }
+      ],
+      "updatedAt": 1781657750094,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": 0,
+        "cognitionTrend": 0.5,
+        "flowDepthTrend": 0,
+        "selfBlameChange": 0,
+        "agencyChange": 0,
+        "reflectionChange": -3
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "也没什么，就是随便聊聊"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "surface_event_to_deep_pattern",
+          "from": "surface_event",
+          "to": "deep_pattern",
+          "matchScore": 0.33,
+          "confidence": 0.52,
+          "strength": 0.17
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.2,
+          "confidence": 0.52,
+          "strength": 0.1
+        },
+        {
+          "flowType": "self_blame",
+          "from": "external_event",
+          "to": "self_worth",
+          "matchScore": 0.15,
+          "confidence": 0.52,
+          "strength": 0.08
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.15,
+          "confidence": 0.52,
+          "strength": 0.08
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "surface_event_to_deep_pattern",
+        "from": "surface_event",
+        "to": "deep_pattern",
+        "matchScore": 0.33,
+        "confidence": 0.52,
+        "strength": 0.17
+      },
+      "secondaryFlow": {
+        "flowType": "avoidance_to_action",
+        "from": "avoidance",
+        "to": "micro_action",
+        "matchScore": 0.2,
+        "confidence": 0.52,
+        "strength": 0.1
+      },
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 3
+    }
+  },
+  "ten_round_test::emotion-elf": {
+    "history": {
+      "userId": "ten_round_test",
+      "roleId": "emotion-elf",
+      "snapshots": [
+        {
+          "timestamp": 1781657692031,
+          "positionDelta": {
+            "cognitionDelta": -1,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 0
+          },
+          "patternDelta": {
+            "flowTypePrevious": null,
+            "flowTypeCurrent": "external_blame_to_self_contact",
+            "directionChange": "首次"
+          },
+          "confidence": 0.48,
+          "strength": 0.32,
+          "status": "flowing",
+          "position": {
+            "cognition": -1,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 0,
+            "rawText": "想哭但是哭不出来"
+          }
+        },
+        {
+          "timestamp": 1781657771223,
+          "positionDelta": {
+            "cognitionDelta": 1,
+            "attributionDelta": 0,
+            "agencyDelta": 0,
+            "abstractionDelta": 1
+          },
+          "patternDelta": {
+            "flowTypePrevious": "external_blame_to_self_contact",
+            "flowTypeCurrent": "anger_to_hurt",
+            "directionChange": "转移"
+          },
+          "confidence": 0.5,
+          "strength": 0.22,
+          "status": "flowing",
+          "position": {
+            "cognition": 0,
+            "attribution": 0,
+            "agency": 0,
+            "abstraction": 1,
+            "rawText": "心慌，手抖得厉害"
+          }
+        }
+      ],
+      "updatedAt": 1781657771223,
+      "trendAnalysis": {
+        "attributionTrend": 0,
+        "agencyTrend": 0,
+        "abstractionTrend": 0.5,
+        "cognitionTrend": 0,
+        "flowDepthTrend": 1,
+        "selfBlameChange": 0,
+        "agencyChange": 0,
+        "reflectionChange": 1
+      }
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 1,
+        "rawText": "心慌，手抖得厉害"
+      },
+      "status": "flowing",
+      "matches": [
+        {
+          "flowType": "anger_to_hurt",
+          "from": "anger",
+          "to": "hurt",
+          "matchScore": 0.3,
+          "confidence": 0.5,
+          "strength": 0.22
+        },
+        {
+          "flowType": "analysis_to_feeling",
+          "from": "intellectual_analysis",
+          "to": "embodied_feeling",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.15
+        },
+        {
+          "flowType": "chaos_to_structure",
+          "from": "chaos",
+          "to": "structure",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.15
+        },
+        {
+          "flowType": "avoidance_to_action",
+          "from": "avoidance",
+          "to": "micro_action",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.15
+        },
+        {
+          "flowType": "surface_event_to_deep_pattern",
+          "from": "surface_event",
+          "to": "deep_pattern",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.15
+        },
+        {
+          "flowType": "emptiness_to_meaning",
+          "from": "emptiness",
+          "to": "meaning_exploration",
+          "matchScore": 0.2,
+          "confidence": 0.5,
+          "strength": 0.15
+        },
+        {
+          "flowType": "attachment_anxiety",
+          "from": "relationship_uncertainty",
+          "to": "abandonment_fear",
+          "matchScore": 0.1,
+          "confidence": 0.5,
+          "strength": 0.08
+        }
+      ],
+      "primaryFlow": {
+        "flowType": "anger_to_hurt",
+        "from": "anger",
+        "to": "hurt",
+        "matchScore": 0.3,
+        "confidence": 0.5,
+        "strength": 0.22
+      },
+      "secondaryFlow": {
+        "flowType": "analysis_to_feeling",
+        "from": "intellectual_analysis",
+        "to": "embodied_feeling",
+        "matchScore": 0.2,
+        "confidence": 0.5,
+        "strength": 0.15
+      },
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 3
+    }
+  },
+  "ten_round_test_continued::warm-bear": {
+    "history": {
+      "userId": "ten_round_test_continued",
+      "roleId": "warm-bear",
+      "snapshots": [],
+      "updatedAt": 1781657764897
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "也没什么，就是随便聊聊"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "ten_round_test_continued::emotion-elf": {
+    "history": {
+      "userId": "ten_round_test_continued",
+      "roleId": "emotion-elf",
+      "snapshots": [],
+      "updatedAt": 1781657786037
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 1,
+        "rawText": "心慌，手抖得厉害"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
+  },
+  "ten_round_test_continued::clever-fox": {
+    "history": {
+      "userId": "ten_round_test_continued",
+      "roleId": "clever-fox",
+      "snapshots": [],
+      "updatedAt": 1781657811098
+    },
+    "lastFlowResult": {
+      "position": {
+        "cognition": 0,
+        "attribution": 0,
+        "agency": 0,
+        "abstraction": 0,
+        "rawText": "我刚才发了好大的脾气，现在很后悔"
+      },
+      "status": "flowing",
+      "matches": [],
+      "primaryFlow": null,
+      "secondaryFlow": null,
+      "isMixed": false,
+      "isTransitioning": false,
+      "trajectoryLength": 1
+    }
   }
 }

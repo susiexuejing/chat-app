@@ -1,0 +1,47 @@
+{
+  "userId": "ten_round_test",
+  "roleId": "clever-fox",
+  "dominantThemes": [
+    "现在很后悔",
+    "我刚才发了好大的脾气",
+    "好累",
+    "真的撑不住了",
+    "都没用",
+    "我试了很多办法",
+    "领导没回消息",
+    "是不是我做错了什么"
+  ],
+  "recurringFlowPatterns": [
+    "self_blame",
+    "sadness_isolation",
+    "control_to_helplessness",
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [
+    "guilt"
+  ],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "我刚才发了好大的脾气，现在很后悔",
+    "好累，真的撑不住了",
+    "我试了很多办法，都没用，算了"
+  ],
+  "lastUpdated": 1781657819445,
+  "totalInteractions": 4,
+  "roleSpecific": {
+    "roleId": "clever-fox",
+    "data": {
+      "cognitivePatterns": [
+        "自我否定倾向"
+      ],
+      "recurringDistortions": [],
+      "actionBlockers": [],
+      "effectiveReframes": [
+        "事实vs解释区分"
+      ]
+    }
+  }
+}

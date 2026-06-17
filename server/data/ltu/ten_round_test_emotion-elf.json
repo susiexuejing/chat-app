@@ -1,0 +1,43 @@
+{
+  "userId": "ten_round_test",
+  "roleId": "emotion-elf",
+  "dominantThemes": [
+    "心慌",
+    "手抖得厉害",
+    "想哭但是哭不出来",
+    "我好怕被丢下"
+  ],
+  "recurringFlowPatterns": [
+    "sadness_isolation",
+    "attachment_anxiety"
+  ],
+  "emotionalTriggers": [
+    "sadness",
+    "anxiety"
+  ],
+  "preferredResponseStyle": {
+    "likes": [],
+    "dislikes": []
+  },
+  "recentInputs": [
+    "心慌，手抖得厉害",
+    "想哭但是哭不出来",
+    "我好怕被丢下"
+  ],
+  "lastUpdated": 1781657797947,
+  "totalInteractions": 3,
+  "roleSpecific": {
+    "roleId": "emotion-elf",
+    "data": {
+      "emotionalPatterns": [
+        "情绪基调:sadness",
+        "情绪基调:anxiety"
+      ],
+      "bodySignals": [],
+      "blockedFeelings": [],
+      "expressionChannels": [
+        "感受表达倾向"
+      ]
+    }
+  }
+}

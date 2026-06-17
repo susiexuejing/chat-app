@@ -1239,5 +1239,167 @@
     },
     "createdAt": 1781174628095,
     "updatedAt": 1781174681356
+  },
+  "ten_round_test::clever-fox": {
+    "userId": "ten_round_test",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.302,
+      "emotionalSupport": 0.524,
+      "actionGuidance": 0.251,
+      "reflectiveSpace": 0.369,
+      "totalInteractions": 11,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657819487
+    },
+    "createdAt": 1781657571484,
+    "updatedAt": 1781657819487
+  },
+  "ten_round_test::warm-bear": {
+    "userId": "ten_round_test",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.354,
+      "emotionalSupport": 0.407,
+      "actionGuidance": 0.254,
+      "reflectiveSpace": 0.506,
+      "totalInteractions": 7,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657770219
+    },
+    "createdAt": 1781657598770,
+    "updatedAt": 1781657770219
+  },
+  "ten_round_test::emotion-elf": {
+    "userId": "ten_round_test",
+    "roleId": "emotion-elf",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.212,
+      "emotionalSupport": 0.783,
+      "actionGuidance": 0.253,
+      "reflectiveSpace": 0.353,
+      "totalInteractions": 8,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657797960
+    },
+    "createdAt": 1781657619317,
+    "updatedAt": 1781657797960
+  },
+  "ten_round_test_continued::warm-bear": {
+    "userId": "ten_round_test_continued",
+    "roleId": "warm-bear",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657785533
+    },
+    "createdAt": 1781657764895,
+    "updatedAt": 1781657785533
+  },
+  "ten_round_test_continued::emotion-elf": {
+    "userId": "ten_round_test_continued",
+    "roleId": "emotion-elf",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.34,
+      "emotionalSupport": 0.62,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657810594
+    },
+    "createdAt": 1781657786036,
+    "updatedAt": 1781657810594
+  },
+  "ten_round_test_continued::clever-fox": {
+    "userId": "ten_round_test_continued",
+    "roleId": "clever-fox",
+    "attentionBias": "default",
+    "valueBias": "default",
+    "influenceLog": [],
+    "longTermChangeLog": [],
+    "subconscious": {
+      "analyticalDepth": 0.385,
+      "emotionalSupport": 0.455,
+      "actionGuidance": 0.285,
+      "reflectiveSpace": 0.385,
+      "totalInteractions": 1,
+      "dominantEmotions": [
+        "堵",
+        "哭",
+        "累",
+        "慌"
+      ],
+      "recentTopics": [
+        "工作"
+      ],
+      "lastUpdated": 1781657840056
+    },
+    "createdAt": 1781657811096,
+    "updatedAt": 1781657840056
   }
 }
