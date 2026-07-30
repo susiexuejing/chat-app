@@ -11,3 +11,15 @@ logs/
 *.tsbuildinfo
 node-compile-cache/
 .cozeproj/reduction
+
+# Environment files - never commit secrets
+.env
+.env.local
+.env.*.local
+*.env
+!*.env.example
+
+# Deployment files with potential secrets
+deployment/server-env.tar.gz
+deployment/startup.sh
+deployment/*.tar.gz
