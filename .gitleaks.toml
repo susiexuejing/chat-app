@@ -1,0 +1,33 @@
+title = "EmotionFlow Gitleaks Config"
+
+[allowlist]
+  description = "Global allowlist"
+  paths = [
+    '''node_modules''',
+    '''\.git''',
+    '''\.env\.example$''',
+    '''\.gitleaks\.toml''',
+  ]
+
+[[rules]]
+  id = "dashscope-api-key"
+  description = "DashScope API Key"
+  regex = '''sk-[a-zA-Z0-9]{20,}'''
+  tags = ["dashscope", "api-key", "secret"]
+
+[[rules]]
+  id = "generic-api-key"
+  description = "Generic API Key"
+  regex = '''(?i)(api[_-]?key|apikey)\s*[:=]\s*['"]?[a-zA-Z0-9]{20,}['"]?'''
+  tags = ["api-key", "secret"]
+
+[[rules]]
+  id = "generic-secret"
+  description = "Generic Secret"
+  regex = '''(?i)(secret|password|token)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
+  tags = ["secret", "password"]
+  [rules.allowlist]
+    paths = [
+      '''\.env\.example$''',
+      '''README\.md$''',
+    ]
