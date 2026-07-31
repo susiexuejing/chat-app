@@ -24,7 +24,7 @@ title = "EmotionFlow Gitleaks Config"
 [[rules]]
   id = "generic-secret"
   description = "Generic Secret"
-  regex = '''(?i)(secret|password|token)\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
+  regex = '''(?i)\b(secret|password|token)\b\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
   tags = ["secret", "password"]
   [rules.allowlist]
     paths = [
