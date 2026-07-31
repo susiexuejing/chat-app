@@ -21,5 +21,4 @@ node-compile-cache/
 
 # Deployment files with potential secrets
 deployment/server-env.tar.gz
-deployment/startup.sh
 deployment/*.tar.gz
