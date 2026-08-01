@@ -153,14 +153,14 @@ function ChatContent() {
     // 设置默认陪伴者（聪明狐狸）
     const defaultRole = DEFAULT_ROLES.find(r => r.id === 'clever-fox') || DEFAULT_ROLES[0];
     setCurrentRole(defaultRole);
-    // EM-43: createNewChat 返回新的 conversationId，确保首条消息使用新 ID
-    const newConversationId = createNewChat(defaultRole);
+    // EM-43: createNewChat 同步更新 conversationIdRef，sendMessage 会自动使用新 ID
+    createNewChat(defaultRole);
 
     // 切换到聊天视图
     setShowHome(false);
 
-    // 发送用户消息，传递新的 conversationId
-    await sendMessage(text, newConversationId);
+    // 发送用户消息（conversationId 已从 ref 中同步读取）
+    await sendMessage(text);
   }, [homeInput, setCurrentRole, createNewChat, sendMessage]);
 
   // 状态入口按钮点击

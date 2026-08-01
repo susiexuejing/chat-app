@@ -1,40 +1,29 @@
 /**
  * EM-46: Debug Mode URL Parameter Check
- * 
- * This module provides a function to check if debug mode should be enabled
- * based on the URL query parameter.
- * 
- * Rules:
- * - Only Web environment
- * - Only ?debug=true (exact match) enables debug mode
- * - ?debug=false, ?debug=1, ?debug=yes, ?debug=True, ?debug=TRUE all return false
- * - Non-Web environment returns false without error
+ *
+ * Pure function for testability + production wrapper for safe environment access.
  */
 
 import { Platform } from 'react-native';
 
 /**
- * Check if debug mode should be enabled based on URL query parameter.
- * 
- * @returns true only if:
- * - Platform is Web
- * - window is defined
- * - URL contains ?debug=true (exact match, case-sensitive)
+ * Pure function: check if debug mode is enabled given platform and URL search string.
+ * Only exact match `debug=true` (case-sensitive) returns true.
  */
-export function isDebugModeEnabled(): boolean {
-  // Only check on Web environment
-  if (Platform.OS !== 'web') {
+export function checkDebugParam(platform: string, search: string): boolean {
+  if (platform !== 'web') {
     return false;
   }
-  
-  // Check if window is defined
+  const params = new URLSearchParams(search);
+  return params.get('debug') === 'true';
+}
+
+/**
+ * Production wrapper: safely reads Platform.OS and window.location.search.
+ */
+export function isDebugModeEnabled(): boolean {
   if (typeof window === 'undefined') {
     return false;
   }
-  
-  // Get URL search params
-  const params = new URLSearchParams(window.location.search);
-  
-  // Only exact match 'true' enables debug mode
-  return params.get('debug') === 'true';
+  return checkDebugParam(Platform.OS, window.location.search);
 }

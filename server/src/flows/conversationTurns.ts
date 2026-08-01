@@ -1,6 +1,6 @@
 /**
  * EM-43: 会话轮数计算模块
- * 
+ *
  * 负责维护每个 conversationId 的用户消息轮数计数。
  * 用于控制前两轮高优先级规则的注入。
  */
@@ -27,11 +27,11 @@ const CLEANUP_INTERVAL_MS = 60 * 1000;
  */
 export function getConversationTurn(conversationId: string): number {
   const data = conversationTurns.get(conversationId);
-  
+
   if (!data) {
     return 0;
   }
-  
+
   // 检查是否已过期
   const now = Date.now();
   if (now - data.lastAccessed > CONVERSATION_TTL_MS) {
@@ -39,7 +39,7 @@ export function getConversationTurn(conversationId: string): number {
     conversationTurns.delete(conversationId);
     return 0;
   }
-  
+
   return data.turnCount;
 }
 
@@ -51,7 +51,7 @@ export function getConversationTurn(conversationId: string): number {
 export function incrementConversationTurn(conversationId: string): number {
   const now = Date.now();
   const data = conversationTurns.get(conversationId);
-  
+
   if (!data) {
     // 新会话，从 1 开始
     conversationTurns.set(conversationId, {
@@ -60,7 +60,7 @@ export function incrementConversationTurn(conversationId: string): number {
     });
     return 1;
   }
-  
+
   // 检查是否已过期
   if (now - data.lastAccessed > CONVERSATION_TTL_MS) {
     // 已过期，重置为 1
@@ -70,7 +70,7 @@ export function incrementConversationTurn(conversationId: string): number {
     });
     return 1;
   }
-  
+
   // 递增轮数
   data.turnCount += 1;
   data.lastAccessed = now;
@@ -84,14 +84,14 @@ export function incrementConversationTurn(conversationId: string): number {
 export function cleanupExpiredConversations(): number {
   const now = Date.now();
   let cleanedCount = 0;
-  
+
   for (const [conversationId, data] of conversationTurns.entries()) {
     if (now - data.lastAccessed > CONVERSATION_TTL_MS) {
       conversationTurns.delete(conversationId);
       cleanedCount++;
     }
   }
-  
+
   return cleanedCount;
 }
 

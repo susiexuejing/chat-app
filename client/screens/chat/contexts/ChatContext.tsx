@@ -45,12 +45,12 @@ interface ChatContextValue {
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => Promise<void>;
   clearError: () => void;
   setShowHistory: (show: boolean) => void;
   selectSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => Promise<void>;
-  createNewChat: (role?: PsychologistRole) => void;
+  createNewChat: (role?: PsychologistRole) => string;
   currentSession: ChatSession | undefined;
   loadSession: (sessionId: string) => void;
   deepThinkingContent: string;
@@ -74,8 +74,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [inputText, setInputText] = useState('');
   const [showRoleIntro, setShowRoleIntro] = useState(true);
   const [flowContext, setFlowContext] = useState<FlowContext | null>(null);
+  const [conversationId, setConversationId] = useState<string>('');
+  const conversationIdRef = useRef<string>('');
 
-
+  // EM-43: 跨平台安全的 conversationId 生成
+  const generateConversationId = useCallback((): string => {
+    return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }, []);
 
   // 保存会话
   /* sessions persistence skipped */
@@ -90,9 +95,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setThinkingContent('');
     setLightAnalysis('');
     setConversationId(newConversationId);
+    conversationIdRef.current = newConversationId;
     if (role) setCurrentRole(role);
     return newConversationId;
-  }, []);
+  }, [generateConversationId]);
 
   const selectSession = useCallback(
     (sessionId: string) => {
@@ -120,7 +126,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    async (userMessage: string, explicitConversationId?: string) => {
+    async (userMessage: string, _options?: { audioUri?: string; emotion?: string }) => {
       if (!userMessage.trim() || !currentRole) return;
 
       const userMsg: ChatMessage = {
@@ -138,8 +144,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
-        // 使用显式传递的 conversationId，或当前 state 中的 conversationId
-        const conversationIdToUse = explicitConversationId || conversationId;
+        // 使用 ref 中的 conversationId（同步更新，不依赖 React state 异步）
+        const conversationIdToUse = conversationIdRef.current || conversationId;
         const sessionInfo = await chatStart(
           currentRole.id,
           userMessage,
@@ -310,7 +316,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               ? Math.max(...reactionSegs.map(s => s.displayAt))
               : 0;
             const chainStartDelay = Math.max(0, lastReactionTime * 1000 - (Date.now() - chatStartTime)) + 1000;
-            
+
             // 首个companion通过定时器触发，后续由 scheduleNext 链式触发
             const firstComp = companionSegs.shift()!;
             timelineSchedules.push(setTimeout(() => {

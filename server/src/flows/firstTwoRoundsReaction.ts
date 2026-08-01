@@ -1,48 +1,133 @@
 /**
- * EM-43: 前两轮 Reaction 和 Companion 模板
- * 
- * 前两轮用户可见回复必须遵守：
- * - 先回应用户刚刚表达的具体内容和情绪
- * - 让用户感到被听见，而不是被系统分析
- * - 不下心理诊断
- * - 不定义用户的人格、模式或神经状态
- * - 不展示内部分析、阶段、标签、记忆判断或技术字段
- * - 不急于给建议、训练任务或解决方案
- * - 不推动用户立即行动
- * - 不使用明显模板化的心理咨询语言
- * - 每次最多自然地提出一个问题
- * - 如果无需提问，可以只做承接
- * - 回复应像一个真实的人在认真听，而不是像分析工具
+ * EM-43: First Two Rounds Reaction and Companion
+ *
+ * The first two rounds should be restrained but NOT mechanical.
+ * They must acknowledge the user's specific content and emotion,
+ * while avoiding analysis, diagnosis, or unsolicited advice.
+ *
+ * Strategy:
+ * - Use the extracted signal (eventHint, feelingHint, keyword) to select contextual templates
+ * - Keep responses short, natural, and human-like
+ * - Never show analysis process or label the user
  */
 
 import type { TimelineSegment } from './localReactionEngine';
+import type { Signal } from './signalExtractor';
 
-// ─── 前两轮 Reaction 时间线（更克制、更自然）──────────────
+// ─── Reaction templates by emotional category ──────────
+// Each category has multiple options for natural variety.
 
-const FIRST_TWO_ROUNDS_REACTION: TimelineSegment[] = [
-  { displayAt: 0, text: '嗯，我在听。' },
-  { displayAt: 2, text: '你说的我记住了。' },
-  { displayAt: 4, text: '慢慢说，不着急。' },
-];
+const REACTION_BY_CATEGORY: Record<string, string[]> = {
+  // Heavy emotions: sadness, burnout, meaningless
+  heavy: [
+    '嗯，我在听。',
+    '这听起来不容易。',
+    '你说的我记住了。',
+    '慢慢说，不着急。',
+  ],
+  // Anxiety / fear
+  anxious: [
+    '嗯，我在。',
+    '等着急的事确实不好受。',
+    '我在听，你慢慢说。',
+  ],
+  // Anger / frustration
+  angry: [
+    '嗯，我听到了。',
+    '这事搁谁都会不舒服。',
+    '我在听。',
+  ],
+  // Relationship / interpersonal
+  relational: [
+    '嗯，关于ta的事确实让人在意。',
+    '我在听，你继续说。',
+    '这种感觉很真实。',
+  ],
+  // Default / general
+  default: [
+    '嗯，我在听。',
+    '我在。你说。',
+    '嗯，继续说。',
+  ],
+};
 
-// ─── 前两轮 Companion 时间线（更克制、更自然）──────────────
+const COMPANION_BY_CATEGORY: Record<string, string[]> = {
+  heavy: [
+    '你不用一个人扛着。',
+    '想怎么说就怎么说，我在这里。',
+    '不用急着想清楚，慢慢来。',
+  ],
+  anxious: [
+    '先深呼吸一下，我在这儿。',
+    '一件一件来，不急。',
+    '我在这里陪你。',
+  ],
+  angry: [
+    '你有权利觉得不舒服。',
+    '想怎么说就怎么说，这里安全。',
+    '我陪你待一会儿。',
+  ],
+  relational: [
+    '关于在乎的人的事，确实不好处理。',
+    '我在这儿，你想怎么说都行。',
+    '慢慢来，不着急做决定。',
+  ],
+  default: [
+    '我在这里陪你。',
+    '你想说什么都可以。',
+    '慢慢说，不着急。',
+  ],
+};
 
-const FIRST_TWO_ROUNDS_COMPANION: TimelineSegment[] = [
-  { displayAt: 10, text: '我在这儿。' },
-  { displayAt: 20, text: '你想说多少都说。' },
-  { displayAt: 32, text: '不用急着想清楚。' },
-];
+function pickRandom(arr: string[]): string {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
 
-/**
- * 获取前两轮 Reaction 时间线
- */
-export function getFirstTwoRoundsReactionTimeline(): TimelineSegment[] {
-  return [...FIRST_TWO_ROUNDS_REACTION];
+function categorizeSignal(signal?: Signal): string {
+  if (!signal) return 'default';
+
+  const { eventHint } = signal;
+
+  switch (eventHint) {
+    case 'sadness':
+    case 'burnout':
+    case 'meaningless':
+      return 'heavy';
+    case 'anxiety':
+      return 'anxious';
+    case 'anger':
+      return 'angry';
+    case 'silence':
+    case 'relationship_conflict':
+    case 'criticism':
+      return 'relational';
+    default:
+      return 'default';
+  }
 }
 
 /**
- * 获取前两轮 Companion 时间线
+ * Generate first-two-rounds Reaction timeline.
+ * Restrained but responsive to user's emotional signal.
  */
-export function getFirstTwoRoundsCompanionTimeline(): TimelineSegment[] {
-  return [...FIRST_TWO_ROUNDS_COMPANION];
+export function getFirstTwoRoundsReactionTimeline(signal?: Signal): TimelineSegment[] {
+  const category = categorizeSignal(signal);
+  const templates = REACTION_BY_CATEGORY[category] || REACTION_BY_CATEGORY.default;
+
+  return [
+    { displayAt: 0, text: pickRandom(templates) },
+  ];
+}
+
+/**
+ * Generate first-two-rounds Companion timeline.
+ * Restrained but responsive to user's emotional signal.
+ */
+export function getFirstTwoRoundsCompanionTimeline(signal?: Signal): TimelineSegment[] {
+  const category = categorizeSignal(signal);
+  const templates = COMPANION_BY_CATEGORY[category] || COMPANION_BY_CATEGORY.default;
+
+  return [
+    { displayAt: 8, text: pickRandom(templates) },
+  ];
 }

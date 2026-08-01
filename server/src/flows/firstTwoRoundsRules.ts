@@ -1,12 +1,12 @@
 /**
  * EM-43: 前两轮高优先级规则模块
- * 
+ *
  * 定义前两轮对话的行为约束，确保用户在初始阶段获得自然、克制的陪伴。
  */
 
 /**
  * 前两轮高优先级规则内容
- * 
+ *
  * 这些规则会在第 1、2 轮对话时注入到 Prompt 中，
  * 约束 AI 的回复行为，使其更加自然和克制。
  */
@@ -52,7 +52,7 @@ export function getFirstTwoRoundsRulesWithTurn(userTurn: number): string {
   if (!shouldInjectFirstTwoRoundsRules(userTurn)) {
     return '';
   }
-  
+
   return FIRST_TWO_ROUNDS_RULES.replace('{userTurn}', String(userTurn));
 }
 
@@ -101,10 +101,10 @@ export const FIRST_TWO_ROUNDS_COMPANION_TEMPLATES = {
  * @returns 克制的 Reaction 文本
  */
 export function getFirstTwoRoundsReaction(hasEmotion: boolean): string {
-  const templates = hasEmotion 
-    ? FIRST_TWO_ROUNDS_REACTION_TEMPLATES.emotional 
+  const templates = hasEmotion
+    ? FIRST_TWO_ROUNDS_REACTION_TEMPLATES.emotional
     : FIRST_TWO_ROUNDS_REACTION_TEMPLATES.default;
-  
+
   return templates[Math.floor(Math.random() * templates.length)];
 }
 
@@ -114,9 +114,9 @@ export function getFirstTwoRoundsReaction(hasEmotion: boolean): string {
  * @returns 克制的 Companion 文本
  */
 export function getFirstTwoRoundsCompanion(hasEmotion: boolean): string {
-  const templates = hasEmotion 
-    ? FIRST_TWO_ROUNDS_COMPANION_TEMPLATES.emotional 
+  const templates = hasEmotion
+    ? FIRST_TWO_ROUNDS_COMPANION_TEMPLATES.emotional
     : FIRST_TWO_ROUNDS_COMPANION_TEMPLATES.default;
-  
+
   return templates[Math.floor(Math.random() * templates.length)];
 }

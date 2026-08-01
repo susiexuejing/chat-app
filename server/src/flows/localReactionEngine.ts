@@ -1,9 +1,9 @@
 /**
  * EmotionFlow V3.2 — 本地Reaction/Companion组合器
- * 
+ *
  * 核心逻辑：
  * PersonalityProfile × Signal → 确定性模板匹配 → 时间线输出
- * 
+ *
  * 不依赖百炼，不调用重模型，不随机选取
  */
 
@@ -48,12 +48,15 @@ export function localGenerateTimeline(
   signal?: Signal,
   userTurn?: number,
 ): LocalReactionResult {
-  // EM-43: 前两轮使用更克制的模板
+  // 提取信号（无论是否前两轮都需要）
+  const sig = signal || extractSignal(message);
+
+  // EM-43: 前两轮使用更克制的模板，但仍基于用户输入的信号选择回应
   if (userTurn && userTurn <= 2) {
     return {
       reactionLayer: '陪伴',
-      reactionTimeline: getFirstTwoRoundsReactionTimeline(),
-      companionTimeline: getFirstTwoRoundsCompanionTimeline(),
+      reactionTimeline: getFirstTwoRoundsReactionTimeline(sig),
+      companionTimeline: getFirstTwoRoundsCompanionTimeline(sig),
     };
   }
 
@@ -63,8 +66,6 @@ export function localGenerateTimeline(
     return generateGenericFallback();
   }
 
-  // 提取信号（如未传入）
-  const sig = signal || extractSignal(message);
   const { keyword, eventHint } = sig;
 
   // 尝试匹配事件模板
@@ -175,18 +176,20 @@ export function getNormalChatResponse(roleId: string): { frontFlow: string; reac
 // ─── index.ts 兼容封装 ─────────────────────────────────
 
 export function generateReactionTimeline(roleId: string, message: string, signal?: Signal, userTurn?: number): TimelineSegment[] {
-  // EM-43: 前两轮使用更克制的模板
+  // EM-43: 前两轮使用更克制的模板，基于信号选择回应
   if (userTurn && userTurn <= 2) {
-    return getFirstTwoRoundsReactionTimeline();
+    const sig = signal || extractSignal(message);
+    return getFirstTwoRoundsReactionTimeline(sig);
   }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.reactionTimeline;
 }
 
 export function generateCompanionTimeline(roleId: string, message: string, signal?: Signal, userTurn?: number): TimelineSegment[] {
-  // EM-43: 前两轮使用更克制的模板
+  // EM-43: 前两轮使用更克制的模板，基于信号选择回应
   if (userTurn && userTurn <= 2) {
-    return getFirstTwoRoundsCompanionTimeline();
+    const sig = signal || extractSignal(message);
+    return getFirstTwoRoundsCompanionTimeline(sig);
   }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.companionTimeline;
