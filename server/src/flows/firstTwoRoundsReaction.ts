@@ -105,10 +105,10 @@ export function getFirstTwoRoundsCompanionTimeline(signal?: Signal, userMessage?
       criticism: `${shortPhrase}——被说的时候，不只是事情本身，那个场面可能也很刺人。`,
       relationship_conflict: `${shortPhrase}——关于在乎的人的事，确实不好处理。`,
       sadness: `${shortPhrase}——你说的这些，不用急着理清。`,
-      anxiety: `${shortPhrase}——等着急的事，一件一件来。`,
-      anger: `${shortPhrase}——你有权利觉得不舒服。`,
-      burnout: `${shortPhrase}——累了的时候，不用逼自己想清楚。`,
-      meaningless: `${shortPhrase}——你觉得没意义的时候，不用假装有力气。`,
+      anxiety: `${shortPhrase}——让你着急的那些，你在意。`,
+      anger: `${shortPhrase}——让你不舒服的事，你记住了。`,
+      burnout: `${shortPhrase}——累了的时候，不用逼自己。`,
+      meaningless: `${shortPhrase}——你觉得没意义的那些，不用假装有力气。`,
       silence: `${shortPhrase}——不想说也没关系。`,
     };
     text = eventContext[eventHint] || `${shortPhrase}——你说的，我都在听。`;
@@ -122,9 +122,9 @@ export function getFirstTwoRoundsCompanionTimeline(signal?: Signal, userMessage?
   } else if (feelingHint) {
     const feelingContext: Record<string, string> = {
       sad: '你说的这些，不用急着理清。',
-      anxious: '等着急的事，一件一件来。',
-      angry: '你有权利觉得不舒服。',
-      tired: '累了的时候，不用逼自己想清楚。',
+      anxious: '让你着急的那些，你在意。',
+      angry: '让你不舒服的事，你记住了。',
+      tired: '累了的时候，不用逼自己。',
       lost: '不知道怎么说的時候，不用假装说得清。',
     };
     text = feelingContext[feelingHint] || '你想说什么都可以。';

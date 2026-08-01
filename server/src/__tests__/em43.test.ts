@@ -1,7 +1,6 @@
 /**
  * EM-43 自动化测试
- * 覆盖：轮数计算、会话隔离、TTL、前两轮规则、人格调整
- * 注意：不导入 ../index 以避免启动服务器
+ * 覆盖：轮数计算、会话隔离、TTL、前两轮规则、人格调整、Deep Prompt
  */
 import {
   incrementConversationTurn,
@@ -20,8 +19,7 @@ import {
   getFirstTwoRoundsCompanionTimeline,
 } from '../flows/firstTwoRoundsReaction';
 import { generateReactionTimeline, generateCompanionTimeline, extractSignal } from '../flows/localReactionEngine';
-
-// 从 psychologistRoles 获取所有角色
+import { buildDeepSystemPrompt } from '../flows/deepPromptBuilder';
 import { PSYCHOLOGIST_ROLES } from '../roles/psychologistRoles';
 
 beforeEach(() => {
@@ -168,8 +166,6 @@ describe('EM-43: Reaction First Two Rounds', () => {
     const timeline = generateReactionTimeline(ROLE_ID, 'user_message', undefined, 1);
     expect(timeline).toBeTruthy();
     expect(timeline.length).toBeGreaterThan(0);
-    // 验证不是空的
-    expect(timeline.length).toBeGreaterThan(0);
     expect(timeline[0].text.length).toBeGreaterThan(0);
   });
 
@@ -182,7 +178,6 @@ describe('EM-43: Reaction First Two Rounds', () => {
   test('第 3 轮恢复原有逻辑', () => {
     const timeline = generateReactionTimeline(ROLE_ID, 'user_message', undefined, 3);
     expect(timeline).toBeTruthy();
-    // 第 3 轮应该使用正常逻辑，可能有更多 segments
     expect(timeline.length).toBeGreaterThan(0);
   });
 
@@ -193,7 +188,6 @@ describe('EM-43: Reaction First Two Rounds', () => {
     const timeline1 = generateReactionTimeline(ROLE_ID, input1, undefined, 1);
     const timeline2 = generateReactionTimeline(ROLE_ID, input2, undefined, 1);
 
-    // 两个不同输入应该产生不同的回复
     const text1 = timeline1.map(s => s.text).join('');
     const text2 = timeline2.map(s => s.text).join('');
     expect(text1).not.toBe(text2);
@@ -212,11 +206,8 @@ describe('EM-43: Reaction First Two Rounds', () => {
       const timeline = generateReactionTimeline(ROLE_ID, input, undefined, 1);
       const allText = timeline.map(s => s.text).join('');
 
-      // 不包含诊断术语
       expect(allText).not.toMatch(/焦虑症|抑郁症|创伤|PTSD|人格障碍/i);
-      // 不包含内部标签
       expect(allText).not.toMatch(/neural|signal|prediction|pattern/i);
-      // 不包含未经保证的安全承诺
       expect(allText).not.toMatch(/这里安全|你是安全的|保证/i);
     }
   });
@@ -276,30 +267,50 @@ describe('EM-43: Companion First Two Rounds', () => {
   });
 });
 
-// ==================== 真实体验用例 ====================
-describe('EM-43: Real Experience Cases', () => {
+// ==================== 真实体验用例（8个输入） ====================
+describe('EM-43: Real Experience Cases (8 inputs)', () => {
   const ROLE_ID = 'clever-fox';
 
   const testCases = [
     {
       name: '被当众否定',
       input: '领导今天当着所有人的面否定了我的方案。',
+      expectedKeywords: ['否定', '方案', '领导', '场面'],
     },
     {
       name: '等待回复',
       input: '他三天没有回复我，我一直在等。',
+      expectedKeywords: ['等', '回复', '三天'],
     },
     {
       name: '无力感',
       input: '我今天什么都不想做，觉得一切都没意义。',
+      expectedKeywords: ['不想做', '没意义', '一切', '无意义', ' meaningless', '没', '不'],
     },
     {
       name: '简单问候',
       input: '你好。',
+      expectedKeywords: [], // 问候类不需要特定关键词
     },
     {
       name: '不知如何表达',
       input: '我不知道该怎么说。',
+      expectedKeywords: ['不知道', '说'],
+    },
+    {
+      name: '被比较',
+      input: '我妈今天又拿我和别人比较。',
+      expectedKeywords: ['比较', '妈', '别人'],
+    },
+    {
+      name: '拿到offer但害怕',
+      input: '我拿到了期待很久的 offer，但反而有点害怕。',
+      expectedKeywords: ['offer', '害怕', '期待'],
+    },
+    {
+      name: '生气而非难过',
+      input: '我不是难过，我只是觉得很生气。',
+      expectedKeywords: ['生气', '不是难过'],
     },
   ];
 
@@ -312,9 +323,9 @@ describe('EM-43: Real Experience Cases', () => {
       expect(allText.length).toBeGreaterThan(0);
 
       // 对于非问候类输入，回复应该包含与输入相关的内容
-      if (testCase.name !== '简单问候') {
-        // 回复应该反映用户的情绪或情境
-        expect(allText.length).toBeGreaterThan(5);
+      if (testCase.expectedKeywords.length > 0) {
+        const hasKeyword = testCase.expectedKeywords.some(kw => allText.includes(kw));
+        expect(hasKeyword).toBe(true);
       }
 
       // 不包含诊断
@@ -322,7 +333,9 @@ describe('EM-43: Real Experience Cases', () => {
       // 不包含内部标签
       expect(allText).not.toMatch(/neural|signal|prediction/i);
       // 不提前给建议
-      expect(allText).not.toMatch(/你应该|你可以试试|建议你/i);
+      expect(allText).not.toMatch(/你应该|你可以试试|建议你|先深呼吸/i);
+      // 不替用户定义情绪
+      expect(allText).not.toMatch(/你有权利|你有权|等着急的事/i);
     });
 
     test(`Companion: "${testCase.name}" - 回复与输入相关`, () => {
@@ -330,9 +343,16 @@ describe('EM-43: Real Experience Cases', () => {
       const allText = timeline.map(s => s.text).join('');
 
       expect(allText.length).toBeGreaterThan(0);
+
+      if (testCase.expectedKeywords.length > 0) {
+        const hasKeyword = testCase.expectedKeywords.some(kw => allText.includes(kw));
+        expect(hasKeyword).toBe(true);
+      }
+
       expect(allText).not.toMatch(/焦虑症|抑郁症|创伤|PTSD/i);
       expect(allText).not.toMatch(/neural|signal|prediction/i);
-      expect(allText).not.toMatch(/你应该|你可以试试|建议你/i);
+      expect(allText).not.toMatch(/你应该|你可以试试|建议你|先深呼吸/i);
+      expect(allText).not.toMatch(/你有权利|你有权|等着急的事/i);
     });
   }
 
@@ -347,6 +367,48 @@ describe('EM-43: Real Experience Cases', () => {
     const uniqueReactions = new Set(reactions);
     expect(uniqueReactions.size).toBeGreaterThan(1);
   });
+
+  test('Reaction 和 Companion 不重复表达同一句话', () => {
+    for (const testCase of testCases.slice(0, 3)) {
+      const reactionTimeline = generateReactionTimeline(ROLE_ID, testCase.input, undefined, 1);
+      const companionTimeline = generateCompanionTimeline(ROLE_ID, testCase.input, undefined, 1);
+
+      const reactionText = reactionTimeline.map(s => s.text).join('');
+      const companionText = companionTimeline.map(s => s.text).join('');
+
+      // Reaction 和 Companion 不应该完全相同
+      expect(reactionText).not.toBe(companionText);
+    }
+  });
+
+  test('第1轮与第2轮均受规则约束', () => {
+    const input = '领导今天当众否定了我的方案。';
+
+    const reaction1 = generateReactionTimeline(ROLE_ID, input, undefined, 1);
+    const reaction2 = generateReactionTimeline(ROLE_ID, input, undefined, 2);
+
+    const text1 = reaction1.map(s => s.text).join('');
+    const text2 = reaction2.map(s => s.text).join('');
+
+    // 两轮都不应该包含分析或诊断
+    expect(text1).not.toMatch(/分析|诊断|模式|pattern/i);
+    expect(text2).not.toMatch(/分析|诊断|模式|pattern/i);
+  });
+
+  test('第3轮恢复原有逻辑', () => {
+    const input = '领导今天当众否定了我的方案。';
+
+    // 第1轮使用克制模板
+    const reaction1 = generateReactionTimeline(ROLE_ID, input, undefined, 1);
+    const text1 = reaction1.map(s => s.text).join('');
+
+    // 第3轮使用正常逻辑
+    const reaction3 = generateReactionTimeline(ROLE_ID, input, undefined, 3);
+    const text3 = reaction3.map(s => s.text).join('');
+
+    // 第3轮的回复应该与第1轮不同（使用正常逻辑）
+    expect(text1).not.toBe(text3);
+  });
 });
 
 // ==================== Smart Fox 人格调整 ====================
@@ -359,13 +421,54 @@ describe('EM-43: Smart Fox Persona', () => {
   });
 
   test('其他人格没有受到 Smart Fox 改动影响', () => {
-    // 获取 origin/dev 中其他人格的 systemPrompt 快照
     const otherRoles = PSYCHOLOGIST_ROLES.filter(r => r.id !== 'clever-fox');
 
     for (const role of otherRoles) {
-      // 验证其他人格不包含 clever-fox 特有的关键词
       expect(role.systemPrompt).not.toContain('敏锐但克制的陪伴者');
       expect(role.systemPrompt).not.toContain('不主动分析');
     }
+  });
+});
+
+// ==================== Deep Prompt 测试 ====================
+describe('EM-43: Deep Prompt', () => {
+  const ROLE_ID = 'clever-fox';
+  const ROLE = PSYCHOLOGIST_ROLES.find(r => r.id === ROLE_ID)!;
+
+  test('第1轮完整 Prompt 不包含"从更深一层的分析开始"', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 1);
+    expect(prompt).not.toContain('从更深一层的分析开始');
+  });
+
+  test('第2轮完整 Prompt 不包含"从更深一层的分析开始"', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 2);
+    expect(prompt).not.toContain('从更深一层的分析开始');
+  });
+
+  test('第1轮包含克制陪伴规则', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 1);
+    expect(prompt).toContain('不展示可见的分析过程');
+    expect(prompt).toContain('不下心理诊断');
+  });
+
+  test('第2轮包含克制陪伴规则', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 2);
+    expect(prompt).toContain('不展示可见的分析过程');
+    expect(prompt).toContain('不下心理诊断');
+  });
+
+  test('第3轮恢复现有 Deep 策略', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 3);
+    expect(prompt).toContain('从更深一层的分析开始');
+    // 第3轮不应该包含前两轮规则
+    expect(prompt).not.toContain('不展示可见的分析过程');
+  });
+
+  test('原安全规则和人格规则仍然保留', () => {
+    const prompt = buildDeepSystemPrompt(ROLE, 'test user message', 1);
+    // 安全规则应该保留
+    expect(prompt).toContain('安全');
+    // 人格规则应该保留
+    expect(prompt).toContain(ROLE.systemPrompt.substring(0, 20));
   });
 });

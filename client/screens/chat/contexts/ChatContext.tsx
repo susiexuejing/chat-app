@@ -46,7 +46,7 @@ interface ChatContextValue {
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
-  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => Promise<void>;
+  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string; conversationId?: string }) => Promise<void>;
   clearError: () => void;
   setShowHistory: (show: boolean) => void;
   selectSession: (sessionId: string) => void;
@@ -132,8 +132,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    async (userMessage: string, _options?: { audioUri?: string; emotion?: string }) => {
+    async (userMessage: string, _options?: { audioUri?: string; emotion?: string; conversationId?: string }) => {
       if (!userMessage.trim() || !currentRole) return;
+
+      // EM-43: 优先使用显式传入的 conversationId
+      const explicitConvId = _options?.conversationId;
+      if (explicitConvId) {
+        conversationIdRef.current = explicitConvId;
+        setConversationId(explicitConvId);
+      }
 
       // EM-43: 如果没有当前会话，创建一个新的
       let sessionIdToUse = currentSessionId;
