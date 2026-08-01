@@ -1,133 +1,136 @@
 /**
  * EM-43: First Two Rounds Reaction and Companion
  *
- * The first two rounds should be restrained but NOT mechanical.
+ * The first two rounds must be restrained but NOT mechanical.
  * They must acknowledge the user's specific content and emotion,
  * while avoiding analysis, diagnosis, or unsolicited advice.
  *
  * Strategy:
- * - Use the extracted signal (eventHint, feelingHint, keyword) to select contextual templates
- * - Keep responses short, natural, and human-like
+ * - Use the user's actual message, eventHint, feelingHint, and keyword
+ *   to generate a response that references what the user actually said
+ * - Use deterministic selection (no Math.random)
  * - Never show analysis process or label the user
+ * - Never give advice, guarantees, or define feelings the user hasn't expressed
  */
 
 import type { TimelineSegment } from './localReactionEngine';
 import type { Signal } from './signalExtractor';
 
-// ─── Reaction templates by emotional category ──────────
-// Each category has multiple options for natural variety.
+/**
+ * Extract a short phrase from the user's message that can be referenced.
+ * Returns the most meaningful clause (up to ~20 chars).
+ */
+function extractUserPhrase(message: string): string {
+  // Remove common filler words and get the core clause
+  const cleaned = message
+    .replace(/[，。！？、；：""''（）\s]+/g, ' ')
+    .trim();
 
-const REACTION_BY_CATEGORY: Record<string, string[]> = {
-  // Heavy emotions: sadness, burnout, meaningless
-  heavy: [
-    '嗯，我在听。',
-    '这听起来不容易。',
-    '你说的我记住了。',
-    '慢慢说，不着急。',
-  ],
-  // Anxiety / fear
-  anxious: [
-    '嗯，我在。',
-    '等着急的事确实不好受。',
-    '我在听，你慢慢说。',
-  ],
-  // Anger / frustration
-  angry: [
-    '嗯，我听到了。',
-    '这事搁谁都会不舒服。',
-    '我在听。',
-  ],
-  // Relationship / interpersonal
-  relational: [
-    '嗯，关于ta的事确实让人在意。',
-    '我在听，你继续说。',
-    '这种感觉很真实。',
-  ],
-  // Default / general
-  default: [
-    '嗯，我在听。',
-    '我在。你说。',
-    '嗯，继续说。',
-  ],
-};
+  // Split by common conjunctions and take the most meaningful part
+  const clauses = cleaned.split(/[，。！？；\s]+/).filter((c) => c.length >= 2);
 
-const COMPANION_BY_CATEGORY: Record<string, string[]> = {
-  heavy: [
-    '你不用一个人扛着。',
-    '想怎么说就怎么说，我在这里。',
-    '不用急着想清楚，慢慢来。',
-  ],
-  anxious: [
-    '先深呼吸一下，我在这儿。',
-    '一件一件来，不急。',
-    '我在这里陪你。',
-  ],
-  angry: [
-    '你有权利觉得不舒服。',
-    '想怎么说就怎么说，这里安全。',
-    '我陪你待一会儿。',
-  ],
-  relational: [
-    '关于在乎的人的事，确实不好处理。',
-    '我在这儿，你想怎么说都行。',
-    '慢慢来，不着急做决定。',
-  ],
-  default: [
-    '我在这里陪你。',
-    '你想说什么都可以。',
-    '慢慢说，不着急。',
-  ],
-};
+  if (clauses.length === 0) return cleaned.slice(0, 20);
 
-function pickRandom(arr: string[]): string {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function categorizeSignal(signal?: Signal): string {
-  if (!signal) return 'default';
-
-  const { eventHint } = signal;
-
-  switch (eventHint) {
-    case 'sadness':
-    case 'burnout':
-    case 'meaningless':
-      return 'heavy';
-    case 'anxiety':
-      return 'anxious';
-    case 'anger':
-      return 'angry';
-    case 'silence':
-    case 'relationship_conflict':
-    case 'criticism':
-      return 'relational';
-    default:
-      return 'default';
+  // Prefer clauses with emotional or concrete content
+  const emotionalKeywords = ['不', '没', '好', '难', '怕', '累', '烦', '痛', '哭', '怒', '恨', '想', '要', '怕', '急'];
+  for (const clause of clauses) {
+    if (emotionalKeywords.some((k) => clause.includes(k))) {
+      return clause.slice(0, 20);
+    }
   }
+
+  // Fallback: return the longest clause
+  return clauses.sort((a, b) => b.length - a.length)[0].slice(0, 20);
 }
 
 /**
- * Generate first-two-rounds Reaction timeline.
- * Restrained but responsive to user's emotional signal.
+ * Generate a Reaction segment that references the user's specific content.
+ * Deterministic: same input always produces same output.
  */
-export function getFirstTwoRoundsReactionTimeline(signal?: Signal): TimelineSegment[] {
-  const category = categorizeSignal(signal);
-  const templates = REACTION_BY_CATEGORY[category] || REACTION_BY_CATEGORY.default;
+export function getFirstTwoRoundsReactionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
+  const phrase = userMessage ? extractUserPhrase(userMessage) : '';
+  const keyword = signal?.keyword || '';
+  const eventHint = signal?.eventHint || '';
 
-  return [
-    { displayAt: 0, text: pickRandom(templates) },
-  ];
+  let text: string;
+
+  if (phrase && keyword) {
+    // Reference both the user's phrase and the extracted keyword
+    text = `「${keyword}」这件事，你提到了。`;
+  } else if (phrase) {
+    // Reference the user's specific words
+    if (phrase.length > 8) {
+      text = `你说的「${phrase.slice(0, 12)}」，我听到了。`;
+    } else {
+      text = `${phrase}——你说的我记住了。`;
+    }
+  } else if (keyword) {
+    text = `关于「${keyword}」，我在听。`;
+  } else if (eventHint) {
+    // Map eventHint to a brief acknowledgment without being mechanical
+    const eventAck: Record<string, string> = {
+      criticism: '被说的那些，你记住了。',
+      relationship_conflict: '你们之间的事，你在意。',
+      sadness: '你提到的那些，我听到了。',
+      anxiety: '让你着急的事，我在听。',
+      anger: '让你不舒服的事，我听到了。',
+      burnout: '累了很久了，你说的我记住了。',
+      meaningless: '你觉得没意义的那些，我在听。',
+      silence: '你在的。',
+    };
+    text = eventAck[eventHint] || '你说的，我在听。';
+  } else {
+    text = '你在的，慢慢说。';
+  }
+
+  return [{ displayAt: 0, text }];
 }
 
 /**
- * Generate first-two-rounds Companion timeline.
- * Restrained but responsive to user's emotional signal.
+ * Generate a Companion segment that references the user's specific content.
+ * Deterministic: same input always produces same output.
  */
-export function getFirstTwoRoundsCompanionTimeline(signal?: Signal): TimelineSegment[] {
-  const category = categorizeSignal(signal);
-  const templates = COMPANION_BY_CATEGORY[category] || COMPANION_BY_CATEGORY.default;
+export function getFirstTwoRoundsCompanionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
+  const phrase = userMessage ? extractUserPhrase(userMessage) : '';
+  const keyword = signal?.keyword || '';
+  const eventHint = signal?.eventHint || '';
+  const feelingHint = signal?.feelingHint || '';
 
-  return [
-    { displayAt: 8, text: pickRandom(templates) },
-  ];
+  let text: string;
+
+  if (phrase && eventHint) {
+    // Combine user's words with event context
+    const shortPhrase = phrase.slice(0, 15);
+    const eventContext: Record<string, string> = {
+      criticism: `${shortPhrase}——被说的时候，不只是事情本身，那个场面可能也很刺人。`,
+      relationship_conflict: `${shortPhrase}——关于在乎的人的事，确实不好处理。`,
+      sadness: `${shortPhrase}——你说的这些，不用急着理清。`,
+      anxiety: `${shortPhrase}——等着急的事，一件一件来。`,
+      anger: `${shortPhrase}——你有权利觉得不舒服。`,
+      burnout: `${shortPhrase}——累了的时候，不用逼自己想清楚。`,
+      meaningless: `${shortPhrase}——你觉得没意义的时候，不用假装有力气。`,
+      silence: `${shortPhrase}——不想说也没关系。`,
+    };
+    text = eventContext[eventHint] || `${shortPhrase}——你说的，我都在听。`;
+  } else if (phrase && keyword) {
+    text = `「${keyword}」这件事，你想怎么说就怎么说。`;
+  } else if (phrase) {
+    const shortPhrase = phrase.slice(0, 15);
+    text = `${shortPhrase}——不用急着想清楚，慢慢来。`;
+  } else if (keyword) {
+    text = `关于「${keyword}」，你想怎么说都行。`;
+  } else if (feelingHint) {
+    const feelingContext: Record<string, string> = {
+      sad: '你说的这些，不用急着理清。',
+      anxious: '等着急的事，一件一件来。',
+      angry: '你有权利觉得不舒服。',
+      tired: '累了的时候，不用逼自己想清楚。',
+      lost: '不知道怎么说的時候，不用假装说得清。',
+    };
+    text = feelingContext[feelingHint] || '你想说什么都可以。';
+  } else {
+    text = '你想说什么都可以，慢慢来。';
+  }
+
+  return [{ displayAt: 8, text }];
 }

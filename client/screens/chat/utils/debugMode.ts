@@ -22,8 +22,26 @@ export function checkDebugParam(platform: string, search: string): boolean {
  * Production wrapper: safely reads Platform.OS and window.location.search.
  */
 export function isDebugModeEnabled(): boolean {
-  if (typeof window === 'undefined') {
+  if (typeof window === 'undefined' || typeof Platform === 'undefined') {
     return false;
   }
-  return checkDebugParam(Platform.OS, window.location.search);
+  const search = window?.location?.search ?? '';
+  return checkDebugParam(Platform.OS, search);
+}
+
+/**
+ * Determine whether the ChangeSystemCard should be rendered.
+ * This is the production logic used by index.tsx.
+ *
+ * @param platform - The platform string (e.g., 'web', 'ios', 'android')
+ * @param search - The URL search string (e.g., '?debug=true')
+ * @param hasFlowContext - Whether there is flow context data available (null/undefined treated as false)
+ * @returns true if ChangeSystemCard should be rendered
+ */
+export function shouldRenderChangeSystemCard(
+  platform: string,
+  search: string,
+  hasFlowContext: boolean | null | undefined,
+): boolean {
+  return checkDebugParam(platform, search) && Boolean(hasFlowContext);
 }

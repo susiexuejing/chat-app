@@ -20,6 +20,23 @@ const CONVERSATION_TTL_MS = 30 * 60 * 1000;
 // 清理间隔：每分钟
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 
+// 可注入的时间函数（生产环境使用 Date.now，测试环境可覆盖）
+let _now: () => number = () => Date.now();
+
+/**
+ * 注入自定义时间函数（仅用于测试）
+ */
+export function _setNowFn(fn: () => number): void {
+  _now = fn;
+}
+
+/**
+ * 恢复使用 Date.now（仅用于测试）
+ */
+export function _resetNowFn(): void {
+  _now = () => Date.now();
+}
+
 /**
  * 获取指定 conversationId 的当前轮数
  * @param conversationId 会话 ID
@@ -33,7 +50,7 @@ export function getConversationTurn(conversationId: string): number {
   }
 
   // 检查是否已过期
-  const now = Date.now();
+  const now = _now();
   if (now - data.lastAccessed > CONVERSATION_TTL_MS) {
     // 已过期，删除并返回 0
     conversationTurns.delete(conversationId);
@@ -49,7 +66,7 @@ export function getConversationTurn(conversationId: string): number {
  * @returns 递增后的轮数
  */
 export function incrementConversationTurn(conversationId: string): number {
-  const now = Date.now();
+  const now = _now();
   const data = conversationTurns.get(conversationId);
 
   if (!data) {
@@ -82,7 +99,7 @@ export function incrementConversationTurn(conversationId: string): number {
  * 返回被清理的会话数量
  */
 export function cleanupExpiredConversations(): number {
-  const now = Date.now();
+  const now = _now();
   let cleanedCount = 0;
 
   for (const [conversationId, data] of conversationTurns.entries()) {

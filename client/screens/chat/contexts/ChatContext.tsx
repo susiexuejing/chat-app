@@ -25,6 +25,7 @@ interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  conversationId: string;
 }
 
 interface ChatContextValue {
@@ -108,6 +109,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setCurrentSessionId(session.id);
         const role = getRoleById(session.roleId);
         if (role) setCurrentRole(role);
+        // EM-43: 恢复会话的 conversationId
+        if (session.conversationId) {
+          setConversationId(session.conversationId);
+          conversationIdRef.current = session.conversationId;
+        }
         setShowHistory(false);
       }
     },
@@ -129,6 +135,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     async (userMessage: string, _options?: { audioUri?: string; emotion?: string }) => {
       if (!userMessage.trim() || !currentRole) return;
 
+      // EM-43: 如果没有当前会话，创建一个新的
+      let sessionIdToUse = currentSessionId;
+      if (!sessionIdToUse) {
+        sessionIdToUse = `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+        setCurrentSessionId(sessionIdToUse);
+      }
+
       const userMsg: ChatMessage = {
         id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
         role: 'user',
@@ -141,6 +154,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(true);
       setError(null);
       setLightAnalysis('');
+
+      // EM-43: 更新或创建会话记录（包含 conversationId）
+      setSessions(prev => {
+        const existingIdx = prev.findIndex(s => s.id === sessionIdToUse);
+        const updatedMessages = existingIdx >= 0
+          ? [...prev[existingIdx].messages, userMsg]
+          : [userMsg];
+        const sessionData = {
+          id: sessionIdToUse!,
+          roleId: currentRole.id,
+          title: userMessage.slice(0, 30),
+          messages: updatedMessages,
+          createdAt: existingIdx >= 0 ? prev[existingIdx].createdAt : Date.now(),
+          updatedAt: Date.now(),
+          conversationId: conversationIdRef.current || conversationId,
+        };
+        if (existingIdx >= 0) {
+          const updated = [...prev];
+          updated[existingIdx] = sessionData;
+          return updated;
+        }
+        return [...prev, sessionData];
+      });
 
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
@@ -448,6 +484,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setCurrentRole(role || roles[0]);
     setCurrentSessionId(session.id);
     setMessages(session.messages);
+    // EM-43: 恢复会话的 conversationId
+    const sessionConvId = session.conversationId || generateConversationId();
+    setConversationId(sessionConvId);
+    conversationIdRef.current = sessionConvId;
   }, [sessions]);
 
   const deepThinkingContent = '';

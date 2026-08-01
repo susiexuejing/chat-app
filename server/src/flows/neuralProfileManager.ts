@@ -44,7 +44,11 @@ const DEFAULT_WEIGHTS: SubconsciousWeights = {
   lastUpdated: 0,
 };
 
-const DATA_DIR = path.resolve(import.meta.dirname, '../../data');
+// 兼容 Jest 环境（import.meta.dirname 可能未定义）
+const META_DIRNAME = typeof import.meta.dirname === 'string'
+  ? import.meta.dirname
+  : process.cwd();
+const DATA_DIR = path.resolve(META_DIRNAME, '../../data');
 const PROFILES_FILE = path.join(DATA_DIR, 'neural_profiles.json');
 
 // ==============================

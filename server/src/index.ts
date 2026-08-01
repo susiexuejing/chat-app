@@ -124,7 +124,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number): string {
+export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -163,6 +163,11 @@ function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: 
   // 前两轮规则注入
   const firstTwoRoundsBlock = (userTurn && userTurn <= 2) ? `\n${getFirstTwoRoundsRulesWithTurn(userTurn)}\n` : '';
 
+  // EM-43: 前两轮不要求"从更深一层的分析开始"，避免与高优先级规则冲突
+  const depthInstruction = (userTurn && userTurn <= 2)
+    ? '- 先陪伴，不急于深入分析'
+    : '- 从更深一层的分析开始';
+
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
@@ -179,7 +184,7 @@ ${changeBlock || ''}
 - 不要输出 JSON
 - 不要输出 Markdown 代码块（包括 \`\`\`json）
 - 只用自然语言继续往下说
-- 从更深一层的分析开始
+${depthInstruction}
 - 回复长度控制在 150 字以内，精简有力
 ${firstTwoRoundsBlock}
 请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
@@ -1650,7 +1655,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       try {
         session.flowResult = analyzeFlow(userId, roleId, message);
         console.log(`[Flow] Session ${sessionId}: pattern=${session.flowResult.primaryFlow?.flowType || 'none'}, status=${session.flowResult.status}`);
-        
+
         // 7a'. Change System 用户变化感知
         const changeSnapshot = recordChange(userId, roleId, session.flowResult);
         if (changeSnapshot) {

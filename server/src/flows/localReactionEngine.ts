@@ -55,8 +55,8 @@ export function localGenerateTimeline(
   if (userTurn && userTurn <= 2) {
     return {
       reactionLayer: '陪伴',
-      reactionTimeline: getFirstTwoRoundsReactionTimeline(sig),
-      companionTimeline: getFirstTwoRoundsCompanionTimeline(sig),
+      reactionTimeline: getFirstTwoRoundsReactionTimeline(sig, message),
+      companionTimeline: getFirstTwoRoundsCompanionTimeline(sig, message),
     };
   }
 

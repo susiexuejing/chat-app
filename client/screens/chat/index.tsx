@@ -11,6 +11,7 @@ import {
   ScrollView,
   Modal,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
@@ -27,7 +28,7 @@ import {
 } from './components';
 import { ChatProvider, useChat } from './contexts/ChatContext';
 import { DEFAULT_ROLES } from './constants/roles';
-import { isDebugModeEnabled } from './utils/debugMode';
+import { isDebugModeEnabled, shouldRenderChangeSystemCard } from './utils/debugMode';
 
 const STATE_ENTRIES = ['我很累', '我很乱', '我很烦', '我很空', '说不清'];
 
@@ -282,7 +283,7 @@ function ChatContent() {
       />
 
       {/* FlowContext 状态变化卡片 - 仅在 Debug 模式显示 */}
-      {debugMode && <ChangeSystemCard data={changeSystemData} />}
+      {shouldRenderChangeSystemCard(Platform.OS, typeof window !== 'undefined' ? window.location.search : '', !!changeSystemData) && <ChangeSystemCard data={changeSystemData} />}
 
       {/* 切换提示 */}
       {switchNotice && (
