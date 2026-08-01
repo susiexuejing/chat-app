@@ -1,0 +1,65 @@
+From c143e238690a11ec1ede5a254d1c60d10f5d8bfc Mon Sep 17 00:00:00 2001
+From: susiexuejing <susiexuejing@example.com>
+Date: Sat, 1 Aug 2026 16:08:47 +0800
+Subject: [PATCH] feat(em-46): hide internal flow and confidence fields in
+ normal user mode
+
+- Add debugMode state (default false) controlled by URL parameter ?debug=true
+- Only enable debug mode on Web environment with exact match 'debug=true'
+- ChangeSystemCard only renders when debugMode is true
+- Normal mode: no internal fields visible (flowType, flowStage, confidence, etc.)
+- Debug mode: preserve existing ChangeSystemCard content for debugging
+- No changes to backend, API, Prompt, or other personas
+- No changes to EM-44 (bfb6882) or EM-45 (0051abb) commits
+
+Files modified:
+- client/screens/chat/index.tsx (add debugMode state and URL parameter check)
+---
+ client/screens/chat/index.tsx | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/client/screens/chat/index.tsx b/client/screens/chat/index.tsx
+index 64d1691..054f1f9 100644
+--- a/client/screens/chat/index.tsx
++++ b/client/screens/chat/index.tsx
+@@ -11,6 +11,7 @@ import {
+   ScrollView,
+   Modal,
+   ActivityIndicator,
++  Platform,
+ } from 'react-native';
+ import { Ionicons } from '@expo/vector-icons';
+ import { Screen } from '@/components/Screen';
+@@ -53,6 +54,16 @@ function ChatContent() {
+   const [roleDetailVisible, setRoleDetailVisible] = useState(false);
+   const [rolePickerVisible, setRolePickerVisible] = useState(false);
+   const [showHistory, setShowHistory] = useState(false);
++  const [debugMode, setDebugMode] = useState(false);
++
++  // EM-46: 检查 URL 参数 ?debug=true 以启用 Debug 模式
++  // eslint-disable-next-line react-hooks/exhaustive-deps
++  useEffect(() => {
++    if (Platform.OS === 'web' && typeof window !== 'undefined') {
++      const params = new URLSearchParams(window.location.search);
++      setDebugMode(params.get('debug') === 'true');
++    }
++  }, []);
+ 
+   // FlowContext 状态卡：从实时 flowContext 计算
+   const buildChangeSystemData = useCallback(() => {
+@@ -272,8 +283,10 @@ function ChatContent() {
+         hasHistory={sessions.length > 0}
+       />
+ 
+-      {/* FlowContext 状态变化卡片 */}
+-      <ChangeSystemCard data={changeSystemData} />
++      {/* FlowContext 状态变化卡片 - 仅在 Debug 模式显示 */}
++      {debugMode && changeSystemData && (
++        <ChangeSystemCard data={changeSystemData} />
++      )}
+ 
+       {/* 切换提示 */}
+       {switchNotice && (
+-- 
+2.43.0
+

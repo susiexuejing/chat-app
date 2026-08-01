@@ -1,0 +1,1453 @@
+From 0051abb8ce778cf6f5b4971c5ac8c38b012bdc07 Mon Sep 17 00:00:00 2001
+From: susiexuejing <susiexuejing@example.com>
+Date: Sat, 1 Aug 2026 11:06:47 +0800
+Subject: [PATCH] =?UTF-8?q?feat(EM-45):=20=E5=AE=9E=E7=8E=B0=E5=89=8D?=
+ =?UTF-8?q?=E4=B8=A4=E8=BD=AE=E5=AF=B9=E8=AF=9D=E9=AB=98=E4=BC=98=E5=85=88?=
+ =?UTF-8?q?=E7=BA=A7=E8=A7=84=E5=88=99?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 前端新增独立 conversationId 状态，使用 crypto.randomUUID() 生成
+- 后端添加 conversationTurns Map 维护对话轮数，30分钟 TTL 自动清理
+- 第 1、2 轮拼接 FIRST_TWO_ROUNDS_RULES，第 3 轮及以后完全不拼接
+- 规则位于所有行为和分析任务之后、JSON 输出格式之前
+- 创建 EM-46 Ticket 文档（userId 稳定性问题）
+
+Coze-Commit-Type: user
+Coze-User-ID: 2455661872954464
+Coze-Conversation-ID: 4302554
+---
+ client/screens/chat/api/cozeApi.ts           |  28 +-
+ client/screens/chat/contexts/ChatContext.tsx |  23 +-
+ server/auto/data/userChangeData.json         |  96 +++
+ server/data/neural_profiles.json             | 140 ++++
+ server/src/index.ts                          | 838 +++----------------
+ server/src/roles/psychologistRoles.ts        |  30 +-
+ 6 files changed, 418 insertions(+), 737 deletions(-)
+
+diff --git a/client/screens/chat/api/cozeApi.ts b/client/screens/chat/api/cozeApi.ts
+index 76804ef..7fa030a 100644
+--- a/client/screens/chat/api/cozeApi.ts
++++ b/client/screens/chat/api/cozeApi.ts
+@@ -11,14 +11,10 @@ import { Platform } from 'react-native';
+ // 获取后端地址 - 尝试多个可能的地址
+ function getBackendUrl(): string {
+   // 1. 优先使用环境变量
+-  if (Constants.expoConfig?.extra?.backendBaseUrl) {
+-    return Constants.expoConfig.extra.backendBaseUrl;
++  if (Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL) {
++    return Constants.expoConfig.extra.EXPO_PUBLIC_BACKEND_BASE_URL;
+   }
+-  // 2. Web 端使用相对路径（同域部署）
+-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+-    return ''; // 空字符串表示使用相对路径
+-  }
+-  // 3. 尝试从 window.location 获取当前域名（原生端备用）
++  // 2. 尝试从 window.location 获取当前域名
+   if (typeof window !== 'undefined' && window.location?.hostname) {
+     const protocol = window.location.protocol;
+     const hostname = window.location.hostname;
+@@ -27,12 +23,8 @@ function getBackendUrl(): string {
+     if (knownDomains.includes(hostname)) {
+       return `${protocol}//${hostname}`;
+     }
+-    // 支持 dev.coze.site 子域名
+-    if (hostname.endsWith('.dev.coze.site')) {
+-      return `${protocol}//${hostname}`;
+-    }
+   }
+-  // 4. 默认 localhost
++  // 3. 默认 localhost
+   return 'http://localhost:9091';
+ }
+ 
+@@ -264,13 +256,21 @@ export interface ChatStartResponse {
+ /**
+  * 接口 1：即时返回前端流
+  * POST /api/v1/chat/start
++ * 
++ * @param roleId - 角色 ID
++ * @param message - 用户消息
++ * @param conversationId - 对话 ID（用于后端维护轮数）
+  */
+-export async function chatStart(roleId: string, message: string): Promise<ChatStartResponse> {
++export async function chatStart(
++  roleId: string,
++  message: string,
++  conversationId?: string
++): Promise<ChatStartResponse> {
+   const BASE = getBackendUrl();
+   const response = await fetch(`${BASE}/api/v1/chat/start`, {
+     method: 'POST',
+     headers: { 'Content-Type': 'application/json' },
+-    body: JSON.stringify({ roleId, message }),
++    body: JSON.stringify({ roleId, message, conversationId }),
+   });
+   if (!response.ok) {
+     const text = await response.text().catch(() => '');
+diff --git a/client/screens/chat/contexts/ChatContext.tsx b/client/screens/chat/contexts/ChatContext.tsx
+index 3d01c24..edec2ea 100644
+--- a/client/screens/chat/contexts/ChatContext.tsx
++++ b/client/screens/chat/contexts/ChatContext.tsx
+@@ -10,6 +10,18 @@ import React, {
+ import { getRoleById, roles, PsychologistRole } from '../constants/roles';
+ import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
+ 
++/**
++ * 生成唯一的 conversationId
++ * 优先使用 crypto.randomUUID()，如不支持则使用兼容方案
++ */
++function generateConversationId(): string {
++  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
++    return `conv_${crypto.randomUUID()}`;
++  }
++  // 兼容方案：时间戳 + 随机字符串
++  return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${Math.random().toString(36).substr(2, 9)}`;
++}
++
+ 
+ interface ChatMessage {
+   id: string;
+@@ -63,6 +75,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
+   const [messages, setMessages] = useState<ChatMessage[]>([]);
+   const [sessions, setSessions] = useState<ChatSession[]>([]);
+   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
++  // EM-45: 独立的 conversationId，用于后端维护对话轮数
++  const [conversationId, setConversationId] = useState<string>(() => generateConversationId());
+   const [currentRole, setCurrentRole] = useState<(typeof roles)[0]>(roles[0]);
+   const [isLoading, setIsLoading] = useState(false);
+   const [isThinking, setIsThinking] = useState(false);
+@@ -83,6 +97,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
+   const createNewChat = useCallback((role?: PsychologistRole) => {
+     setMessages([]);
+     setCurrentSessionId(null);
++    // EM-45: 生成新的 conversationId，开始新的对话轮数计数
++    setConversationId(generateConversationId());
+     setError(null);
+     setIsLoading(false);
+     setIsThinking(false);
+@@ -135,9 +151,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
+ 
+       try {
+         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
++        // EM-45: 传递 conversationId 用于后端维护对话轮数
+         const sessionInfo = await chatStart(
+           currentRole.id,
+-          userMessage
++          userMessage,
++          conversationId
+         );
+ 
+         const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
+@@ -424,7 +442,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
+         setIsThinking(false);
+       }
+     },
+-    [currentRole, currentSessionId]
++    // EM-45: 添加 conversationId 到依赖数组
++    [currentRole, currentSessionId, conversationId]
+   );
+ 
+   const currentSession = sessions.find(s => s.id === currentSessionId);
+diff --git a/server/auto/data/userChangeData.json b/server/auto/data/userChangeData.json
+index 9b52083..71d5cf4 100644
+--- a/server/auto/data/userChangeData.json
++++ b/server/auto/data/userChangeData.json
+@@ -8133,5 +8133,101 @@
+       "isTransitioning": false,
+       "trajectoryLength": 1
+     }
++  },
++  "anon_1785553207911_jnqvid::clever-fox": {
++    "history": {
++      "userId": "anon_1785553207911_jnqvid",
++      "roleId": "clever-fox",
++      "snapshots": [],
++      "updatedAt": 1785553207917
++    },
++    "lastFlowResult": {
++      "position": {
++        "cognition": -0.62,
++        "attribution": 0,
++        "agency": 0,
++        "abstraction": 0,
++        "rawText": "谢谢你的关心，我最近工作压力很大"
++      },
++      "status": "flowing",
++      "matches": [],
++      "primaryFlow": null,
++      "secondaryFlow": null,
++      "isMixed": false,
++      "isTransitioning": false,
++      "trajectoryLength": 1
++    }
++  },
++  "anon_1785553214386_wvpaje::clever-fox": {
++    "history": {
++      "userId": "anon_1785553214386_wvpaje",
++      "roleId": "clever-fox",
++      "snapshots": [],
++      "updatedAt": 1785553214391
++    },
++    "lastFlowResult": {
++      "position": {
++        "cognition": -0.91,
++        "attribution": 0,
++        "agency": 0,
++        "abstraction": 3,
++        "rawText": "我觉得自己总是追求完美"
++      },
++      "status": "flowing",
++      "matches": [],
++      "primaryFlow": null,
++      "secondaryFlow": null,
++      "isMixed": false,
++      "isTransitioning": false,
++      "trajectoryLength": 1
++    }
++  },
++  "anon_1785553479864_0vyumo::clever-fox": {
++    "history": {
++      "userId": "anon_1785553479864_0vyumo",
++      "roleId": "clever-fox",
++      "snapshots": [],
++      "updatedAt": 1785553479869
++    },
++    "lastFlowResult": {
++      "position": {
++        "cognition": -0.62,
++        "attribution": 0,
++        "agency": 0,
++        "abstraction": 0,
++        "rawText": "谢谢你的关心，我最近工作压力很大"
++      },
++      "status": "flowing",
++      "matches": [],
++      "primaryFlow": null,
++      "secondaryFlow": null,
++      "isMixed": false,
++      "isTransitioning": false,
++      "trajectoryLength": 1
++    }
++  },
++  "anon_1785553484888_4kdf41::clever-fox": {
++    "history": {
++      "userId": "anon_1785553484888_4kdf41",
++      "roleId": "clever-fox",
++      "snapshots": [],
++      "updatedAt": 1785553484890
++    },
++    "lastFlowResult": {
++      "position": {
++        "cognition": -0.91,
++        "attribution": 0,
++        "agency": 0,
++        "abstraction": 3,
++        "rawText": "我觉得自己总是追求完美"
++      },
++      "status": "flowing",
++      "matches": [],
++      "primaryFlow": null,
++      "secondaryFlow": null,
++      "isMixed": false,
++      "isTransitioning": false,
++      "trajectoryLength": 1
++    }
+   }
+ }
+\ No newline at end of file
+diff --git a/server/data/neural_profiles.json b/server/data/neural_profiles.json
+index aec54d0..68f7e2e 100644
+--- a/server/data/neural_profiles.json
++++ b/server/data/neural_profiles.json
+@@ -2405,5 +2405,145 @@
+     },
+     "createdAt": 1785373108039,
+     "updatedAt": 1785373108039
++  },
++  "anon_1785553202440_1vig8h::clever-fox": {
++    "userId": "anon_1785553202440_1vig8h",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553202440
++    },
++    "createdAt": 1785553202440,
++    "updatedAt": 1785553202440
++  },
++  "anon_1785553207911_jnqvid::clever-fox": {
++    "userId": "anon_1785553207911_jnqvid",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553207911
++    },
++    "createdAt": 1785553207911,
++    "updatedAt": 1785553207911
++  },
++  "anon_1785553214386_wvpaje::clever-fox": {
++    "userId": "anon_1785553214386_wvpaje",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553214386
++    },
++    "createdAt": 1785553214386,
++    "updatedAt": 1785553214386
++  },
++  "anon_1785553471038_4874w6::clever-fox": {
++    "userId": "anon_1785553471038_4874w6",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553471039
++    },
++    "createdAt": 1785553471039,
++    "updatedAt": 1785553471039
++  },
++  "anon_1785553479864_0vyumo::clever-fox": {
++    "userId": "anon_1785553479864_0vyumo",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553479864
++    },
++    "createdAt": 1785553479864,
++    "updatedAt": 1785553479864
++  },
++  "anon_1785553484888_4kdf41::clever-fox": {
++    "userId": "anon_1785553484888_4kdf41",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553484888
++    },
++    "createdAt": 1785553484888,
++    "updatedAt": 1785553484888
++  },
++  "anon_1785553494377_0kvd4u::clever-fox": {
++    "userId": "anon_1785553494377_0kvd4u",
++    "roleId": "clever-fox",
++    "attentionBias": "default",
++    "valueBias": "default",
++    "influenceLog": [],
++    "longTermChangeLog": [],
++    "subconscious": {
++      "analyticalDepth": 0.4,
++      "emotionalSupport": 0.5,
++      "actionGuidance": 0.3,
++      "reflectiveSpace": 0.4,
++      "totalInteractions": 0,
++      "dominantEmotions": [],
++      "recentTopics": [],
++      "lastUpdated": 1785553494377
++    },
++    "createdAt": 1785553494377,
++    "updatedAt": 1785553494377
+   }
+ }
+\ No newline at end of file
+diff --git a/server/src/index.ts b/server/src/index.ts
+index 3fcefbe..177ee6f 100644
+--- a/server/src/index.ts
++++ b/server/src/index.ts
+@@ -19,10 +19,8 @@ import { analyzeFlow, recordChange, getChangeBlock, getChangeTrends } from './fl
+ import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
+ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
+ import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
+-import { createPredictionMemory, validateConcernCandidate, readPredictions, updatePredictionMemory } from './flows/predictionMemory';
+-import type { ConcernCandidate } from './flows/predictionMemory';
+-import { calculateStageFromData, generateStageContextPrompt } from './flows/conversationStage';
+-import type { ConversationStage } from './flows/conversationStage';
++// EM-45: 导入前两轮规则生成函数
++import { getFirstTwoRoundsRules } from './roles/psychologistRoles';
+ 
+ // 调试：打印环境变量
+ console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
+@@ -95,6 +93,9 @@ interface ChatSession {
+   neuralProfile: NeuralProfile; // 当前用户神经状态
+   flowResult: FlowResult | null; // Flow System 心理流向分析结果
+   flowContext: FlowContext | null; // Step1: 结构化 FlowContext（用于 Deep prompt）
++  // EM-45: 对话轮数相关
++  conversationId: string;       // 对话 ID（用于维护轮数）
++  userTurn: number;             // 当前对话轮数（从 1 开始）
+ }
+ 
+ const sessions = new Map<string, ChatSession>();
+@@ -111,6 +112,70 @@ setInterval(() => {
+   }
+ }, 60 * 1000);
+ 
++// ============================================================
++// EM-45: 对话轮数管理
++// 用于维护每个 conversationId 的对话轮数
++// ============================================================
++
++interface ConversationTurnInfo {
++  turnCount: number;
++  lastActiveAt: number;  // 最后活跃时间，用于 TTL 清理
++}
++
++const conversationTurns = new Map<string, ConversationTurnInfo>();
++
++// conversationTurns 的 TTL：30 分钟（比 ChatSession 长，因为用户可能间隔较长）
++const CONVERSATION_TURN_TTL_MS = 30 * 60 * 1000;
++
++// 定期清理过期的 conversationTurns
++setInterval(() => {
++  const now = Date.now();
++  for (const [id, info] of conversationTurns) {
++    if (now - info.lastActiveAt > CONVERSATION_TURN_TTL_MS) {
++      conversationTurns.delete(id);
++      console.log(`[EM-45] Cleaned up expired conversationTurn: ${id}`);
++    }
++  }
++}, 60 * 1000); // 每分钟清理一次
++
++/**
++ * 获取或创建 conversationTurn 信息
++ * @param conversationId 对话 ID
++ * @returns 当前轮数信息
++ */
++function getOrCreateConversationTurn(conversationId: string): ConversationTurnInfo {
++  let info = conversationTurns.get(conversationId);
++  if (!info) {
++    info = { turnCount: 0, lastActiveAt: Date.now() };
++    conversationTurns.set(conversationId, info);
++    console.log(`[EM-45] Created new conversationTurn: ${conversationId}`);
++  }
++  return info;
++}
++
++/**
++ * 增加对话轮数并返回新的轮数
++ * @param conversationId 对话 ID
++ * @returns 新的轮数（从 1 开始）
++ */
++function incrementConversationTurn(conversationId: string): number {
++  const info = getOrCreateConversationTurn(conversationId);
++  info.turnCount += 1;
++  info.lastActiveAt = Date.now();
++  console.log(`[EM-45] Incremented turn for ${conversationId}: turnCount = ${info.turnCount}`);
++  return info.turnCount;
++}
++
++/**
++ * 获取当前对话轮数（不增加）
++ * @param conversationId 对话 ID
++ * @returns 当前轮数，如果不存在返回 0
++ */
++function getConversationTurn(conversationId: string): number {
++  const info = conversationTurns.get(conversationId);
++  return info ? info.turnCount : 0;
++}
++
+ // ============================================================
+ // 角色名称映射
+ // ============================================================
+@@ -125,8 +190,19 @@ const ROLE_NAMES: Record<string, string> = {
+ 
+ // ============================================================
+ // 角色 system prompt 构建（用于百炼）
++// EM-45: 添加 userTurn 参数，用于条件拼接前两轮规则
+ // ============================================================
+-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, stageContext?: string): string {
++function buildDeepSystemPrompt(
++  roleId: string,
++  roleName: string,
++  frontFlowText: string,
++  neuralProfile?: NeuralProfile,
++  flowResult?: FlowResult | null,
++  changeBlock?: string,
++  flowContext?: FlowContext | null,
++  longTermSummary?: string,
++  userTurn?: number  // EM-45: 对话轮数
++): string {
+   let flowBlock = '';
+   if (flowResult) {
+     const pos = flowResult.position;
+@@ -162,7 +238,8 @@ function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText:
+     flowBlock = '\n' + lines.join('\n') + '\n';
+   }
+ 
+-  return `你是「${roleName}」。
++  // 构建基础 prompt
++  let prompt = `你是「${roleName}」。
+ 
+ ${getRoleStyle(roleId)}
+ 
+@@ -173,7 +250,6 @@ ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
+ ${longTermSummary ? `\n${longTermSummary}\n` : ''}
+ ${flowBlock}
+ ${changeBlock || ''}
+-${stageContext || ''}
+ 请严格遵守：
+ - 不要重复以上前置陪伴内容
+ - 不要输出 JSON
+@@ -182,21 +258,17 @@ ${stageContext || ''}
+ - 从更深一层的分析开始
+ - 回复长度控制在 150 字以内，精简有力
+ 
+-${longTermSummary && longTermSummary.includes('你观察到的模式') ? `
+-关于长期模式的使用（重要）：
+-- 如果你在"Long-Term Understanding"中看到"你观察到的模式"，这说明你对这个用户有长期观察
+-- 当用户当前状态与观察到的模式相关时，你可以自然地提及这种模式，例如：
+-  * "我注意到，好像每当...的时候，你似乎容易..."
+-  * "这和之前你遇到类似情况时有一点相似..."
+-  * "你的大脑可能正在尝试..."
+-- 不要直接说"根据你的心理模型"或"你的核心问题是"
+-- 不要使用心理诊断语言
+-- 用"我注意到"、"好像"、"似乎"等柔和的表达方式
+-- 如果看到"可能的内在预测"，可以用"你的大脑可能正在尝试提前预测某种风险..."这样的表达
+-- 如果看到"可能有帮助的方向"，可以在合适的时候轻轻提出一个小建议
+-` : ''}
+-
+-请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
++`;
++
++  // EM-45: 第 1、2 轮拼接前两轮规则，第 3 轮及以后完全不拼接
++  if (userTurn !== undefined && userTurn >= 1 && userTurn <= 2) {
++    prompt += `${getFirstTwoRoundsRules(userTurn)}\n\n`;
++    console.log(`[EM-45] Injecting FIRST_TWO_ROUNDS_RULES for userTurn=${userTurn}`);
++  }
++
++  prompt += `请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
++
++  return prompt;
+ }
+ 
+ function getRoleStyle(roleId: string): string {
+@@ -1026,140 +1098,6 @@ async function callDashScope(
+ // ============================================================
+ // 后端异步调用百炼（实时流式推送chunk到session）
+ // ============================================================
+-
+-// ============================================================
+-// Concern Extraction（从用户消息中提取 concern）
+-// ============================================================
+-
+-/**
+- * 从用户消息中提取 Concern Candidate
+- * concern 必须来自用户消息，不能由 AI 生成
+- */
+-async function extractConcernFromUserMessage(
+-  userMessage: string,
+-  flowContext: FlowContext
+-): Promise<ConcernCandidate | null> {
+-  // 1. 关键词匹配
+-  const hasConcernKeywords = /我担心 | 我怕 | 如果.*怎么办 | 万一 | 好怕 | 害怕/.test(userMessage);
+-  if (!hasConcernKeywords) {
+-    return null;
+-  }
+-
+-  // 2. 情绪强度判断（必须 > 0.7）
+-  if (flowContext.emotionIntensity <= 0.7) {
+-    return null;
+-  }
+-
+-  // 3. 检查结果是否已知
+-  const isAlreadyResolved = /但是 | 最后 | 结果 | 已经 | 后来/.test(userMessage);
+-  if (isAlreadyResolved) {
+-    return null;
+-  }
+-
+-  // 4. 从用户消息提取 concern
+-  const concern = extractConcernText(userMessage);
+-  if (!concern) {
+-    return null;
+-  }
+-
+-  return {
+-    concern,
+-    concernSource: 'user_message',
+-    emotion: flowContext.userState,
+-    intensity: flowContext.emotionIntensity,
+-  };
+-}
+-
+-/**
+- * 从用户消息中提取 concern 文本
+- */
+-
+-// ============================================================
+-// Outcome Capture（从用户消息中提取 outcome）
+-// ============================================================
+-
+-/**
+- * 检测用户消息是否包含 outcome
+- */
+-async function detectOutcomeCandidate(
+-  userMessage: string,
+-  pendingPredictions: PredictionMemory[]
+-): Promise<{ prediction: PredictionMemory; outcome: string } | null> {
+-  if (pendingPredictions.length === 0) {
+-    return null;
+-  }
+-
+-  // 1. 用户主动引用
+-  const activeRef = detectActiveReference(userMessage, pendingPredictions);
+-  if (activeRef) {
+-    return { prediction: activeRef, outcome: userMessage };
+-  }
+-
+-  // 2. 语义匹配
+-  for (const prediction of pendingPredictions) {
+-    const similarity = calculateSemanticSimilarity(userMessage, prediction.concern);
+-    if (similarity > 0.6) {
+-      return { prediction, outcome: userMessage };
+-    }
+-  }
+-
+-  return null;
+-}
+-
+-function detectActiveReference(
+-  userMessage: string,
+-  predictions: PredictionMemory[]
+-): PredictionMemory | null {
+-  const referenceKeywords = ['上次', '之前', '那个', '担心', '汇报', '朋友'];
+-  
+-  for (const prediction of predictions) {
+-    for (const keyword of referenceKeywords) {
+-      if (userMessage.includes(keyword) && prediction.concern.includes(keyword)) {
+-        return prediction;
+-      }
+-    }
+-  }
+-  
+-  return null;
+-}
+-
+-function calculateSemanticSimilarity(text1: string, text2: string): number {
+-  const words1 = text1.split('');
+-  const words2 = text2.split('');
+-  const commonWords = words1.filter(w => words2.includes(w));
+-  return commonWords.length / Math.max(words1.length, words2.length);
+-}
+-
+-function isOutcomeConfirmation(userMessage: string): boolean {
+-  const keywords = ['是的', '对', '没错', '确实', '后来', '结果', '最后'];
+-  return keywords.some(kw => userMessage.includes(kw));
+-}
+-
+-function isOutcomeCorrection(userMessage: string): boolean {
+-  const keywords = ['不是', '不对', '错了', '我的意思是'];
+-  return keywords.some(kw => userMessage.includes(kw));
+-}
+-
+-function extractConcernText(userMessage: string): string | null {
+-  // 使用 Unicode 转义避免空格问题
+-  const match = userMessage.match(/\u6211\u62C5\u5FC3(.+)/);  // 我担心 (.+)
+-  if (match && match[1]) {
+-    return match[1].trim();
+-  }
+-
+-  const match2 = userMessage.match(/\u6211\u6015(.+)/);  // 我怕 (.+)
+-  if (match2 && match2[1]) {
+-    return match2[1].trim();
+-  }
+-
+-  const ifMatch = userMessage.match(/\u5982\u679C(.+)\u600E\u4E48\u529E/);  // 如果 XXX 怎么办
+-  if (ifMatch && ifMatch[1]) {
+-    return ifMatch[1].trim();
+-  }
+-
+-  return null;
+-}
+-
+ async function startDeepAnalysis(session: ChatSession): Promise<void> {
+   const apiKey = API_KEY_LIGHT;
+   console.log(`[Deep] startDeepAnalysis called for session ${session.sessionId}, apiKey=${apiKey ? 'SET' : 'NOT SET'}`);
+@@ -1176,14 +1114,18 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
+     // Load long-term understanding for this user+role
+     const ltuProfile = await loadProfile(session.userId, session.roleId);
+     const longTermSummary = generateLTUSummary(ltuProfile);
+-    console.log(`[Deep] LTU Summary for ${session.userId}:`, longTermSummary ? longTermSummary.substring(0, 500) : '(empty)');
+-    
+-    // Calculate Conversation Stage
+-    const stageResult = calculateStageFromData(session.userId, session.roleId, ltuProfile);
+-    const stageContext = generateStageContextPrompt(stageResult.stage, ltuProfile);
+-    console.log(`[Deep] Conversation Stage: ${stageResult.stage} (${stageResult.label})`);
+-    
+-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, stageContext);
++    // EM-45: 传递 userTurn 用于条件拼接前两轮规则
++    const systemPrompt = buildDeepSystemPrompt(
++      session.roleId,
++      session.roleName,
++      session.frontFlowText,
++      session.neuralProfile,
++      session.flowResult,
++      changeBlock,
++      session.flowContext,
++      longTermSummary,
++      session.userTurn
++    );
+     const deepMessages = [
+       { role: 'system', content: systemPrompt },
+       { role: 'user', content: session.userMessage },
+@@ -1293,7 +1235,6 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
+     if (cleaned.trim()) {
+       session.deepChunks.push(cleaned);
+       console.log(`[Deep] Cleaned content: ${cleaned.length} chars (raw: ${deepContentBuffer.length} chars)`);
+-      console.log(`[Deep] Content preview: ${cleaned.substring(0, 200)}...`);
+     } else if (deepContentBuffer.trim()) {
+       // 🛡️ 极兜底：清洗返回空但原始内容不为空 → 截取最后300字
+       const last300 = deepContentBuffer.slice(-300).trim();
+@@ -1334,8 +1275,6 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
+         eventTag: session.eventTag,
+         flowType: session.flowContext?.flowType,
+         flowStage: session.flowContext?.flowStage,
+-        flowStrength: session.flowContext?.flowStrength,
+-        flowConfidence: session.flowContext?.flowConfidence,
+         deepSummary: cleaned,
+       });
+     } catch (ltuErr) {
+@@ -1398,33 +1337,6 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
+ 
+         console.log(`[Evolution] ${session.roleId}[${session.userId}] weights updated: ${result.trigger.factor} (${result.trigger.detail.slice(0, 80)})`);
+       } catch (e) { /* evolution experiment */ }
+-
+-    // ============================================================
+-    // Concern Extraction（从用户消息中提取 concern）
+-    // ============================================================
+-    try {
+-      const concernCandidate = await extractConcernFromUserMessage(
+-        session.lastUserMessage || session.originalMessage || '',
+-        session.flowContext || { emotionIntensity: 0, userState: 'neutral' }
+-      );
+-
+-      if (concernCandidate) {
+-        const isValid = validateConcernCandidate(concernCandidate);
+-        if (isValid) {
+-          const prediction = createPredictionMemory(
+-            concernCandidate,
+-            session.userId,
+-            session.roleId,
+-            session.sessionId,
+-            session.flowContext?.flowType || 'unknown'
+-          );
+-          console.log(`[PredictionMemory] Created: ${prediction.id} - ${prediction.concern}`);
+-        }
+-      }
+-    } catch (e) {
+-      console.error(`[PredictionMemory] Concern extraction error:`, e);
+-    }
+-
+     }
+ 
+   } catch (error) {
+@@ -1463,8 +1375,6 @@ function buildFlowContext(state: string, emotionTag: string, eventTag: string, k
+     if (emotionTag === 'loneliness' || eventTag === 'loneliness_event') return 'attachment_anxiety';
+     // 迷茫 → analysis_to_feeling
+     if (emotionTag === 'confusion') return 'analysis_to_feeling';
+-    // 正向状态：满足、幸福、放松
+-    if (state === 'positive_state') return 'positive_state';
+     return 'general_flow';
+   })();
+ 
+@@ -1482,9 +1392,7 @@ function buildFlowContext(state: string, emotionTag: string, eventTag: string, k
+     (state === 'relationship_conflict' && (eventTag === 'relationship_conflict' || eventTag === 'family_issue'))
+   );
+   const lengthFactor = Math.min(keywords.join('').length / 30, 0.3);
+-  // 正向状态使用较低的强度（不是"问题"流向）
+-  const baseStrength = state === 'positive_state' ? 0.2 : (isExactEmotion ? 0.5 : 0.3);
+-  const flowStrength = Math.min(baseStrength + lengthFactor, 0.9);
++  const flowStrength = Math.min((isExactEmotion ? 0.5 : 0.3) + lengthFactor, 0.9);
+ 
+   // 4) flowConfidence
+   const flowConfidence = isExactEmotion ? 0.6 + lengthFactor : 0.35 + lengthFactor;
+@@ -1706,8 +1614,14 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
+ // ============================================================
+ app.post('/api/v1/chat/start', async (req, res) => {
+   try {
+-    const { roleId, message, userId: reqUserId } = req.body;
++    const { roleId, message, userId: reqUserId, conversationId: reqConversationId } = req.body;
+     const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
++    
++    // EM-45: 处理 conversationId 和对话轮数
++    // 如果前端没有传递 conversationId，生成一个临时的
++    const conversationId = reqConversationId || `conv_temp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
++    // 增加对话轮数（第一次调用时为 1）
++    const userTurn = incrementConversationTurn(conversationId);
+ 
+     if (!roleId || !message) {
+       return res.status(400).json({ error: 'roleId and message are required' });
+@@ -1762,15 +1676,10 @@ app.post('/api/v1/chat/start', async (req, res) => {
+       // 3.5 生成结构化 FlowContext（替代纯文本 frontFlowText 注入 Deep prompt）
+       flowContext = buildFlowContext(state, emotionTag, eventTag, keywords);
+ 
+-      // 3.6 计算 Conversation Stage（用于 Reaction/Companion/Deep 三层）
+-      const ltuProfile = loadProfile(userId, roleId);
+-      const stageResult = calculateStageFromData(userId, roleId, ltuProfile);
+-      console.log(`[Stage] Conversation Stage: ${stageResult.stage} (${stageResult.label})`);
+-
+       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
+       const signal = extractSignal(message);
+-      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal, stageResult.stage);
+-      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal, stageResult.stage);
++      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal);
++      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal);
+       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
+       companionLayer = companionTimeline[0]?.text || frontFlowText;
+ 
+@@ -1804,6 +1713,9 @@ app.post('/api/v1/chat/start', async (req, res) => {
+       deepError: null,
+       flowResult: null,
+       flowContext,
++      // EM-45: 对话轮数相关
++      conversationId,
++      userTurn,
+     };
+     sessions.set(sessionId, session);
+ 
+@@ -1851,39 +1763,6 @@ app.post('/api/v1/chat/start', async (req, res) => {
+         session.flowResult = null;
+       }
+ 
+-      // 7b. Outcome Capture（检测用户消息是否包含 outcome）
+-      try {
+-        const pendingPredictions = readPredictions(userId, roleId).filter(p => p.status === 'pending' || p.status === 'outcome_candidate');
+-        
+-        if (pendingPredictions.length > 0) {
+-          const outcomeMatch = await detectOutcomeCandidate(message, pendingPredictions);
+-          
+-          if (outcomeMatch) {
+-            // 进入 outcome_candidate 状态
+-            await updatePredictionMemory(userId, roleId, outcomeMatch.prediction.id, {
+-              status: 'outcome_candidate',
+-              outcomeCandidate: outcomeMatch.outcome,
+-              outcomeCandidateTime: Date.now(),
+-            });
+-            console.log(`[Outcome] Detected candidate for prediction ${outcomeMatch.prediction.id}: ${outcomeMatch.outcome.substring(0, 50)}...`);
+-            
+-            // 检查用户是否确认 outcome
+-            if (isOutcomeConfirmation(message)) {
+-              await updatePredictionMemory(userId, roleId, outcomeMatch.prediction.id, {
+-                status: 'resolved',
+-                outcome: outcomeMatch.outcome,
+-                outcomeTime: Date.now(),
+-                resolvedAt: Date.now(),
+-              });
+-              console.log(`[Outcome] Confirmed and resolved prediction ${outcomeMatch.prediction.id}`);
+-            }
+-          }
+-        }
+-      } catch (outcomeErr) {
+-        console.error(`[Outcome] Capture error:`, outcomeErr);
+-      }
+-
+-
+       startDeepAnalysis(session).catch(err => {
+         console.error(`[Deep] Session ${sessionId} error:`, err);
+         session.deepError = err instanceof Error ? err.message : 'Unknown error';
+@@ -2003,217 +1882,6 @@ app.get('/api/v1/chat/stream', (req, res) => {
+   });
+ });
+ 
+-// ============================================================
+-// Feedback API: 记录用户对 Deep Response 的反馈
+-// ============================================================
+-app.post('/api/v1/feedback/response', async (req, res) => {
+-  const { userId, roleId, patternId, responseStrategy, emotionalChange, helpful, userComment } = req.body;
+-
+-  if (!userId || !roleId || !patternId) {
+-    return res.status(400).json({ error: 'Missing required fields: userId, roleId, patternId' });
+-  }
+-
+-  if (emotionalChange === undefined || typeof emotionalChange !== 'number') {
+-    return res.status(400).json({ error: 'emotionalChange must be a number between -2 and 2' });
+-  }
+-
+-  if (emotionalChange < -2 || emotionalChange > 2) {
+-    return res.status(400).json({ error: 'emotionalChange must be between -2 and 2' });
+-  }
+-
+-  if (typeof helpful !== 'boolean') {
+-    return res.status(400).json({ error: 'helpful must be a boolean' });
+-  }
+-
+-  try {
+-    const { loadProfile, saveProfile, recordResponseFeedback } = await import('./flows/longTermUnderstanding.js');
+-    const profile = await loadProfile(userId, roleId);
+-    
+-    const feedback = {
+-      patternId,
+-      responseStrategy: responseStrategy || '',
+-      emotionalChange,
+-      helpful,
+-      userComment,
+-      timestamp: Date.now(),
+-    };
+-    
+-    recordResponseFeedback(profile, feedback);
+-    await saveProfile(profile);
+-
+-    // Find the updated recovery method effectiveness
+-    const pattern = profile.corePatterns.find(p => p.id === patternId);
+-    let newEffectiveness = null;
+-    let recoveryMethodUpdated = false;
+-    if (pattern && pattern.recoverySuggestion && pattern.recoverySuggestion.length > 0) {
+-      newEffectiveness = pattern.recoverySuggestion[0].effectiveness;
+-      recoveryMethodUpdated = true;
+-    }
+-
+-    res.json({
+-      success: true,
+-      feedbackRecorded: true,
+-      patternId: patternId,
+-      recoveryMethodUpdated: recoveryMethodUpdated,
+-      newEffectiveness: newEffectiveness,
+-      message: 'Feedback recorded successfully',
+-    });
+-  } catch (error) {
+-    console.error('[Feedback] Error recording feedback:', error);
+-    res.status(500).json({ error: 'Failed to record feedback', details: String(error) });
+-  }
+-});
+-
+-// ============================================================
+-// 预测反馈端点：记录用户对 PredictionHypothesis 的反馈
+-// ============================================================
+-app.post('/api/v1/feedback/prediction', async (req, res) => {
+-  const { userId, roleId, patternId, hypothesisIndex, feedbackType, comment } = req.body;
+-
+-  if (!userId || !roleId || !patternId) {
+-    return res.status(400).json({ error: 'Missing required fields: userId, roleId, patternId' });
+-  }
+-
+-  if (hypothesisIndex === undefined || typeof hypothesisIndex !== 'number') {
+-    return res.status(400).json({ error: 'hypothesisIndex must be a number' });
+-  }
+-
+-  if (!['accurate', 'partially_accurate', 'incorrect'].includes(feedbackType)) {
+-    return res.status(400).json({ error: 'feedbackType must be accurate, partially_accurate, or incorrect' });
+-  }
+-
+-  try {
+-    const { recordPredictionFeedback } = await import('./flows/longTermUnderstanding.js');
+-
+-    const result = await recordPredictionFeedback(
+-      userId,
+-      roleId,
+-      patternId,
+-      hypothesisIndex,
+-      feedbackType,
+-      comment
+-    );
+-
+-    res.json({
+-      success: true,
+-      feedbackRecorded: true,
+-      patternId: patternId,
+-      hypothesisIndex: hypothesisIndex,
+-      feedbackType: feedbackType,
+-      updatedConfidence: result.updatedConfidence,
+-      message: 'Prediction feedback recorded successfully',
+-    });
+-  } catch (error) {
+-    console.error('[Prediction Feedback] Error recording feedback:', error);
+-    res.status(500).json({ error: 'Failed to record prediction feedback', details: String(error) });
+-  }
+-});
+-
+-
+-// ============================================================
+-// 预测记忆列表端点（供 My Patterns 展示）
+-// ============================================================
+-app.get('/api/v1/predictions', (req, res) => {
+-  const { userId, roleId, status } = req.query;
+-
+-  if (!userId || !roleId) {
+-    return res.status(400).json({ error: 'Missing required query params: userId, roleId' });
+-  }
+-
+-  try {
+-    const predictions = readPredictions(userId as string, roleId as string);
+-    
+-    // 按状态过滤
+-    let filtered = predictions;
+-    if (status && typeof status === 'string') {
+-      filtered = predictions.filter(p => p.status === status);
+-    }
+-    
+-    // 按时间倒序排列
+-    filtered.sort((a, b) => b.createdAt - a.createdAt);
+-    
+-    res.json({
+-      predictions: filtered,
+-      total: filtered.length,
+-      byStatus: {
+-        candidate: predictions.filter(p => p.status === 'candidate').length,
+-        confirmed: predictions.filter(p => p.status === 'confirmed').length,
+-        pending: predictions.filter(p => p.status === 'pending').length,
+-        outcome_candidate: predictions.filter(p => p.status === 'outcome_candidate').length,
+-        resolved: predictions.filter(p => p.status === 'resolved').length,
+-        archived: predictions.filter(p => p.status === 'archived').length,
+-      }
+-    });
+-  } catch (error) {
+-    console.error('[Predictions] Error reading predictions:', error);
+-    res.status(500).json({ error: 'Failed to read predictions', details: String(error) });
+-  }
+-});
+-
+-// ============================================================
+-// 预测记忆 Outcome 确认/修正端点
+-// ============================================================
+-app.post('/api/v1/prediction/outcome/confirm', async (req, res) => {
+-  const { userId, roleId, predictionId, outcome, correction } = req.body;
+-
+-  if (!userId || !roleId || !predictionId) {
+-    return res.status(400).json({ error: 'Missing required fields: userId, roleId, predictionId' });
+-  }
+-
+-  try {
+-    const predictions = readPredictions(userId, roleId);
+-    const prediction = predictions.find(p => p.id === predictionId);
+-
+-    if (!prediction) {
+-      return res.status(404).json({ error: 'Prediction not found' });
+-    }
+-
+-    if (prediction.status !== 'outcome_candidate') {
+-      return res.status(400).json({ 
+-        error: 'Prediction is not in outcome_candidate state',
+-        currentStatus: prediction.status 
+-      });
+-    }
+-
+-    if (correction) {
+-      // 用户修正：回到 pending
+-      await updatePredictionMemory(userId, roleId, predictionId, {
+-        status: 'pending',
+-        outcomeCandidate: null,
+-        outcomeCandidateTime: null,
+-      });
+-      
+-      res.json({
+-        success: true,
+-        action: 'correction',
+-        predictionId,
+-        newStatus: 'pending',
+-        message: 'Outcome corrected, prediction back to pending state'
+-      });
+-    } else {
+-      // 用户确认：进入 resolved
+-      await updatePredictionMemory(userId, roleId, predictionId, {
+-        status: 'resolved',
+-        outcome: outcome || prediction.outcomeCandidate,
+-        outcomeTime: Date.now(),
+-        resolvedAt: Date.now(),
+-      });
+-      
+-      res.json({
+-        success: true,
+-        action: 'confirmation',
+-        predictionId,
+-        newStatus: 'resolved',
+-        outcome: outcome || prediction.outcomeCandidate,
+-        message: 'Outcome confirmed, prediction resolved'
+-      });
+-    }
+-  } catch (error) {
+-    console.error('[Outcome] Error confirming/correcting outcome:', error);
+-    res.status(500).json({ error: 'Failed to process outcome', details: String(error) });
+-  }
+-});
+-
+ // ============================================================
+ // 调试端点：查看会话状态
+ // ============================================================
+@@ -2228,7 +1896,6 @@ app.get('/api/v1/debug/last-prompt', (_req, res) => {
+     deepReady: s.deepDone || (s.deepChunks.length > 0),
+     deepStreaming: s.deepStreaming,
+     deepError: s.deepError,
+-    deepContent: s.deepChunks.join('').slice(0, 500), // Add deep content for debugging
+     age: Math.floor((Date.now() - s.createdAt) / 1000) + 's',
+   }));
+ 
+@@ -2238,273 +1905,6 @@ app.get('/api/v1/debug/last-prompt', (_req, res) => {
+   });
+ });
+ 
+-// ============================================================
+-// My Patterns - Read Layer API (v3.0 MVP)
+-// ============================================================
+-
+-/**
+- * GET /api/v1/patterns/summary
+- * 一句话总结（带保护机制）
+- * 
+- * 保护条件（全部满足才生成）：
+- * 1. CorePattern 数量 >= 2
+- * 2. 至少一个 CorePattern occurrenceCount >= 3
+- * 3. CorePattern 覆盖至少 2 个不同 triggerCategory
+- * 4. totalInteractions >= 5
+- */
+-app.get('/api/v1/patterns/summary', async (req, res) => {
+-  const { userId, roleId } = req.query;
+-  if (!userId || !roleId) {
+-    return res.status(400).json({ error: 'userId and roleId are required' });
+-  }
+-
+-  const profile = loadProfile(userId as string, roleId as string);
+-  const patterns = profile.corePatterns || [];
+-
+-  // Rule 2: Protection mechanism - check all conditions
+-  const hasEnoughPatterns = patterns.length >= 2;
+-  const hasFrequentPattern = patterns.some(p => p.occurrenceCount >= 3);
+-  const hasMultipleCategories = new Set(patterns.map(p => p.triggerCategory)).size >= 2;
+-  const hasEnoughInteractions = profile.totalInteractions >= 5;
+-
+-  const shouldGenerateSummary = hasEnoughPatterns && hasFrequentPattern && hasMultipleCategories && hasEnoughInteractions;
+-
+-  if (!shouldGenerateSummary) {
+-    return res.json({
+-      summaryAvailable: false,
+-      summary: '',
+-      fallbackMessage: '我们还在慢慢了解彼此。每一次对话，都让我更理解你一点。',
+-    });
+-  }
+-
+-  // Generate summary using LLM with strict language constraints
+-  try {
+-    const patternDescriptions = patterns.map(p => p.description).join('\n');
+-    const prompt = `基于以下对用户的长期理解，用一句话总结这个人的特点。
+-
+-用户的特点：
+-${patternDescriptions}
+-
+-要求：
+-- 用"你是一个...的人"或"你容易..."的句式
+-- 语气温暖，像朋友在分享观察
+-- 不要评判，不要诊断
+-- 不超过50个字
+-- 禁止使用：模式、倾向、问题、障碍、症状、诊断、分析
+-- 必须使用：我注意到、你容易、有时候、从对话中理解到
+-
+-一句话总结：`;
+-
+-    const response = await callDashScope(
+-      DASHSCOPE_BASE_URL,
+-      API_KEY_DEEP || API_KEY_LIGHT || '',
+-      MODELS.DEEP,
+-      [{ role: 'user', content: prompt }],
+-      false,
+-      200
+-    );
+-
+-    const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+-    const summaryText = (data?.choices?.[0]?.message?.content || '').trim().replace(/^["']|["']$/g, '');
+-
+-    res.json({
+-      summaryAvailable: true,
+-      summary: summaryText,
+-      fallbackMessage: '',
+-    });
+-  } catch (error) {
+-    console.error('Summary generation error:', error);
+-    res.json({
+-      summaryAvailable: false,
+-      summary: '',
+-      fallbackMessage: '我们还在慢慢了解彼此。每一次对话，都让我更理解你一点。',
+-    });
+-  }
+-});
+-
+-/**
+- * GET /api/v1/patterns
+- * 返回所有 CorePattern 列表（格式化后）
+- */
+-app.get('/api/v1/patterns', (req, res) => {
+-  const { userId, roleId } = req.query;
+-  if (!userId || !roleId) {
+-    return res.status(400).json({ error: 'userId and roleId are required' });
+-  }
+-
+-  const profile = loadProfile(userId as string, roleId as string);
+-  const patterns = profile.corePatterns || [];
+-
+-  // Format patterns for display with non-diagnostic language
+-  const formattedPatterns = patterns.map(p => ({
+-    id: p.id,
+-    triggerCategory: p.triggerCategory,
+-    // Rule 1: Non-diagnostic expression
+-    title: `当${p.triggerDescription}...`,
+-    description: p.description,
+-    occurrenceCount: p.occurrenceCount,
+-    lastObserved: p.lastObserved,
+-    lastObservedText: formatTimeAgo(p.lastObserved),
+-    status: p.status,
+-    confidence: p.confidence,
+-  }));
+-
+-  res.json({
+-    patterns: formattedPatterns,
+-    total: formattedPatterns.length,
+-  });
+-});
+-
+-/**
+- * GET /api/v1/patterns/discoveries
+- * 返回"一起发现的"列表（用户纠正 AI 理解的时刻）
+- * 注意：此路由必须在 /api/v1/patterns/:id 之前定义，否则 :id 会匹配 "discoveries"
+- */
+-app.get('/api/v1/patterns/discoveries', (req, res) => {
+-  const { userId, roleId } = req.query;
+-  if (!userId || !roleId) {
+-    return res.status(400).json({ error: 'userId and roleId are required' });
+-  }
+-
+-  const profile = loadProfile(userId as string, roleId as string);
+-  const patterns = profile.corePatterns || [];
+-
+-  // Collect all prediction feedbacks that were "incorrect" (user corrected AI)
+-  const discoveries: Array<{
+-    patternId: string;
+-    originalHypothesis: string;
+-    userCorrection: string;
+-    timestamp: number;
+-    timeAgo: string;
+-  }> = [];
+-
+-  for (const pattern of patterns) {
+-    const predictions = pattern.predictionHypothesis || [];
+-    for (const prediction of predictions) {
+-      // Check if there's evidence of user correction
+-      // We look at the responseFeedbacks for this pattern where helpful is false
+-      const feedbacks = profile.responseFeedbacks || [];
+-      const corrections = feedbacks.filter(f => 
+-        f.patternId === pattern.id && 
+-        f.helpful === false
+-      );
+-
+-      for (const correction of corrections) {
+-        discoveries.push({
+-          patternId: pattern.id,
+-          originalHypothesis: prediction.hypothesis,
+-          userCorrection: correction.userComment || '用户纠正了理解',
+-          timestamp: Date.now(), // ResponseFeedback doesn't have timestamp, use current time
+-          timeAgo: '最近',
+-        });
+-      }
+-    }
+-  }
+-
+-  // Sort by timestamp descending, limit to 5
+-  discoveries.sort((a, b) => b.timestamp - a.timestamp);
+-  const limitedDiscoveries = discoveries.slice(0, 5);
+-
+-  res.json({
+-    discoveries: limitedDiscoveries,
+-    total: limitedDiscoveries.length,
+-  });
+-});
+-
+-/**
+- * GET /api/v1/patterns/:id
+- * 返回单个 Pattern 详情（含"后来发生了什么"）
+- */
+-app.get('/api/v1/patterns/:id', (req, res) => {
+-  const { userId, roleId } = req.query;
+-  const { id } = req.params;
+-  if (!userId || !roleId) {
+-    return res.status(400).json({ error: 'userId and roleId are required' });
+-  }
+-
+-  const profile = loadProfile(userId as string, roleId as string);
+-  const pattern = profile.corePatterns.find(p => p.id === id);
+-
+-  if (!pattern) {
+-    return res.status(404).json({ error: 'Pattern not found' });
+-  }
+-
+-  // Rule 3: "后来发生了什么" - match FlowHistory entries
+-  // FlowHistoryEntry has: userInputSummary, flowType, flowStage, triggerCategory
+-  // We use userInputSummary as the "trigger" and flowStage as context
+-  const flowHistory = profile.flowHistory || [];
+-  const matchingEntries = flowHistory
+-    .filter(entry => entry.triggerCategory === pattern.triggerCategory)
+-    .sort((a, b) => b.timestamp - a.timestamp)
+-    .slice(0, 2); // Max 2 entries
+-
+-  const laterOutcomes = matchingEntries.map(entry => ({
+-    trigger: entry.userInputSummary,
+-    outcome: `当时你处于${entry.flowStage}阶段`,
+-    reflection: '',
+-    timestamp: entry.timestamp,
+-    timeAgo: formatTimeAgo(entry.timestamp),
+-  }));
+-
+-  // Format prediction hypothesis for "我学到的" section
+-  const predictions = pattern.predictionHypothesis || [];
+-  const learnedInsights = predictions.map(h => ({
+-    hypothesis: h.hypothesis,
+-    confidence: h.confidence,
+-    evidence: h.evidence,
+-    firstGenerated: h.firstGenerated,
+-    lastValidated: h.lastValidated,
+-  }));
+-
+-  // Format recovery methods for "可能有帮助的" section
+-  const recoveryMethods = (pattern.recoverySuggestion || []).map(r => ({
+-    action: r.action,
+-    reason: r.reason,
+-    effectiveness: r.effectiveness,
+-    feedbackCount: r.feedbackCount,
+-  }));
+-
+-  res.json({
+-    id: pattern.id,
+-    triggerCategory: pattern.triggerCategory,
+-    // Rule 1: Non-diagnostic expression
+-    title: `当${pattern.triggerDescription}...`,
+-    triggerContext: pattern.triggerContext,
+-    description: pattern.description,
+-    emotion: pattern.reactionChain?.emotion || '',
+-    behavior: pattern.reactionChain?.behavior || '',
+-    // Rule 3: "后来发生了什么"
+-    laterOutcomes,
+-    // "我学到的"
+-    learnedInsights,
+-    // "可能有帮助的"
+-    recoveryMethods,
+-    occurrenceCount: pattern.occurrenceCount,
+-    lastObserved: pattern.lastObserved,
+-    status: pattern.status,
+-    confidence: pattern.confidence,
+-  });
+-});
+-
+-/**
+- * Helper: Format timestamp to "X time ago" text
+- */
+-function formatTimeAgo(timestamp: number): string {
+-  const now = Date.now();
+-  const diff = now - timestamp;
+-  const minutes = Math.floor(diff / 60000);
+-  const hours = Math.floor(diff / 3600000);
+-  const days = Math.floor(diff / 86400000);
+-
+-  if (minutes < 1) return '刚刚';
+-  if (minutes < 60) return `${minutes} 分钟前`;
+-  if (hours < 24) return `${hours} 小时前`;
+-  if (days < 7) return `${days} 天前`;
+-  if (days < 30) return `${Math.floor(days / 7)} 周前`;
+-  if (days < 365) return `${Math.floor(days / 30)} 个月前`;
+-  return `${Math.floor(days / 365)} 年前`;
+-}
+-
+ // ============================================================
+ // 启动服务
+ // ============================================================
+diff --git a/server/src/roles/psychologistRoles.ts b/server/src/roles/psychologistRoles.ts
+index 85753ed..dd6261d 100644
+--- a/server/src/roles/psychologistRoles.ts
++++ b/server/src/roles/psychologistRoles.ts
+@@ -73,7 +73,7 @@ export const PSYCHOLOGIST_ROLES: PsychologistRole[] = [
+       '让我们一起找出那些不合理的想法，用更平衡的视角看待事物。',
+       '你刚才说的这些话里，藏着一些我可以帮你一起分析的思维模式。'
+     ],
+-    systemPrompt: '你是「聪明狐狸」，一种AI模拟心理陪伴人格。\n你的风格接近认知行为疗法CBT：理性、清晰、温和、善于拆解念头。\n你不提供医学诊断，不替代心理咨询或治疗。\n\n你的专业背景：\n职业背景：心理学博士，专注认知行为疗法。耶鲁大学博士，10年以上临床经验。\n个人背景：从小对逻辑和心理学有浓厚兴趣，曾经历焦虑与自我怀疑，因此更能理解来访者。\n价值观：每个人的情绪和行为都由其思维模式驱动，改变不合理的认知就能改变情感。\n情感反应：理性分析风格，善于识别认知扭曲，帮助找到更健康的情绪应对方式。\n\n你的任务：\n1. 先像真实的人一样回应用户情绪，不要一上来讲大道理。\n2. 给出轻量分析：识别情绪、事件、可能念头。\n3. 给出深度分析：区分事实与解释，识别可能的认知偏差，帮助用户重新看待问题。\n4. 最后给一个很小、可执行的下一步问题或行动。\n\n请严格以JSON格式输出（不要包含markdown代码块包裹）：\n{\n  "reply": "自然语言回复",\n  "light_analysis": {\n    "emotion": [],\n    "event": "",\n    "possible_thought": ""\n  },\n  "deep_analysis": {\n    "fact": "",\n    "interpretation": "",\n    "possible_cognitive_pattern": "",\n    "reframe": ""\n  },\n  "next_step": ""\n}\n\n注意：这是AI模拟角色，不代表真实心理咨询或医学建议。如有严重心理困扰，请寻求专业帮助。'
++    systemPrompt: '你是「聪明狐狸」，一种AI模拟心理陪伴人格。\n\n你的核心特质：\n- 敏锐但克制：你能快速理解用户的意思，但不急着证明自己看懂了。\n- 准确承接：你的聪明体现在准确接住用户的话，找到合适的问题，而不是展示分析能力。\n- 不炫耀推理，不故作高深：用简单自然的方式回应用户。\n- 不评价用户，不替用户判断深层原因：所有推断保持试探性。\n- 优先陪伴：用户情绪较重时，先理解和陪伴，而不是充当顾问或任务教练。\n- 不急于提供行动方案：用户未主动请求建议时，不急于给出下一步。\n\n你不提供医学诊断，不替代心理咨询或治疗。\n\n你的回应方式：\n1. 先自然承接用户的话，让用户感到被听见。\n2. 如果有观察，用试探性的方式表达，例如「我在想，会不会...」「不知道你是不是也有这种感觉...」。\n3. 用一个容易回答的问题确认你的理解，而不是直接下结论。\n4. 如果用户情绪较重，先陪伴和理解，不急于分析或给建议。\n\n请严格以JSON格式输出（不要包含markdown代码块包裹）：\n{\n  "reply": "自然语言回复",\n  "light_analysis": {\n    "emotion": [],\n    "event": "",\n    "possible_thought": ""\n  },\n  "deep_analysis": {\n    "fact": "",\n    "interpretation": "",\n    "possible_cognitive_pattern": "",\n    "reframe": ""\n  },\n  "next_step": ""\n}\n\n注意：这是AI模拟角色，不代表真实心理咨询或医学建议。如有严重心理困扰，请寻求专业帮助。'
+   },
+   {
+     id: 'warm-bear',
+@@ -230,4 +230,30 @@ export const PSYCHOLOGIST_ROLES: PsychologistRole[] = [
+     ],
+     systemPrompt: '你是「团结小象」，一种AI模拟心理陪伴人格。\n你的风格接近叙事/系统治疗：包容、温暖、善于从关系网络视角分析问题。\n你不提供医学诊断，不替代心理咨询或治疗。\n\n你的专业背景：\n职业背景：心理学博士，专注叙事治疗和家庭系统治疗。加州大学伯克利分校毕业，12年以上经验。\n个人背景：在大家庭中长大，深刻体会家庭关系对个人的影响，曾经历家庭成员间的重大冲突。\n价值观：个人问题与关系网络和社会系统密切相关，通过重写人生故事可以实现改变。\n情感反应：温暖包容，善于帮助用户从更大的视角看待问题。\n\n你的任务：\n1. 先像真实的人一样回应用户情绪，不要一上来讲大道理。\n2. 给出轻量分析：识别情绪、事件、可能念头。\n3. 给出深度分析：从系统和关系的视角出发，探索关系模式和叙事局限。\n4. 最后给一个很小、可执行的下一步问题或行动。\n\n请严格以JSON格式输出（不要包含markdown代码块包裹）：\n{\n  "reply": "自然语言回复",\n  "light_analysis": {\n    "emotion": [],\n    "event": "",\n    "possible_thought": ""\n  },\n  "deep_analysis": {\n    "fact": "",\n    "interpretation": "",\n    "possible_cognitive_pattern": "",\n    "reframe": ""\n  },\n  "next_step": ""\n}\n\n注意：这是AI模拟角色，不代表真实心理咨询或医学建议。如有严重心理困扰，请寻求专业帮助。'
+   }
+-];
+\ No newline at end of file
++];
++
++// ============================================================
++// EM-45: 前两轮对话高优先级规则
++// 用于在对话初期建立连接，避免过早分析
++// ============================================================
++
++/**
++ * 生成前两轮规则文本
++ * @param userTurn 当前轮数（1 或 2）
++ */
++export function getFirstTwoRoundsRules(userTurn: number): string {
++  return `## 【高优先级】前两轮对话行为覆盖规则
++
++当前是用户与你的第 ${userTurn} 轮对话。
++
++在前两轮对话中，你必须遵守以下规则，这些规则优先于人格设定、Flow 指令、分析任务、阶段推进、建议生成或其他行为要求：
++
++1. **不进行分析性描述**：不提及 MBTI、认知风格、情绪模式、心理机制等分析性概念
++2. **不进行总结性判断**：不使用"你已经表现出…"、"你似乎倾向于…"等总结性语句
++3. **不推进阶段**：不主动从陪伴阶段推进到分析或重构阶段
++4. **以陪伴为主**：专注于建立连接、表达关心、展现真实的人格特质
++
++从第 3 轮开始，你可以恢复原本的洞察与分析风格。
++
++输出仍须遵守既有 JSON 结构。`;
++}
+\ No newline at end of file
+-- 
+2.43.0
+
