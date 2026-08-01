@@ -27,6 +27,7 @@ import {
 } from './components';
 import { ChatProvider, useChat } from './contexts/ChatContext';
 import { DEFAULT_ROLES } from './constants/roles';
+import { isDebugModeEnabled } from './utils/debugMode';
 
 const STATE_ENTRIES = ['我很累', '我很乱', '我很烦', '我很空', '说不清'];
 
@@ -53,6 +54,13 @@ function ChatContent() {
   const [roleDetailVisible, setRoleDetailVisible] = useState(false);
   const [rolePickerVisible, setRolePickerVisible] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Debug Mode: 只在 ?debug=true 时显示内部字段
+  const [debugMode, setDebugMode] = useState(false);
+
+  useEffect(() => {
+    setDebugMode(isDebugModeEnabled());
+  }, []);
 
   // FlowContext 状态卡：从实时 flowContext 计算
   const buildChangeSystemData = useCallback(() => {
@@ -145,13 +153,14 @@ function ChatContent() {
     // 设置默认陪伴者（聪明狐狸）
     const defaultRole = DEFAULT_ROLES.find(r => r.id === 'clever-fox') || DEFAULT_ROLES[0];
     setCurrentRole(defaultRole);
-    createNewChat(defaultRole);
+    // EM-43: createNewChat 返回新的 conversationId，确保首条消息使用新 ID
+    const newConversationId = createNewChat(defaultRole);
 
     // 切换到聊天视图
     setShowHome(false);
 
-    // 发送用户消息
-    await sendMessage(text);
+    // 发送用户消息，传递新的 conversationId
+    await sendMessage(text, newConversationId);
   }, [homeInput, setCurrentRole, createNewChat, sendMessage]);
 
   // 状态入口按钮点击
@@ -272,8 +281,8 @@ function ChatContent() {
         hasHistory={sessions.length > 0}
       />
 
-      {/* FlowContext 状态变化卡片 */}
-      <ChangeSystemCard data={changeSystemData} />
+      {/* FlowContext 状态变化卡片 - 仅在 Debug 模式显示 */}
+      {debugMode && <ChangeSystemCard data={changeSystemData} />}
 
       {/* 切换提示 */}
       {switchNotice && (

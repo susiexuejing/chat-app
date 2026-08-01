@@ -257,12 +257,12 @@ export interface ChatStartResponse {
  * 接口 1：即时返回前端流
  * POST /api/v1/chat/start
  */
-export async function chatStart(roleId: string, message: string): Promise<ChatStartResponse> {
+export async function chatStart(roleId: string, message: string, conversationId?: string): Promise<ChatStartResponse> {
   const BASE = getBackendUrl();
   const response = await fetch(`${BASE}/api/v1/chat/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId, message }),
+    body: JSON.stringify({ roleId, message, conversationId }),
   });
   if (!response.ok) {
     const text = await response.text().catch(() => '');

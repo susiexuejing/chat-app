@@ -80,7 +80,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // 保存会话
   /* sessions persistence skipped */
 
-  const createNewChat = useCallback((role?: PsychologistRole) => {
+  const createNewChat = useCallback((role?: PsychologistRole): string => {
+    const newConversationId = generateConversationId();
     setMessages([]);
     setCurrentSessionId(null);
     setError(null);
@@ -88,7 +89,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setIsThinking(false);
     setThinkingContent('');
     setLightAnalysis('');
+    setConversationId(newConversationId);
     if (role) setCurrentRole(role);
+    return newConversationId;
   }, []);
 
   const selectSession = useCallback(
@@ -117,7 +120,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   const sendMessage = useCallback(
-    async (userMessage: string) => {
+    async (userMessage: string, explicitConversationId?: string) => {
       if (!userMessage.trim() || !currentRole) return;
 
       const userMsg: ChatMessage = {
@@ -135,9 +138,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
+        // 使用显式传递的 conversationId，或当前 state 中的 conversationId
+        const conversationIdToUse = explicitConversationId || conversationId;
         const sessionInfo = await chatStart(
           currentRole.id,
-          userMessage
+          userMessage,
+          conversationIdToUse
         );
 
         const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
@@ -424,7 +430,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setIsThinking(false);
       }
     },
-    [currentRole, currentSessionId]
+    [currentRole, currentSessionId, conversationId]
   );
 
   const currentSession = sessions.find(s => s.id === currentSessionId);

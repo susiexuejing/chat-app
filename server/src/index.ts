@@ -19,6 +19,8 @@ import { analyzeFlow, recordChange, getChangeBlock, getChangeTrends } from './fl
 import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
 import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
+import { getFirstTwoRoundsRulesWithTurn } from './flows/firstTwoRoundsRules';
+import { incrementConversationTurn, getConversationTurn } from './flows/conversationTurns';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -122,7 +124,7 @@ const ROLE_NAMES: Record<string, string> = {
 // ============================================================
 // 角色 system prompt 构建（用于百炼）
 // ============================================================
-function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string): string {
+function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -158,6 +160,9 @@ function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: 
     flowBlock = '\n' + lines.join('\n') + '\n';
   }
 
+  // 前两轮规则注入
+  const firstTwoRoundsBlock = (userTurn && userTurn <= 2) ? `\n${getFirstTwoRoundsRulesWithTurn(userTurn)}\n` : '';
+
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
@@ -176,7 +181,7 @@ ${changeBlock || ''}
 - 只用自然语言继续往下说
 - 从更深一层的分析开始
 - 回复长度控制在 150 字以内，精简有力
-
+${firstTwoRoundsBlock}
 请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
 }
 
@@ -1007,9 +1012,9 @@ async function callDashScope(
 // ============================================================
 // 后端异步调用百炼（实时流式推送chunk到session）
 // ============================================================
-async function startDeepAnalysis(session: ChatSession): Promise<void> {
+async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const apiKey = API_KEY_LIGHT;
-  console.log(`[Deep] startDeepAnalysis called for session ${session.sessionId}, apiKey=${apiKey ? 'SET' : 'NOT SET'}`);
+  console.log(`[Deep] startDeepAnalysis called for session ${session.sessionId}, apiKey=${apiKey ? 'SET' : 'NOT SET'}, userTurn=${userTurn}`);
   if (!apiKey) {
     session.deepError = 'API key not configured';
     return;
@@ -1023,7 +1028,7 @@ async function startDeepAnalysis(session: ChatSession): Promise<void> {
     // Load long-term understanding for this user+role
     const ltuProfile = await loadProfile(session.userId, session.roleId);
     const longTermSummary = generateLTUSummary(ltuProfile);
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },
@@ -1512,11 +1517,17 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // ============================================================
 app.post('/api/v1/chat/start', async (req, res) => {
   try {
-    const { roleId, message, userId: reqUserId } = req.body;
+    const { roleId, message, userId: reqUserId, conversationId } = req.body;
     const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (!roleId || !message) {
       return res.status(400).json({ error: 'roleId and message are required' });
+    }
+
+    // EM-43: 递增会话轮数
+    let userTurn = 1;
+    if (conversationId) {
+      userTurn = incrementConversationTurn(conversationId);
     }
 
     const roleName = ROLE_NAMES[roleId] || roleId;
@@ -1570,8 +1581,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
-      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal);
-      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal);
+      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal, userTurn);
+      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal, userTurn);
       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
       companionLayer = companionTimeline[0]?.text || frontFlowText;
 
@@ -1652,7 +1663,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
         session.flowResult = null;
       }
 
-      startDeepAnalysis(session).catch(err => {
+      startDeepAnalysis(session, userTurn).catch(err => {
         console.error(`[Deep] Session ${sessionId} error:`, err);
         session.deepError = err instanceof Error ? err.message : 'Unknown error';
       });

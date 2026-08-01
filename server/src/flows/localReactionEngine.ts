@@ -11,6 +11,7 @@ import { getLocalProfile } from './localProfiles';
 import type { PersonalityLocalProfile, EventHint } from './localProfiles';
 import { extractSignal } from './signalExtractor';
 import type { Signal } from './signalExtractor';
+import { getFirstTwoRoundsReactionTimeline, getFirstTwoRoundsCompanionTimeline } from './firstTwoRoundsReaction';
 
 // ─── 时间线段 ──────────────────────────────────────────
 
@@ -45,7 +46,17 @@ export function localGenerateTimeline(
   roleId: string,
   message: string,
   signal?: Signal,
+  userTurn?: number,
 ): LocalReactionResult {
+  // EM-43: 前两轮使用更克制的模板
+  if (userTurn && userTurn <= 2) {
+    return {
+      reactionLayer: '陪伴',
+      reactionTimeline: getFirstTwoRoundsReactionTimeline(),
+      companionTimeline: getFirstTwoRoundsCompanionTimeline(),
+    };
+  }
+
   const profile = getLocalProfile(roleId);
   if (!profile) {
     console.warn(`[LocalReaction] Unknown roleId: ${roleId}, using generic`);
@@ -163,12 +174,20 @@ export function getNormalChatResponse(roleId: string): { frontFlow: string; reac
 
 // ─── index.ts 兼容封装 ─────────────────────────────────
 
-export function generateReactionTimeline(roleId: string, message: string, signal?: Signal): TimelineSegment[] {
+export function generateReactionTimeline(roleId: string, message: string, signal?: Signal, userTurn?: number): TimelineSegment[] {
+  // EM-43: 前两轮使用更克制的模板
+  if (userTurn && userTurn <= 2) {
+    return getFirstTwoRoundsReactionTimeline();
+  }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.reactionTimeline;
 }
 
-export function generateCompanionTimeline(roleId: string, message: string, signal?: Signal): TimelineSegment[] {
+export function generateCompanionTimeline(roleId: string, message: string, signal?: Signal, userTurn?: number): TimelineSegment[] {
+  // EM-43: 前两轮使用更克制的模板
+  if (userTurn && userTurn <= 2) {
+    return getFirstTwoRoundsCompanionTimeline();
+  }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.companionTimeline;
 }
