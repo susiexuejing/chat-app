@@ -399,7 +399,7 @@ function ChatContent() {
       <View className="absolute bottom-2 right-3">
         <View className="bg-gray-100/80 dark:bg-gray-800/80 px-2 py-0.5 rounded-md">
           <Text className="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
-            {__DEV__ ? 'DEV' : 'PROD'} - v3.1.0
+            {process.env.EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'DEV' : 'PROD')} - v3.1.0
           </Text>
         </View>
       </View>
