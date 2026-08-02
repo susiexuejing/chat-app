@@ -77,7 +77,19 @@ jobs:
           SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
           SSH_USER: ${{ secrets.DEV_SSH_USER }}
         run: |
-          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "set -euo pipefail; DEPLOY_DIR=/var/www/chat-app/dev; RELEASE_DIR=/tmp/emotionflow-dev-$GITHUB_SHA; BACKUP_DIR=/var/www/chat-app/dev-backups; mkdir -p "\$DEPLOY_DIR" "\$BACKUP_DIR"; if [ -n "\$(ls -A "\$DEPLOY_DIR" 2>/dev/null)" ]; then tar -czf "\$BACKUP_DIR/dev-\$(date +%Y%m%d-%H%M%S).tar.gz" -C "\$DEPLOY_DIR" .; fi; rsync -a --delete "\$RELEASE_DIR/" "\$DEPLOY_DIR/"; rm -rf "\$RELEASE_DIR"; find "\$BACKUP_DIR" -type f -name 'dev-*.tar.gz' -mtime +14 -delete"
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "DEPLOY_SHA=$GITHUB_SHA bash -s" <<'REMOTE'
+          set -euo pipefail
+          DEPLOY_DIR=/var/www/chat-app/dev
+          RELEASE_DIR="/tmp/emotionflow-dev-$DEPLOY_SHA"
+          BACKUP_DIR=/var/www/chat-app/dev-backups
+          mkdir -p "$DEPLOY_DIR" "$BACKUP_DIR"
+          if [ -n "$(ls -A "$DEPLOY_DIR" 2>/dev/null)" ]; then
+            tar -czf "$BACKUP_DIR/dev-$(date +%Y%m%d-%H%M%S).tar.gz" -C "$DEPLOY_DIR" .
+          fi
+          rsync -a --delete "$RELEASE_DIR/" "$DEPLOY_DIR/"
+          rm -rf "$RELEASE_DIR"
+          find "$BACKUP_DIR" -type f -name 'dev-*.tar.gz' -mtime +14 -delete
+          REMOTE
 
       - name: Verify dev deployment
         run: |
