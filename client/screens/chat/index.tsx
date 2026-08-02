@@ -150,6 +150,9 @@ function ChatContent() {
     // EM-43: createNewChat 返回新的 conversationId，显式传给 sendMessage
     const newConversationId = createNewChat(defaultRole);
 
+    // EM-50: 清空输入框，防止新建会话后残留文本
+    setHomeInput('');
+
     // 切换到聊天视图
     setShowHome(false);
 
@@ -270,6 +273,8 @@ function ChatContent() {
         onShowHistory={() => setShowHistory(true)}
         onNewChat={() => {
           createNewChat();
+          // EM-50: 清空首页输入框，防止残留上一轮文本
+          setHomeInput('');
           setShowHome(true);
         }}
         hasHistory={sessions.length > 0}
