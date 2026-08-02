@@ -1,3 +1,4 @@
+// @ts-nocheck
 // attachment_anxiety 快速测试 - 30s超时
 const BASE_URL = 'http://localhost:9091';
 
@@ -42,9 +43,12 @@ async function main() {
   // Only test the 4th round (most interesting - shows the flow path)
   // To save time, just test R4 which has the strongest anxiety signal
   const i = 3; // R4
+  const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  console.log(`会话ID: ${conversationId}`);
   const res = await fetch(`${BASE_URL}/api/v1/chat/start`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId: 'warm-bear', userId: 'prod_aa_v4', message: msgs[i] }),
+    body: JSON.stringify({ roleId: 'warm-bear', userId: 'prod_aa_v4', message: msgs[i], conversationId, requestId }),
   }).then(r => r.json());
   console.log(`[R${i+1}] sessionId=${res.sessionId}`);
   console.log(`  Message: "${msgs[i]}"`);

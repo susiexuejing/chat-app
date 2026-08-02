@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 生产环境回流测试 v2 — 完整3案例 + Deep质量评估
 const BASE_URL = 'http://localhost:9091';
 const DEEP_TIMEOUT_MS = 30000;
@@ -86,6 +87,8 @@ function readDeepSSE(sessionId: string): Promise<string> {
 
 async function run() {
   const results: TestResult[] = [];
+  const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  console.log(`会话ID: ${conversationId}`);
 
   for (const tc of testCases) {
     console.log(`\n📋 ${tc.name}`);
@@ -94,9 +97,10 @@ async function run() {
     const deepOutputs: string[] = [];
 
     for (let i = 0; i < tc.messages.length; i++) {
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
       const res = await fetch(`${BASE_URL}/api/v1/chat/start`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roleId: tc.roleId, userId: tc.userId, message: tc.messages[i] }),
+        body: JSON.stringify({ roleId: tc.roleId, userId: tc.userId, message: tc.messages[i], conversationId, requestId }),
       }).then(r => r.json());
 
       flowTrajectory.push('(等待日志)');

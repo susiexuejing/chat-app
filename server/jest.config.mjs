@@ -18,6 +18,10 @@ const config = {
   testMatch: ['**/src/__tests__/**/*.test.ts'],
   moduleFileExtensions: ['ts', 'js', 'json'],
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/setup.ts'],
+  // Transform supertest for ESM compatibility
+  transformIgnorePatterns: [
+    'node_modules/(?!(supertest|component-emitter|cookiejar|methods|qs)/)',
+  ],
 };
 
 export default config;

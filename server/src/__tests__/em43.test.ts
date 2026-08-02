@@ -4,6 +4,7 @@
  */
 import {
   incrementConversationTurn,
+  incrementConversationTurnIdempotent,
   getConversationTurn,
   cleanupExpiredConversations,
   resetAllConversations,
@@ -63,6 +64,47 @@ describe('EM-43: Conversation Turns', () => {
   });
 });
 
+// ==================== 幂等性测试（requestId） ====================
+describe('EM-43: Idempotent incrementConversationTurnIdempotent', () => {
+  test('相同 requestId 返回相同 userTurn', () => {
+    const turn1 = incrementConversationTurnIdempotent('conv-1', 'req-001');
+    expect(turn1).toBe(1);
+    
+    // 相同 requestId 应该返回相同结果
+    const turn2 = incrementConversationTurnIdempotent('conv-1', 'req-001');
+    expect(turn2).toBe(1);
+  });
+
+  test('不同 requestId 递增 userTurn', () => {
+    const turn1 = incrementConversationTurnIdempotent('conv-1', 'req-001');
+    expect(turn1).toBe(1);
+    
+    const turn2 = incrementConversationTurnIdempotent('conv-1', 'req-002');
+    expect(turn2).toBe(2);
+    
+    // 重复第二个 requestId
+    const turn2Again = incrementConversationTurnIdempotent('conv-1', 'req-002');
+    expect(turn2Again).toBe(2);
+  });
+
+  test('不同 conversationId 的 requestId 互不影响', () => {
+    const turn1 = incrementConversationTurnIdempotent('conv-a', 'req-001');
+    expect(turn1).toBe(1);
+    
+    // 相同 requestId 但不同 conversationId
+    const turn2 = incrementConversationTurnIdempotent('conv-b', 'req-001');
+    expect(turn2).toBe(1);
+  });
+
+  test('无 requestId 时行为与 incrementConversationTurn 相同', () => {
+    const turn1 = incrementConversationTurnIdempotent('conv-1');
+    expect(turn1).toBe(1);
+    
+    const turn2 = incrementConversationTurnIdempotent('conv-1');
+    expect(turn2).toBe(2);
+  });
+});
+
 // ==================== TTL 测试（使用 injectable now） ====================
 describe('EM-43: TTL with injectable now', () => {
   test('29分59秒时轮数保持', () => {
@@ -74,6 +116,21 @@ describe('EM-43: TTL with injectable now', () => {
     // 推进到 29:59（1799秒后）
     _setNowFn(() => baseTime + 1799 * 1000);
     expect(getConversationTurn('conv-ttl')).toBe(1);
+  });
+
+  test('正好30分钟时轮数重置（边界测试：>=）', () => {
+    const baseTime = 1000000;
+    _setNowFn(() => baseTime);
+    incrementConversationTurn('conv-ttl');
+    expect(getConversationTurn('conv-ttl')).toBe(1);
+
+    // 推进到正好 30:00（1800秒后）- 应该过期
+    _setNowFn(() => baseTime + 1800 * 1000);
+    expect(getConversationTurn('conv-ttl')).toBe(0);
+    
+    // 下一次 increment 应该从 1 开始
+    const newTurn = incrementConversationTurn('conv-ttl');
+    expect(newTurn).toBe(1);
   });
 
   test('超过30分钟后 getConversationTurn 返回0', () => {

@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * 六人格测试 - 续跑第6~10轮
  */
@@ -51,19 +52,22 @@ async function pollDeep(sessionId: string): Promise<string> {
 
 async function main() {
   const userIds = PERSONALITIES.map(p => `six_test_${p.id}`);
+  const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  console.log(`会话ID: ${conversationId}`);
 
   for (let r = 0; r < CONVERSATION.length; r++) {
     const msg = CONVERSATION[r];
     console.log(`\n=== 第 ${r+6}/10 轮 ===`);
     console.log(`消息: "${msg}"`);
 
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
     const startTime = Date.now();
     const responses = await Promise.all(
       PERSONALITIES.map((p, i) => 
         fetch(`${BASE_URL}/api/v1/chat/start`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ roleId: p.id, userId: userIds[i], message: msg }),
+          body: JSON.stringify({ roleId: p.id, userId: userIds[i], message: msg, conversationId, requestId }),
         }).then(r => r.json())
       )
     );

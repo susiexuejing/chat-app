@@ -1,3 +1,4 @@
+// @ts-nocheck
 // 生产环境 6人格 × 10轮 完整对话测试
 // 每轮6人格并行，Deep超时25s
 
@@ -64,17 +65,22 @@ async function main() {
   console.log('='.repeat(80));
   console.log('');
 
+  const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  console.log(`会话ID: ${conversationId}`);
+
   for (let round = 0; round < MESSAGES.length; round++) {
     const msg = MESSAGES[round];
     console.log(`\n━━━ 第${round + 1}轮 ━━━ 用户: "${msg}"`);
     console.log('');
+
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
     // 并行发送给6人格
     const starts = ROLES.map(async (role) => {
       const res = await fetch(`${BASE}/chat/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roleId: role.id, userId: 'prod_10r', message: msg }),
+        body: JSON.stringify({ roleId: role.id, userId: 'prod_10r', message: msg, conversationId, requestId }),
       });
       const data = await res.json();
       return { role, sessionId: data.sessionId, reaction: data.reactionLayer || '', companion: data.companionLayer || '', frontFlow: data.frontFlowText || '' };

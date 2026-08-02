@@ -20,7 +20,7 @@ import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowCo
 import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import { getFirstTwoRoundsRulesWithTurn } from './flows/firstTwoRoundsRules';
-import { incrementConversationTurn, getConversationTurn } from './flows/conversationTurns';
+import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -1529,10 +1529,18 @@ app.post('/api/v1/chat/start', async (req, res) => {
       return res.status(400).json({ error: 'roleId and message are required' });
     }
 
-    // EM-43: 递增会话轮数
+    // EM-43: 验证 conversationId 格式
+    if (conversationId !== undefined) {
+      if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(conversationId)) {
+        return res.status(400).json({ error: 'Invalid conversationId: must be 1-100 alphanumeric/underscore/hyphen characters' });
+      }
+    }
+
+    // EM-43: 递增会话轮数（幂等，支持 requestId）
+    const { requestId } = req.body;
     let userTurn = 1;
     if (conversationId) {
-      userTurn = incrementConversationTurn(conversationId);
+      userTurn = incrementConversationTurnIdempotent(conversationId, requestId);
     }
 
     const roleName = ROLE_NAMES[roleId] || roleId;
@@ -1627,6 +1635,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
     res.json({
       sessionId,
+      userTurn,
       state,
       keywords,
       frontFlowText,

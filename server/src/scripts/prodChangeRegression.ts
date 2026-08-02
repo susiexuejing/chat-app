@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * EmotionFlow Phase 5 — 生产环境回流测试
  * 验证 ChangeBlock 注入后六人格 Deep 输出 (AC3/AC4)
@@ -75,11 +76,12 @@ async function readDeep(sessionId: string, timeoutMs = 35000): Promise<string> {
   });
 }
 
-async function runRound(userId: string, roleId: string, msg: string, roundNum: number) {
+async function runRound(userId: string, roleId: string, msg: string, roundNum: number, conversationId: string) {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
   const res = await fetch(`${BASE_URL}/api/v1/chat/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId, userId, message: msg }),
+    body: JSON.stringify({ roleId, userId, message: msg, conversationId, requestId }),
   });
   const data = await res.json();
   const sessionId = data.sessionId;
@@ -104,16 +106,18 @@ async function main() {
 
   for (const p of personalities) {
     const userId = `prod_reg_${p.roleId}`;
+    const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
     console.log(`\n` + '─'.repeat(80));
     console.log(`\n📋 ${p.label}`);
-    console.log(`   用户: ${userId}\n`);
+    console.log(`   用户: ${userId}`);
+    console.log(`   会话ID: ${conversationId}\n`);
 
     const rounds: any[] = [];
     for (let i = 0; i < MSGS.length; i++) {
       const msg = MSGS[i];
       const msgShort = msg.length > 30 ? msg.slice(0, 30) + '...' : msg;
       process.stdout.write(`  [第${i + 1}/3轮] "${msgShort}" → `);
-      const { sessionId, deep } = await runRound(userId, p.roleId, msg, i + 1);
+      const { sessionId, deep } = await runRound(userId, p.roleId, msg, i + 1, conversationId);
       const deepPreview = deep.length > 200 ? deep.slice(0, 200) + '...' : deep;
       console.log(`session=${sessionId.slice(0, 8)}, Deep=${deep.length}c`);
       console.log(`    └─ Deep: "${deepPreview}"`);

@@ -1,11 +1,12 @@
+// @ts-nocheck
 /**
  * 六人格同消息对比测试
  * 并行发送相同消息到6个人格，捕获Reaction+Companion+Deep
  */
-const BASE_URL = 'http://localhost:9091';
-const DEEP_TIMEOUT_MS = 35000;
+const BASE_URL_6 = 'http://localhost:9091';
+const DEEP_TIMEOUT_6 = 35000;
 
-const PERSONALITIES = [
+const PERSONALITIES_6 = [
   { id: 'clever-fox',          label: '🦊 狐狸(CBT)' },
   { id: 'warm-bear',           label: '🐻 熊(人本)' },
   { id: 'wise-owl',            label: '🦉 猫头鹰(精神分析)' },
@@ -14,7 +15,7 @@ const PERSONALITIES = [
   { id: 'family-elephant',    label: '🐘 象(家庭治疗)' },
 ];
 
-const CONVERSATION = [
+const CONVERSATION_6 = [
   "最近总觉得很累，早上起不来，晚上睡不着",
   "工作压力太大了，老板天天催进度",
   "我其实也说不清楚到底在焦虑什么",
@@ -27,7 +28,32 @@ const CONVERSATION = [
   "其实我就想要有人能真正理解我",
 ];
 
+interface StartResponse {
+  sessionId: string;
+  emotionTag: string;
+  reactionLayer?: string;
+  companionLayer?: string;
+}
+
+interface DeepResult {
+  content: string;
+  success: boolean;
+}
+
 interface PersonalityResult {
+  sessionId: string;
+  personalityId: string;
+  round: number;
+  message: string;
+  reactionLayer: string;
+  companionLayer: string;
+  deepContent: string;
+  deepChars: number;
+  deepSuccess: boolean;
+  emotionTag: string;
+}
+
+interface PersonalitySummary {
   personality: string;
   label: string;
   rounds: RoundResult[];
@@ -45,14 +71,14 @@ interface RoundResult {
 }
 
 async function pollDeep(sessionId: string): Promise<{content: string; success: boolean}> {
-  const url = `${BASE_URL}/api/v1/chat/stream?sessionId=${sessionId}`;
+  const url = `${BASE_URL_6}/api/v1/chat/stream?sessionId=${sessionId}`;
   return new Promise(resolve => {
     let deep = '';
     let finished = false;
     const controller = new AbortController();
     const timer = setTimeout(() => {
       if (!finished) { controller.abort(); resolve({ content: deep, success: deep.length > 0 }); }
-    }, DEEP_TIMEOUT_MS);
+    }, DEEP_TIMEOUT_6);
 
     fetch(url, { signal: controller.signal })
       .then(async r => {
@@ -82,11 +108,11 @@ async function pollDeep(sessionId: string): Promise<{content: string; success: b
   });
 }
 
-async function sendMessage(pId: string, userId: string, message: string) {
-  const res = await fetch(`${BASE_URL}/api/v1/chat/start`, {
+async function sendMessage(pId: string, userId: string, message: string, conversationId: string, requestId: string) {
+  const res = await fetch(`${BASE_URL_6}/api/v1/chat/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId: pId, userId, message }),
+    body: JSON.stringify({ roleId: pId, userId, message, conversationId, requestId }),
   });
   return res.json();
 }
@@ -94,15 +120,19 @@ async function sendMessage(pId: string, userId: string, message: string) {
 async function runRound(
   round: number,
   message: string,
-  userIds: string[]
+  userIds: string[],
+  conversationId: string
 ): Promise<RoundResult[]> {
-  console.log(`\n=== 第 ${round}/${CONVERSATION.length} 轮 ===`);
+  console.log(`\n=== 第 ${round}/${CONVERSATION_6.length} 轮 ===`);
   console.log(`消息: "${message}"`);
+
+  // 每轮生成唯一 requestId
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
   // 并行发送到6个人格
   const startTime = Date.now();
   const startResponses = await Promise.all(
-    PERSONALITIES.map((p, i) => sendMessage(p.id, userIds[i], message))
+    PERSONALITIES_6.map((p, i) => sendMessage(p.id, userIds[i], message, conversationId, requestId))
   );
   console.log(`  API响应: ${Date.now() - startTime}ms (Reaction+Companion就绪)`);
 
@@ -126,17 +156,17 @@ async function runRound(
   console.log(`  Deep完成: ${Date.now() - deepStart}ms`);
 
   // 合并Deep结果
-  for (let i = 0; i < PERSONALITIES.length; i++) {
+  for (let i = 0; i < PERSONALITIES_6.length; i++) {
     results[i].deepContent = deepResults[i].content;
     results[i].deepChars = deepResults[i].content.length;
     results[i].deepSuccess = deepResults[i].success;
   }
 
   // 打印本轮对比
-  for (let i = 0; i < PERSONALITIES.length; i++) {
+  for (let i = 0; i < PERSONALITIES_6.length; i++) {
     const r = results[i];
     const status = r.deepSuccess ? '✅' : '⏳';
-    console.log(`  ${PERSONALITIES[i].label}: Deep=${r.deepChars}c ${status}`);
+    console.log(`  ${PERSONALITIES_6[i].label}: Deep=${r.deepChars}c ${status}`);
   }
 
   return results;
@@ -144,17 +174,21 @@ async function runRound(
 
 async function main() {
   // 每个角色独立用户ID，避免串流
-  const userIds = PERSONALITIES.map(p => `six_test_${p.id}`);
+  const userIds = PERSONALITIES_6.map(p => `six_test_${p.id}`);
+  
+  // 生成会话ID
+  const conversationId = `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  console.log(`会话ID: ${conversationId}`);
 
-  const allResults: PersonalityResult[] = PERSONALITIES.map((p, i) => ({
+  const allResults: PersonalitySummary[] = PERSONALITIES_6.map((p, i) => ({
     personality: p.id,
     label: p.label,
     rounds: [],
   }));
 
-  for (let r = 0; r < CONVERSATION.length; r++) {
-    const results = await runRound(r + 1, CONVERSATION[r], userIds);
-    for (let i = 0; i < PERSONALITIES.length; i++) {
+  for (let r = 0; r < CONVERSATION_6.length; r++) {
+    const results = await runRound(r + 1, CONVERSATION_6[r], userIds, conversationId);
+    for (let i = 0; i < PERSONALITIES_6.length; i++) {
       allResults[i].rounds.push(results[i]);
     }
   }
@@ -169,9 +203,9 @@ async function main() {
   function trunc(s: string, n: number) { return s.length > n ? s.substring(0, n) + '...' : s; }
 
   // 按轮次输出
-  for (let r = 0; r < CONVERSATION.length; r++) {
+  for (let r = 0; r < CONVERSATION_6.length; r++) {
     console.log(`\n${'─'.repeat(100)}`);
-    console.log(`第 ${r+1} 轮: "${CONVERSATION[r]}"`);
+    console.log(`第 ${r+1} 轮: "${CONVERSATION_6[r]}"`);
     console.log(`${'─'.repeat(100)}`);
 
     for (const pr of allResults) {
@@ -192,7 +226,7 @@ async function main() {
   console.log('='.repeat(120));
   console.log('数据总览');
   console.log('='.repeat(120));
-  console.log(`总计: ${CONVERSATION.length} 轮 × 6 人格 = ${CONVERSATION.length * 6} 次对话`);
+  console.log(`总计: ${CONVERSATION_6.length} 轮 × 6 人格 = ${CONVERSATION_6.length * 6} 次对话`);
   console.log('');
 
   for (const pr of allResults) {

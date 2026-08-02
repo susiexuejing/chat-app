@@ -43,10 +43,14 @@ interface ChatContextValue {
   showRoleIntro: boolean;
   roles: typeof roles;
   flowContext: FlowContext | null;
+  canRetry: boolean;
+  canRegenerate: boolean;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
-  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string; conversationId?: string }) => Promise<void>;
+  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => Promise<void>;
+  retryLastMessage: () => Promise<void>;
+  regenerateLastResponse: () => Promise<void>;
   clearError: () => void;
   setShowHistory: (show: boolean) => void;
   selectSession: (sessionId: string) => void;
@@ -56,6 +60,15 @@ interface ChatContextValue {
   loadSession: (sessionId: string) => void;
   deepThinkingContent: string;
   chatPhase: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done';
+}
+
+// EM-43: 发送快照，用于 retry/regenerate
+interface SendSnapshot {
+  requestId: string;
+  conversationId: string;
+  sessionId: string;
+  roleId: string;
+  message: string;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -77,6 +90,45 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [flowContext, setFlowContext] = useState<FlowContext | null>(null);
   const [conversationId, setConversationId] = useState<string>('');
   const conversationIdRef = useRef<string>('');
+
+  // EM-43: 并发控制与资源管理
+  const sendingRef = useRef(false);
+  const mountedRef = useRef(true);
+  const retrySnapshotRef = useRef<SendSnapshot | null>(null);
+  const regenerateSnapshotRef = useRef<SendSnapshot | null>(null);
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // EM-43: 组件卸载时清理
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // 取消正在进行的请求
+      abortControllerRef.current?.abort();
+      // 清理所有定时器
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current = [];
+    };
+  }, []);
+
+  // EM-43: 资源清理（不调用 abort）
+  const cleanupResources = useCallback(() => {
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    abortControllerRef.current = null;
+  }, []);
+
+  // EM-43: 取消请求（abort + 清理资源）
+  const cancelRequest = useCallback(() => {
+    abortControllerRef.current?.abort();
+    cleanupResources();
+  }, [cleanupResources]);
+
+  // EM-43: 生成请求ID
+  const generateRequestId = useCallback((): string => {
+    return `req_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  }, []);
 
   // EM-43: 跨平台安全的 conversationId 生成
   const generateConversationId = useCallback((): string => {
@@ -131,51 +183,60 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [sessions, currentSessionId, createNewChat]
   );
 
-  const sendMessage = useCallback(
-    async (userMessage: string, _options?: { audioUri?: string; emotion?: string; conversationId?: string }) => {
-      if (!userMessage.trim() || !currentRole) return;
+  // EM-43: 发送核心函数（内部使用，不直接暴露）
+  const sendMessageCore = useCallback(
+    async (
+      userMessage: string,
+      snapshot: SendSnapshot,
+      isRetry: boolean = false
+    ): Promise<'success' | 'chatstart_failed' | 'sse_failed'> => {
+      // 确保当前角色与快照一致
+      const roleToUse = roles.find(r => r.id === snapshot.roleId) || currentRole;
 
-      // EM-43: 优先使用显式传入的 conversationId
-      const explicitConvId = _options?.conversationId;
-      if (explicitConvId) {
-        conversationIdRef.current = explicitConvId;
-        setConversationId(explicitConvId);
+      // 设置 abort controller
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
+      // 同步更新持久状态
+      conversationIdRef.current = snapshot.conversationId;
+      setConversationId(snapshot.conversationId);
+      setCurrentSessionId(snapshot.sessionId);
+      setCurrentRole(roleToUse);
+
+      // 创建用户消息（仅首次，retry 不重复创建）
+      if (!isRetry) {
+        const userMsg: ChatMessage = {
+          id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          role: 'user',
+          content: userMessage,
+          timestamp: Date.now(),
+        };
+        setMessages(prev => [...prev, userMsg]);
       }
 
-      // EM-43: 如果没有当前会话，创建一个新的
-      let sessionIdToUse = currentSessionId;
-      if (!sessionIdToUse) {
-        sessionIdToUse = `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-        setCurrentSessionId(sessionIdToUse);
-      }
-
-      const userMsg: ChatMessage = {
-        id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-        role: 'user',
-        content: userMessage,
-        timestamp: Date.now(),
-      };
       setChatPhase('responding');
-      setMessages(prev => [...prev, userMsg]);
       setIsThinking(true);
       setIsLoading(true);
       setError(null);
       setLightAnalysis('');
 
-      // EM-43: 更新或创建会话记录（包含 conversationId）
+      // 更新或创建会话记录
       setSessions(prev => {
-        const existingIdx = prev.findIndex(s => s.id === sessionIdToUse);
-        const updatedMessages = existingIdx >= 0
-          ? [...prev[existingIdx].messages, userMsg]
-          : [userMsg];
+        const existingIdx = prev.findIndex(s => s.id === snapshot.sessionId);
+        const existingSession = prev[existingIdx];
+        const updatedMessages = existingIdx >= 0 && isRetry
+          ? existingSession.messages  // retry 不重复用户消息
+          : existingIdx >= 0
+            ? [...existingSession.messages, { id: `user_${Date.now()}`, role: 'user' as const, content: userMessage, timestamp: Date.now() }]
+            : [{ id: `user_${Date.now()}`, role: 'user' as const, content: userMessage, timestamp: Date.now() }];
         const sessionData = {
-          id: sessionIdToUse!,
-          roleId: currentRole.id,
+          id: snapshot.sessionId,
+          roleId: snapshot.roleId,
           title: userMessage.slice(0, 30),
           messages: updatedMessages,
-          createdAt: existingIdx >= 0 ? prev[existingIdx].createdAt : Date.now(),
+          createdAt: existingIdx >= 0 ? existingSession.createdAt : Date.now(),
           updatedAt: Date.now(),
-          conversationId: conversationIdRef.current || conversationId,
+          conversationId: snapshot.conversationId,
         };
         if (existingIdx >= 0) {
           const updated = [...prev];
@@ -185,15 +246,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return [...prev, sessionData];
       });
 
+      let chatStartSucceeded = false;
+
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
-        // 使用 ref 中的 conversationId（同步更新，不依赖 React state 异步）
-        const conversationIdToUse = conversationIdRef.current || conversationId;
         const sessionInfo = await chatStart(
-          currentRole.id,
+          snapshot.roleId,
           userMessage,
-          conversationIdToUse
+          snapshot.conversationId,
+          snapshot.requestId
         );
+
+        chatStartSucceeded = true;  // 标记 chatStart 成功
 
         const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
         setFlowContext(fc);
@@ -472,15 +536,129 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         setCurrentSessionId(sessionId);
         setIsLoading(false);
+
+        // 等待 SSE 完成（简化处理：等待一段时间或 deep 完成）
+        // 实际实现中，这里应该有更复杂的等待逻辑
+        await new Promise<void>((resolve) => {
+          const checkDone = () => {
+            if (isDeepDone || !mountedRef.current) {
+              resolve();
+            } else {
+              const timer = setTimeout(checkDone, 100);
+              timersRef.current.push(timer);
+            }
+          };
+          checkDone();
+        });
+
+        // 完整成功，清除 retry/regenerate 快照
+        retrySnapshotRef.current = null;
+        regenerateSnapshotRef.current = null;
+
+        return 'success';
       } catch (err) {
         console.error('[sendMessage] Error:', err);
-        setError(err instanceof Error ? err.message : '请求失败');
-        setIsLoading(false);
-        setIsThinking(false);
+        if (mountedRef.current) {
+          setError(err instanceof Error ? err.message : '请求失败');
+          setIsLoading(false);
+          setIsThinking(false);
+        }
+
+        // 根据失败阶段决定 retry 还是 regenerate
+        if (chatStartSucceeded) {
+          // chatStart 成功但 SSE 失败 → 保存 regenerate 快照
+          regenerateSnapshotRef.current = snapshot;
+          return 'sse_failed';
+        } else {
+          // chatStart 失败 → 保存 retry 快照
+          retrySnapshotRef.current = snapshot;
+          return 'chatstart_failed';
+        }
+      } finally {
+        cleanupResources();
       }
     },
-    [currentRole, currentSessionId, conversationId]
+    [currentRole, roles, cleanupResources]
   );
+
+  // EM-43: 发送守卫包装
+  const withSendGuard = useCallback(
+    async (fn: () => Promise<'success' | 'chatstart_failed' | 'sse_failed'>): Promise<'success' | 'chatstart_failed' | 'sse_failed'> => {
+      // 关键修复：如果被阻止，立即返回，不进入 try-finally
+      if (sendingRef.current) {
+        console.log('[sendMessage] Blocked by sendingRef guard');
+        // 直接返回，不执行 finally 块
+        return 'chatstart_failed';
+      }
+      
+      sendingRef.current = true;
+      setIsLoading(true);
+      
+      let result: 'success' | 'chatstart_failed' | 'sse_failed';
+      try {
+        result = await fn();
+      } finally {
+        sendingRef.current = false;
+        if (mountedRef.current) {
+          setIsLoading(false);
+          setIsThinking(false);
+        }
+        cleanupResources();
+      }
+      
+      return result;
+    },
+    [cleanupResources]
+  );
+
+  // EM-43: 公开 sendMessage（带 guard）
+  const sendMessage = useCallback(
+    async (userMessage: string, _options?: { audioUri?: string; emotion?: string; conversationId?: string }) => {
+      if (!userMessage.trim() || !currentRole) return;
+
+      // EM-43: 优先使用显式传入的 conversationId
+      const convIdToUse = _options?.conversationId || conversationIdRef.current || conversationId;
+      const sessionIdToUse = currentSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+      const snapshot: SendSnapshot = {
+        requestId: generateRequestId(),
+        conversationId: convIdToUse,
+        sessionId: sessionIdToUse,
+        roleId: currentRole.id,
+        message: userMessage,
+      };
+
+      await withSendGuard(() => sendMessageCore(userMessage, snapshot, false));
+    },
+    [currentRole, currentSessionId, conversationId, generateRequestId, withSendGuard, sendMessageCore]
+  );
+
+  // EM-43: Retry（chatStart 失败时使用，不增加 userTurn）
+  const retryLastMessage = useCallback(async () => {
+    const snapshot = retrySnapshotRef.current;
+    if (!snapshot) {
+      console.log('[retry] No retry snapshot available');
+      return;
+    }
+
+    await withSendGuard(() => sendMessageCore(snapshot.message, snapshot, true));
+  }, [withSendGuard, sendMessageCore]);
+
+  // EM-43: Regenerate（chatStart 成功但 SSE 失败时使用，复用同一 requestId 不增加轮次）
+  const regenerateLastResponse = useCallback(async () => {
+    const snapshot = regenerateSnapshotRef.current;
+    if (!snapshot) {
+      console.log('[regenerate] No regenerate snapshot available');
+      return;
+    }
+
+    // 复用同一 requestId，Server 会返回相同的 userTurn（幂等）
+    await withSendGuard(() => sendMessageCore(snapshot.message, snapshot, true));
+  }, [withSendGuard, sendMessageCore]);
+
+  // EM-43: 计算 canRetry 和 canRegenerate
+  const canRetry = retrySnapshotRef.current !== null;
+  const canRegenerate = regenerateSnapshotRef.current !== null;
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
 
@@ -519,10 +697,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         inputText,
         showRoleIntro,
         roles,
+        canRetry,
+        canRegenerate,
         setInputText,
         setCurrentRole,
         setShowRoleIntro,
         sendMessage,
+        retryLastMessage,
+        regenerateLastResponse,
         clearError: () => setError(null),
         setShowHistory,
         selectSession,
