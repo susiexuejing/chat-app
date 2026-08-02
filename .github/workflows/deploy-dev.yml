@@ -1,0 +1,93 @@
+name: Deploy Frontend to Dev
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emotionflow-dev-deployment
+  cancel-in-progress: false
+
+jobs:
+  test-build-deploy:
+    name: Test, build and deploy dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run client tests
+        run: pnpm --dir client exec jest --runInBand
+
+      - name: Build dev frontend
+        env:
+          EXPO_PUBLIC_APP_ENV: DEV
+        run: pnpm --dir client exec expo export --platform web --output-dir dist
+
+      - name: Record deployed commit
+        run: printf '%s\n' "$GITHUB_SHA" > client/dist/deployment-sha.txt
+
+      - name: Prepare SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/dev_deploy_key
+          chmod 600 ~/.ssh/dev_deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Upload build
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          RELEASE_DIR="/tmp/emotionflow-dev-$GITHUB_SHA"
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$RELEASE_DIR'"
+          rsync -az --delete -e "ssh -i ~/.ssh/dev_deploy_key -p $SSH_PORT" client/dist/ "$SSH_USER@$SSH_HOST:$RELEASE_DIR/"
+
+      - name: Activate dev release
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "set -euo pipefail; DEPLOY_DIR=/var/www/chat-app/dev; RELEASE_DIR=/tmp/emotionflow-dev-$GITHUB_SHA; BACKUP_DIR=/var/www/chat-app/dev-backups; mkdir -p "\$DEPLOY_DIR" "\$BACKUP_DIR"; if [ -n "\$(ls -A "\$DEPLOY_DIR" 2>/dev/null)" ]; then tar -czf "\$BACKUP_DIR/dev-\$(date +%Y%m%d-%H%M%S).tar.gz" -C "\$DEPLOY_DIR" .; fi; rsync -a --delete "\$RELEASE_DIR/" "\$DEPLOY_DIR/"; rm -rf "\$RELEASE_DIR"; find "\$BACKUP_DIR" -type f -name 'dev-*.tar.gz' -mtime +14 -delete"
+
+      - name: Verify dev deployment
+        run: |
+          for attempt in 1 2 3 4 5; do
+            deployed_sha="$(curl --fail --silent --show-error https://dev.douhaoyu.cn/deployment-sha.txt || true)"
+            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
+              echo "Dev deployment verified at $GITHUB_SHA"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Dev deployment verification failed."
+          exit 1
