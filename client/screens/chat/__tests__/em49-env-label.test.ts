@@ -49,8 +49,8 @@ describe('EM-49: Environment Label Configuration', () => {
       
       // In test environment, __DEV__ is typically true
       // Mock __DEV__ to true for this test
-      const originalDev = (global as any).__DEV__;
-      (global as any).__DEV__ = true;
+      const originalDev = (globalThis as any).__DEV__;
+      (globalThis as any).__DEV__ = true;
       
       try {
         const envLabel = process.env.EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'DEV' : 'PROD');
@@ -58,7 +58,7 @@ describe('EM-49: Environment Label Configuration', () => {
         // Since __DEV__ is true in test environment, should be 'DEV'
         expect(envLabel).toBe('DEV');
       } finally {
-        (global as any).__DEV__ = originalDev;
+        (globalThis as any).__DEV__ = originalDev;
       }
     });
 
@@ -66,14 +66,14 @@ describe('EM-49: Environment Label Configuration', () => {
       delete process.env.EXPO_PUBLIC_APP_ENV;
       
       // Mock __DEV__ to false (production build)
-      const originalDev = (global as any).__DEV__;
-      (global as any).__DEV__ = false;
+      const originalDev = (globalThis as any).__DEV__;
+      (globalThis as any).__DEV__ = false;
       
       try {
         const envLabel = process.env.EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'DEV' : 'PROD');
         expect(envLabel).toBe('PROD');
       } finally {
-        (global as any).__DEV__ = originalDev;
+        (globalThis as any).__DEV__ = originalDev;
       }
     });
 
@@ -90,8 +90,8 @@ describe('EM-49: Environment Label Configuration', () => {
       process.env.EXPO_PUBLIC_APP_ENV = '';
       
       // Mock __DEV__ to true for this test
-      const originalDev = (global as any).__DEV__;
-      (global as any).__DEV__ = true;
+      const originalDev = (globalThis as any).__DEV__;
+      (globalThis as any).__DEV__ = true;
       
       try {
         const envLabel = process.env.EXPO_PUBLIC_APP_ENV || (__DEV__ ? 'DEV' : 'PROD');
@@ -99,7 +99,7 @@ describe('EM-49: Environment Label Configuration', () => {
         // Empty string is falsy, so should fallback to __DEV__
         expect(envLabel).toBe('DEV');
       } finally {
-        (global as any).__DEV__ = originalDev;
+        (globalThis as any).__DEV__ = originalDev;
       }
     });
   });
