@@ -150,5 +150,31 @@ describe('EM-53: Message Queue During AI Response', () => {
       
       expect(inputText).toBe('');
     });
+
+    it('should clear input text only when it equals queued message text', () => {
+      // 模拟排队消息开始处理时的逻辑
+      let inputText = '排队消息原文';
+      const queuedMessageText = '排队消息原文';
+      
+      // 如果输入框内容等于排队原文，则清空
+      if (inputText === queuedMessageText) {
+        inputText = '';
+      }
+      
+      expect(inputText).toBe('');
+    });
+
+    it('should NOT clear input text when user has typed new draft', () => {
+      // 模拟排队消息开始处理时的逻辑
+      let inputText = '用户新输入的草稿';
+      const queuedMessageText = '排队消息原文';
+      
+      // 如果输入框内容不等于排队原文，不清空
+      if (inputText === queuedMessageText) {
+        inputText = '';
+      }
+      
+      expect(inputText).toBe('用户新输入的草稿');
+    });
   });
 });

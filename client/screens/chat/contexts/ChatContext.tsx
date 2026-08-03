@@ -648,6 +648,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     console.log(`[EM-53] Processing queued message: ${nextMessage.text.substring(0, 20)}...`);
 
+    // EM-53: 如果输入框内容仍等于该排队原文，则清空；如果用户已输入新草稿，不清空
+    if (inputText === nextMessage.text) {
+      setInputText('');
+    }
+
     // 发送消息
     const convIdToUse = conversationIdRef.current || conversationId;
     const sessionIdToUse = currentSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
@@ -661,7 +666,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
 
     await withSendGuard(() => sendMessageCore(nextMessage.text, snapshot, false));
-  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore]);
+  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore, inputText]);
 
   // EM-53: 将 processNextInQueue 赋值给 ref
   processNextInQueueRef.current = processNextInQueue;
