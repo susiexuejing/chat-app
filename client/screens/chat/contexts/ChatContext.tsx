@@ -45,10 +45,11 @@ interface ChatContextValue {
   flowContext: FlowContext | null;
   canRetry: boolean;
   canRegenerate: boolean;
+  messageQueue: QueuedMessage[]; // EM-53: 消息队列
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
-  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => Promise<void>;
+  sendMessage: (text: string, options?: { audioUri?: string; emotion?: string; conversationId?: string }) => Promise<boolean>;
   retryLastMessage: () => Promise<void>;
   regenerateLastResponse: () => Promise<void>;
   clearError: () => void;
@@ -71,6 +72,14 @@ interface SendSnapshot {
   message: string;
 }
 
+// EM-53: 消息队列项
+interface QueuedMessage {
+  id: string;
+  text: string;
+  options?: { audioUri?: string; emotion?: string };
+  timestamp: number;
+}
+
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
@@ -90,6 +99,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [flowContext, setFlowContext] = useState<FlowContext | null>(null);
   const [conversationId, setConversationId] = useState<string>('');
   const conversationIdRef = useRef<string>('');
+
+  // EM-53: 消息队列
+  const [messageQueue, setMessageQueue] = useState<QueuedMessage[]>([]);
+  const messageQueueRef = useRef<QueuedMessage[]>([]);
+  const processNextInQueueRef = useRef<(() => Promise<void>) | null>(null);
 
   // EM-43: 并发控制与资源管理
   const sendingRef = useRef(false);
@@ -604,6 +618,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setIsThinking(false);
         }
         cleanupResources();
+        
+        // EM-53: 当前回复完成后，处理队列中的下一条消息
+        // 使用 setTimeout 确保状态更新完成后再处理
+        setTimeout(() => {
+          if (processNextInQueueRef.current) {
+            processNextInQueueRef.current();
+          }
+        }, 100);
       }
       
       return result;
@@ -611,10 +633,57 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [cleanupResources]
   );
 
-  // EM-43: 公开 sendMessage（带 guard）
+  // EM-53: 处理队列中的下一条消息
+  const processNextInQueue = useCallback(async () => {
+    if (messageQueueRef.current.length === 0 || sendingRef.current) {
+      return;
+    }
+
+    const nextMessage = messageQueueRef.current[0];
+    if (!nextMessage) return;
+
+    // 从队列中移除
+    messageQueueRef.current = messageQueueRef.current.slice(1);
+    setMessageQueue(messageQueueRef.current);
+
+    console.log(`[EM-53] Processing queued message: ${nextMessage.text.substring(0, 20)}...`);
+
+    // 发送消息
+    const convIdToUse = conversationIdRef.current || conversationId;
+    const sessionIdToUse = currentSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+
+    const snapshot: SendSnapshot = {
+      requestId: generateRequestId(),
+      conversationId: convIdToUse,
+      sessionId: sessionIdToUse,
+      roleId: currentRole.id,
+      message: nextMessage.text,
+    };
+
+    await withSendGuard(() => sendMessageCore(nextMessage.text, snapshot, false));
+  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore]);
+
+  // EM-53: 将 processNextInQueue 赋值给 ref
+  processNextInQueueRef.current = processNextInQueue;
+
+  // EM-43: 公开 sendMessage（带 guard）- EM-53: 返回 boolean 表示是否成功发送
   const sendMessage = useCallback(
-    async (userMessage: string, _options?: { audioUri?: string; emotion?: string; conversationId?: string }) => {
-      if (!userMessage.trim() || !currentRole) return;
+    async (userMessage: string, _options?: { audioUri?: string; emotion?: string; conversationId?: string }): Promise<boolean> => {
+      if (!userMessage.trim() || !currentRole) return false;
+
+      // EM-53: 如果正在发送，将消息加入队列
+      if (sendingRef.current) {
+        const queuedMsg: QueuedMessage = {
+          id: `queued_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          text: userMessage,
+          options: _options,
+          timestamp: Date.now(),
+        };
+        messageQueueRef.current = [...messageQueueRef.current, queuedMsg];
+        setMessageQueue(messageQueueRef.current);
+        console.log(`[EM-53] Message queued: ${userMessage.substring(0, 20)}... (queue length: ${messageQueueRef.current.length})`);
+        return false; // 返回 false 表示消息被排队，未立即发送
+      }
 
       // EM-43: 优先使用显式传入的 conversationId
       const convIdToUse = _options?.conversationId || conversationIdRef.current || conversationId;
@@ -629,6 +698,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       };
 
       await withSendGuard(() => sendMessageCore(userMessage, snapshot, false));
+      return true; // 返回 true 表示消息已发送
     },
     [currentRole, currentSessionId, conversationId, generateRequestId, withSendGuard, sendMessageCore]
   );
@@ -699,6 +769,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         roles,
         canRetry,
         canRegenerate,
+        messageQueue, // EM-53: 消息队列
         setInputText,
         setCurrentRole,
         setShowRoleIntro,

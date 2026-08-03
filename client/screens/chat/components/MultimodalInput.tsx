@@ -39,7 +39,7 @@ const THINKING_TIPS = [
 ];
 
 interface MultimodalInputProps {
-  onSendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => void;
+  onSendMessage: (text: string, options?: { audioUri?: string; emotion?: string }) => Promise<boolean>;
   disabled?: boolean;
   isThinking?: boolean;
 }
@@ -118,16 +118,24 @@ export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThink
   };
 
   // 处理文本发送
-  const handleSend = () => {
+  const handleSend = async () => {
     if (isSendDisabled) return;
     
     const text = inputText.trim();
     if (!text) return;
 
-    onSendMessage(text, { emotion: selectedEmotion || undefined });
-    setInputText('');
-    setSelectedEmotion(null);
-    setSupplementText('');
+    // EM-53: 根据 sendMessage 返回值决定是否清空输入框
+    const sent = await onSendMessage(text, { emotion: selectedEmotion || undefined });
+    
+    if (sent) {
+      // 消息已成功发送，清空输入框
+      setInputText('');
+      setSelectedEmotion(null);
+      setSupplementText('');
+    } else {
+      // 消息被排队，保留输入框内容，用户可以继续输入或修改
+      console.log('[EM-53] Message queued, keeping input text');
+    }
   };
 
   // 语音输入
