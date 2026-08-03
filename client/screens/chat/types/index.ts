@@ -22,6 +22,7 @@ export interface ChatSession {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  conversationId?: string;
 }
 
 // AnalysisResult used by textAnalyzer.ts

@@ -7,26 +7,12 @@ import React, {
   useRef,
   useMemo,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
+import { ChatSession, ChatMessage } from '../types';
+import { saveChatSessions, getChatSessions } from '../stores/sessionStore';
 
-
-interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: number;
-}
-
-interface ChatSession {
-  id: string;
-  roleId: string;
-  title: string;
-  messages: ChatMessage[];
-  createdAt: number;
-  updatedAt: number;
-  conversationId: string;
-}
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -80,6 +66,10 @@ interface QueuedMessage {
   timestamp: number;
 }
 
+// EM-54: 持久化存储键
+const STORAGE_KEY_CURRENT_SESSION_ID = 'current_session_id';
+const STORAGE_KEY_CURRENT_ROLE_ID = 'current_role_id';
+
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
@@ -125,6 +115,62 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       timersRef.current = [];
     };
   }, []);
+
+  // EM-54: 初始化时从 AsyncStorage 加载会话和角色
+  useEffect(() => {
+    const loadPersistedState = async () => {
+      try {
+        // 加载会话列表
+        const persistedSessions = await getChatSessions();
+        if (persistedSessions.length > 0) {
+          setSessions(persistedSessions);
+          
+          // 加载当前会话 ID
+          const persistedSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
+          if (persistedSessionId && persistedSessions.find(s => s.id === persistedSessionId)) {
+            setCurrentSessionId(persistedSessionId);
+            // 恢复当前会话的消息（只恢复已完成的消息，不恢复 streaming 状态）
+            const session = persistedSessions.find(s => s.id === persistedSessionId);
+            if (session && session.messages.length > 0) {
+              setMessages(session.messages);
+            }
+          }
+        }
+        
+        // 加载当前角色
+        const persistedRoleId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID);
+        if (persistedRoleId) {
+          const role = getRoleById(persistedRoleId);
+          if (role) {
+            setCurrentRole(role);
+          }
+        }
+      } catch (error) {
+        console.error('EM-54: 加载持久化状态失败:', error);
+      }
+    };
+    
+    loadPersistedState();
+  }, []);
+
+  // EM-54: 会话列表变化时保存到 AsyncStorage
+  useEffect(() => {
+    if (sessions.length > 0) {
+      saveChatSessions(sessions);
+    }
+  }, [sessions]);
+
+  // EM-54: 当前会话 ID 变化时保存到 AsyncStorage
+  useEffect(() => {
+    if (currentSessionId) {
+      AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, currentSessionId);
+    }
+  }, [currentSessionId]);
+
+  // EM-54: 当前角色变化时保存到 AsyncStorage
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEY_CURRENT_ROLE_ID, currentRole.id);
+  }, [currentRole]);
 
   // EM-43: 资源清理（不调用 abort）
   const cleanupResources = useCallback(() => {
