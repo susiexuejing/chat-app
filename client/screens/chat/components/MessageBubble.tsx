@@ -20,9 +20,11 @@ function MessageBubbleComponent({ message, thinking }: MessageBubbleProps) {
   
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
+    // EM-51: 明确使用本地时区，避免时区转换问题
     return date.toLocaleTimeString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
+      hour12: false, // 使用24小时制，避免AM/PM问题
     });
   };
 
