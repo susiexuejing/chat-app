@@ -156,8 +156,8 @@ describe('EM-53: Message Queue During AI Response', () => {
       let inputText = '排队消息原文';
       const queuedMessageText = '排队消息原文';
       
-      // 如果输入框内容等于排队原文，则清空
-      if (inputText === queuedMessageText) {
+      // 如果输入框内容（trim后）等于排队原文，则清空
+      if (inputText.trim() === queuedMessageText) {
         inputText = '';
       }
       
@@ -169,12 +169,49 @@ describe('EM-53: Message Queue During AI Response', () => {
       let inputText = '用户新输入的草稿';
       const queuedMessageText = '排队消息原文';
       
-      // 如果输入框内容不等于排队原文，不清空
-      if (inputText === queuedMessageText) {
+      // 如果输入框内容（trim后）不等于排队原文，不清空
+      if (inputText.trim() === queuedMessageText) {
         inputText = '';
       }
       
       expect(inputText).toBe('用户新输入的草稿');
+    });
+
+    it('should clear input text when it has trailing newline but equals queued message after trim', () => {
+      // 模拟真实场景：用户输入末尾有换行
+      let inputText = '而且今天工作里还有一件事让我很烦\n';
+      const queuedMessageText = '而且今天工作里还有一件事让我很烦'; // trim后的文本
+      
+      // 如果输入框内容（trim后）等于排队原文，则清空
+      if (inputText.trim() === queuedMessageText) {
+        inputText = '';
+      }
+      
+      expect(inputText).toBe('');
+    });
+
+    it('should clear input text when it has multiple trailing newlines', () => {
+      // 模拟真实场景：用户输入末尾有多个换行
+      let inputText = '测试消息\n\n\n';
+      const queuedMessageText = '测试消息';
+      
+      if (inputText.trim() === queuedMessageText) {
+        inputText = '';
+      }
+      
+      expect(inputText).toBe('');
+    });
+
+    it('should clear input text when it has leading and trailing whitespace', () => {
+      // 模拟真实场景：用户输入前后有空格
+      let inputText = '  测试消息  ';
+      const queuedMessageText = '测试消息';
+      
+      if (inputText.trim() === queuedMessageText) {
+        inputText = '';
+      }
+      
+      expect(inputText).toBe('');
     });
   });
 });

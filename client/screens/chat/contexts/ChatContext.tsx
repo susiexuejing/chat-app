@@ -648,8 +648,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     console.log(`[EM-53] Processing queued message: ${nextMessage.text.substring(0, 20)}...`);
 
-    // EM-53: 如果输入框内容仍等于该排队原文，则清空；如果用户已输入新草稿，不清空
-    if (inputText === nextMessage.text) {
+    // EM-53: 如果输入框内容仍等于该排队原文（考虑 trim），则清空；如果用户已输入新草稿，不清空
+    if (inputText.trim() === nextMessage.text) {
       setInputText('');
     }
 
