@@ -36,3 +36,4 @@ deployment/*.tar.gz
 
 # Deployment files with potential secrets
 deployment/server-env.tar.gz
+.codegraph
