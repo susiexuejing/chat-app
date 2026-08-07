@@ -44,6 +44,71 @@ FAILED ────────────────────────�
 
 ### State Definitions
 
+#### IDLE
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | No active operation; previous generation completed or failed |
+| **Exit Condition** | User sends message → transition to USER_INPUT |
+| **Frontend Behavior** | Input enabled, send button active, no loading indicators |
+| **Backend Behavior** | No active session; ready to accept new chatStart request |
+
+#### USER_INPUT
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | User submits message (non-empty text, role selected) |
+| **Exit Condition** | Message validated → PERSISTING; OR validation fails → IDLE |
+| **Frontend Behavior** | Input disabled briefly, message appears in chat |
+| **Backend Behavior** | No backend call yet; client-side validation only |
+
+#### PERSISTING
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | Message passes validation |
+| **Exit Condition** | Message saved to backend → GENERATING; OR save fails → FAILED |
+| **Frontend Behavior** | User message shows "sending" indicator |
+| **Backend Behavior** | POST /api/v1/conversations/:id/messages (user message) |
+
+#### GENERATING
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | User message persisted successfully |
+| **Exit Condition** | chatStart returns → STREAMING; OR error → FAILED |
+| **Frontend Behavior** | "AI is thinking..." indicator, reaction timeline begins |
+| **Backend Behavior** | POST /api/v1/chat/start; signal extraction; reaction/companion generation |
+
+#### STREAMING
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | chatStart returns with sessionId, reactionTimeline, companionTimeline |
+| **Exit Condition** | deepDone event received → COMPLETED; OR stream error → FAILED |
+| **Frontend Behavior** | Typing indicators for reaction/companion; deep response streams in |
+| **Backend Behavior** | SSE stream active; typing engine events; deep analysis streaming |
+
+#### COMPLETED
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | Deep response fully streamed (deepDone event) |
+| **Exit Condition** | Auto-transition to IDLE; OR queue has pending → process next |
+| **Frontend Behavior** | Full response visible, input re-enabled |
+| **Backend Behavior** | Session cleanup (if TTL expired); assistant message persisted |
+
+#### FAILED
+
+| Aspect | Description |
+|--------|-------------|
+| **Entry Condition** | Error at any stage (persist, generate, stream) |
+| **Exit Condition** | User retries → USER_INPUT; OR user discards → IDLE |
+| **Frontend Behavior** | Error message shown, retry button available |
+| **Backend Behavior** | Session marked failed; error logged |
+
+### State Summary Table
+
 | State | Description | Allowed Actions |
 |-------|-------------|-----------------|
 | `IDLE` | No active operation | User can send message |
