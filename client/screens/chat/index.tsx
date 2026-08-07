@@ -25,6 +25,7 @@ import {
   MultimodalInput,
   HistoryList,
   ChangeSystemCard,
+  QueueStatusBar,
 } from './components';
 import { ChatProvider, useChat } from './contexts/ChatContext';
 import { DEFAULT_ROLES } from './constants/roles';
@@ -363,6 +364,9 @@ function ChatContent() {
           </View>
         </View>
       )}
+
+      {/* EF-58: Queue status bar - shows queued messages during AI generation */}
+      <QueueStatusBar />
 
       {/* 免责声明 */}
       <View className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 border-t border-amber-200 dark:border-amber-800 flex-row items-center justify-center">

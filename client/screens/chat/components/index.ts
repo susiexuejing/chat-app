@@ -14,3 +14,4 @@ export { HistoryList } from './HistoryList';
 export { LightAnalysisCard } from './LightAnalysisCard';
 export { DeepAnalysisCard } from './DeepAnalysisCard';
 export { ChangeSystemCard } from './ChangeSystemCard';
+export { QueueStatusBar } from './QueueStatusBar';
