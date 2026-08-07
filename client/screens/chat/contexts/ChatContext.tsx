@@ -36,6 +36,8 @@ interface ChatContextValue {
   queueCount: number;
   isProcessingQueue: boolean;
   queuePosition: number;
+  // EF-58 Code Review Fix: 当前正在处理的消息 ID
+  currentlyProcessingMessageId: string | null;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
@@ -79,7 +81,10 @@ interface QueuedMessage {
   status: QueuedMessageStatus;
   retryCount: number;
   lastError?: string;
-  requestId?: string; // 用于幂等性
+  // EF-58 Code Review Fix: requestId is required for future backend idempotency
+  // Pre-generated when message is queued, preserved across retries and persistence
+  // Backend will use this to detect duplicate requests and return cached responses
+  requestId?: string;
 }
 
 // EM-54: 持久化存储键
@@ -117,8 +122,29 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   
   // EF-58: 队列 UI 状态
   const [isProcessingQueue, setIsProcessingQueue] = useState(false);
+  // EF-58 Code Review Fix: 添加 currentlyProcessingMessageId 用于精确追踪
+  const [currentlyProcessingMessageId, setCurrentlyProcessingMessageId] = useState<string | null>(null);
   const queueCount = messageQueue.length;
-  const queuePosition = messageQueue.findIndex(m => m.status === 'processing');
+  // EF-58 Code Review Fix: queuePosition 根据 messageId 计算，不依赖 status
+  const queuePosition = currentlyProcessingMessageId 
+    ? messageQueue.findIndex(m => m.id === currentlyProcessingMessageId)
+    : -1;
+
+  // EF-58 Code Review Fix: 统一队列持久化 helper
+  // 在 enqueue/update status 时调用，确保 state update + immediate AsyncStorage persistence
+  const persistQueue = useCallback(async (queue: QueuedMessage[]) => {
+    messageQueueRef.current = queue;
+    setMessageQueue(queue);
+    try {
+      if (queue.length > 0) {
+        await AsyncStorage.setItem(STORAGE_KEY_MESSAGE_QUEUE, JSON.stringify(queue));
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEY_MESSAGE_QUEUE);
+      }
+    } catch (error) {
+      console.error('[EF-58] Failed to persist queue:', error);
+    }
+  }, []);
 
   // EM-43: 并发控制与资源管理
   const sendingRef = useRef(false);
@@ -215,15 +241,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     AsyncStorage.setItem(STORAGE_KEY_CURRENT_ROLE_ID, currentRole.id);
   }, [currentRole]);
 
-  // EF-58: 消息队列变化时保存到 AsyncStorage
-  useEffect(() => {
-    if (messageQueue.length > 0) {
-      AsyncStorage.setItem(STORAGE_KEY_MESSAGE_QUEUE, JSON.stringify(messageQueue));
-    } else {
-      // 队列为空时清除存储
-      AsyncStorage.removeItem(STORAGE_KEY_MESSAGE_QUEUE);
-    }
-  }, [messageQueue]);
+  // EF-58 Code Review Fix: 移除 useEffect 持久化，改用 persistQueue helper 立即持久化
 
   // EF-58: 资源清理（不调用 abort）
   const cleanupResources = useCallback(() => {
@@ -736,28 +754,35 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const processNextInQueue = useCallback(async () => {
     if (messageQueueRef.current.length === 0 || sendingRef.current) {
       setIsProcessingQueue(false);
+      setCurrentlyProcessingMessageId(null);
       return;
     }
 
     setIsProcessingQueue(true);
     
-    // 找到第一个 queued 状态的消息
+    // 找到第一个 queued 状态的消息（FIFO 顺序）
     const nextIndex = messageQueueRef.current.findIndex(m => m.status === 'queued');
     if (nextIndex === -1) {
       setIsProcessingQueue(false);
+      setCurrentlyProcessingMessageId(null);
       return;
     }
 
     const nextMessage = messageQueueRef.current[nextIndex];
     
-    // 更新状态为 processing
+    // EF-58 Code Review Fix: 设置 currentlyProcessingMessageId
+    setCurrentlyProcessingMessageId(nextMessage.id);
+    
+    // EF-58 Code Review Fix: 保留 requestId（如果已有），否则生成新的
+    // requestId is required for future backend idempotency
     const updatedQueue = messageQueueRef.current.map((m, i) => 
-      i === nextIndex ? { ...m, status: 'processing' as QueuedMessageStatus, requestId: generateRequestId() } : m
+      i === nextIndex ? { ...m, status: 'processing' as QueuedMessageStatus, requestId: m.requestId || generateRequestId() } : m
     );
-    messageQueueRef.current = updatedQueue;
-    setMessageQueue(updatedQueue);
+    
+    // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
+    await persistQueue(updatedQueue);
 
-    console.log(`[EF-58] Processing queued message: ${nextMessage.text.substring(0, 20)}... (retry: ${nextMessage.retryCount})`);
+    console.log(`[EF-58] Processing queued message: ${nextMessage.text.substring(0, 20)}... (retry: ${nextMessage.retryCount}, requestId: ${nextMessage.requestId})`);
 
     // EM-53: 如果输入框内容仍等于该排队原文（考虑 trim），则清空；如果用户已输入新草稿，不清空
     if (inputText.trim() === nextMessage.text) {
@@ -785,13 +810,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           ? { ...m, status: (result === 'success' ? 'completed' : 'failed') as QueuedMessageStatus, lastError: result !== 'success' ? 'Send failed' : undefined }
           : m
       );
-      messageQueueRef.current = finalQueue;
-      setMessageQueue(finalQueue);
       
       // 移除已完成的消息
       const cleanedQueue = finalQueue.filter(m => m.status !== 'completed');
-      messageQueueRef.current = cleanedQueue;
-      setMessageQueue(cleanedQueue);
+      
+      // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
+      await persistQueue(cleanedQueue);
       
     } catch (error) {
       // 处理失败
@@ -800,12 +824,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           ? { ...m, status: 'failed' as QueuedMessageStatus, lastError: error instanceof Error ? error.message : 'Unknown error', retryCount: m.retryCount + 1 }
           : m
       );
-      messageQueueRef.current = failedQueue;
-      setMessageQueue(failedQueue);
+      // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
+      await persistQueue(failedQueue);
     }
     
     setIsProcessingQueue(false);
-  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore, inputText]);
+    setCurrentlyProcessingMessageId(null);
+  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore, inputText, persistQueue]);
 
   // EM-53: 将 processNextInQueue 赋值给 ref
   processNextInQueueRef.current = processNextInQueue;
@@ -830,11 +855,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now(),
           status: 'queued',
           retryCount: 0,
-          requestId: generateRequestId(), // EF-58: 预生成 requestId 用于幂等性
+          // EF-58 Code Review Fix: requestId is required for future backend idempotency
+          // Pre-generated here to ensure consistency across retries and persistence
+          requestId: generateRequestId(),
         };
-        messageQueueRef.current = [...messageQueueRef.current, queuedMsg];
-        setMessageQueue(messageQueueRef.current);
-        console.log(`[EF-58] Message queued: ${userMessage.substring(0, 20)}... (queue length: ${messageQueueRef.current.length})`);
+        const newQueue = [...messageQueueRef.current, queuedMsg];
+        // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
+        await persistQueue(newQueue);
+        console.log(`[EF-58] Message queued: ${userMessage.substring(0, 20)}... (queue length: ${newQueue.length}, requestId: ${queuedMsg.requestId})`);
         return false; // 返回 false 表示消息被排队，未立即发送
       }
 
@@ -842,6 +870,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const convIdToUse = _options?.conversationId || conversationIdRef.current || conversationId;
       const sessionIdToUse = currentSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
+      // EF-58 Code Review Fix: requestId is required for future backend idempotency
       const snapshot: SendSnapshot = {
         requestId: generateRequestId(),
         conversationId: convIdToUse,
@@ -853,7 +882,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       await withSendGuard(() => sendMessageCore(userMessage, snapshot, false));
       return true; // 返回 true 表示消息已发送
     },
-    [currentRole, currentSessionId, conversationId, generateRequestId, withSendGuard, sendMessageCore]
+    [currentRole, currentSessionId, conversationId, generateRequestId, withSendGuard, sendMessageCore, persistQueue]
   );
 
   // EM-43: Retry（chatStart 失败时使用，不增加 userTurn）
@@ -901,17 +930,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const deepThinkingContent = '';
 
   // EF-58: 队列管理函数
-  const clearQueue = useCallback(() => {
-    messageQueueRef.current = [];
-    setMessageQueue([]);
+  // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
+  const clearQueue = useCallback(async () => {
+    await persistQueue([]);
+    setCurrentlyProcessingMessageId(null);
     console.log('[EF-58] Queue cleared');
-  }, []);
+  }, [persistQueue]);
 
-  const removeQueuedMessage = useCallback((messageId: string) => {
-    messageQueueRef.current = messageQueueRef.current.filter(m => m.id !== messageId);
-    setMessageQueue(messageQueueRef.current);
+  const removeQueuedMessage = useCallback(async (messageId: string) => {
+    const newQueue = messageQueueRef.current.filter(m => m.id !== messageId);
+    await persistQueue(newQueue);
+    if (currentlyProcessingMessageId === messageId) {
+      setCurrentlyProcessingMessageId(null);
+    }
     console.log(`[EF-58] Removed message ${messageId} from queue`);
-  }, []);
+  }, [persistQueue, currentlyProcessingMessageId]);
 
   const retryQueuedMessage = useCallback(async (messageId: string) => {
     const message = messageQueueRef.current.find(m => m.id === messageId);
@@ -920,18 +953,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // 重置状态为 queued
+    // EF-58 Code Review Fix: 保留 requestId 用于幂等性
+    // requestId is required for future backend idempotency
     const updatedQueue = messageQueueRef.current.map(m =>
       m.id === messageId ? { ...m, status: 'queued' as QueuedMessageStatus, lastError: undefined } : m
     );
-    messageQueueRef.current = updatedQueue;
-    setMessageQueue(updatedQueue);
+    await persistQueue(updatedQueue);
 
     // 如果当前没有正在发送的消息，立即处理
     if (!sendingRef.current) {
       await processNextInQueue();
     }
-  }, [processNextInQueue]);
+  }, [processNextInQueue, persistQueue]);
 
   return (
     <ChatContext.Provider
@@ -960,6 +993,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         queueCount,
         isProcessingQueue,
         queuePosition,
+        currentlyProcessingMessageId,
         setInputText,
         setCurrentRole,
         setShowRoleIntro,
