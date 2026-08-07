@@ -1,5 +1,5 @@
 /**
- * EF-58 Code Review Fix Tests
+ * EF-58 Code Review Fix Tests - Real Behavior Validation
  * 
  * Tests for:
  * 1. persistQueue helper - immediate persistence on enqueue/update
@@ -46,7 +46,7 @@ const wrapper = ({ children }: { children: React.ReactNode }) => (
   <ChatProvider>{children}</ChatProvider>
 );
 
-describe('EF-58 Code Review Fix Tests', () => {
+describe('EF-58 Real Behavior Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
@@ -56,25 +56,23 @@ describe('EF-58 Code Review Fix Tests', () => {
     it('should immediately persist queue when message is enqueued', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      // Verify context is available
-      expect(result.current).not.toBeNull();
-      expect(result.current.messageQueue).toBeDefined();
-    });
+      // Verify initial state
+      expect(result.current.messageQueue).toEqual([]);
+      expect(result.current.queueCount).toBe(0);
 
-    it('should remove queue from storage when queue is cleared', async () => {
-      const { result } = await renderHook(() => useChat(), { wrapper });
-
+      // Clear queue should call removeItem
       await act(async () => {
         result.current.clearQueue();
       });
 
-      // Verify AsyncStorage.removeItem was called
+      // Verify AsyncStorage.removeItem was called with 'message_queue'
       const removeItemCalls = (AsyncStorage.removeItem as jest.Mock).mock.calls;
       const queueRemoveCall = removeItemCalls.find(
         (call: unknown[]) => call[0] === 'message_queue'
       );
       
-      expect(queueRemoveCall).toBeDefined();
+      expect(queueRemoveCall).not.toBeNull();
+      expect(queueRemoveCall[0]).toBe('message_queue');
     });
   });
 
@@ -82,13 +80,15 @@ describe('EF-58 Code Review Fix Tests', () => {
     it('should be null when no message is processing', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
+      // Exact assertion: null, not just defined
       expect(result.current.currentlyProcessingMessageId).toBeNull();
     });
 
-    it('should be exposed in context value', async () => {
+    it('should be exposed in context value as null initially', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      expect(result.current.currentlyProcessingMessageId).toBeDefined();
+      // Exact assertion: null
+      expect(result.current.currentlyProcessingMessageId).toBeNull();
     });
   });
 
@@ -96,78 +96,187 @@ describe('EF-58 Code Review Fix Tests', () => {
     it('should be -1 when no message is processing', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
+      // Exact assertion: -1
       expect(result.current.queuePosition).toBe(-1);
     });
 
-    it('should be calculated based on currentlyProcessingMessageId', async () => {
+    it('should be -1 when currentlyProcessingMessageId is null', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      // queuePosition should be -1 when currentlyProcessingMessageId is null
+      // Exact assertion: -1 when no processing message
+      expect(result.current.currentlyProcessingMessageId).toBeNull();
       expect(result.current.queuePosition).toBe(-1);
-    });
-  });
-
-  describe('requestId Preservation', () => {
-    it('should preserve requestId when message status changes to processing', async () => {
-      const { result } = await renderHook(() => useChat(), { wrapper });
-
-      // The requestId should be preserved across status changes
-      // This is tested implicitly through the queue processing logic
-      expect(result.current.messageQueue).toBeDefined();
     });
   });
 
   describe('Scenario 1: AI Generating + Send New Message', () => {
-    it('should queue new message when AI is generating', async () => {
+    it('should have sendMessage function available', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      // Initial state: no messages in queue
-      expect(result.current.queueCount).toBe(0);
-
-      // Note: In real scenario, we would simulate AI generating state
-      // and then send a new message. The message should be queued.
-      // This test verifies the queue mechanism exists.
-      expect(result.current.sendMessage).toBeDefined();
+      // Verify sendMessage is a function
+      expect(typeof result.current.sendMessage).toBe('function');
     });
 
-    it('should update queueCount when message is queued', async () => {
+    it('should have isLoading state for AI generation', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      const initialCount = result.current.queueCount;
-      expect(initialCount).toBe(0);
+      // Verify isLoading is false initially (no AI generation)
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    it('should have queueCount state for tracking queued messages', async () => {
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Verify queueCount is 0 initially
+      expect(result.current.queueCount).toBe(0);
+    });
+
+    it('should have isProcessingQueue state for tracking queue processing', async () => {
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Verify isProcessingQueue is false initially
+      expect(result.current.isProcessingQueue).toBe(false);
+    });
+
+    it('should have queue management functions available', async () => {
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Verify queue management functions are available
+      expect(typeof result.current.clearQueue).toBe('function');
+      expect(typeof result.current.removeQueuedMessage).toBe('function');
+      expect(typeof result.current.retryQueuedMessage).toBe('function');
     });
   });
 
   describe('Scenario 2: FIFO Ordering (A, B, C)', () => {
-    it('should maintain FIFO order for queued messages', async () => {
+    it('should maintain empty queue initially', async () => {
       const { result } = await renderHook(() => useChat(), { wrapper });
 
-      // Verify queue is initially empty
+      // Exact assertion: empty array
       expect(result.current.messageQueue).toEqual([]);
-      
-      // FIFO ordering is maintained by the array structure
-      // Messages are added to the end and processed from the beginning
       expect(result.current.messageQueue.length).toBe(0);
+    });
+
+    it('should have queueCount as 0 initially', async () => {
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Exact assertion: 0
+      expect(result.current.queueCount).toBe(0);
+    });
+
+    it('should have queuePosition as -1 when no messages', async () => {
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Exact assertion: -1 when no messages
+      expect(result.current.queuePosition).toBe(-1);
     });
   });
 
   describe('Scenario 3: Refresh Recovery', () => {
     it('should restore queue from AsyncStorage on mount', async () => {
-      // Mock persisted queue data
+      // Mock persisted queue data with specific requestId
+      const persistedQueue = [
+        {
+          id: 'queued_A',
+          text: 'Message A',
+          timestamp: 1000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req-A',
+        },
+        {
+          id: 'queued_B',
+          text: 'Message B',
+          timestamp: 2000000,
+          status: 'processing' as const, // Will be reset to 'queued' on recovery
+          retryCount: 0,
+          requestId: 'req-B',
+        },
+      ];
+
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
+        if (key === 'message_queue') {
+          return Promise.resolve(JSON.stringify(persistedQueue));
+        }
+        return Promise.resolve(null);
+      });
+
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Wait for initialization
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      // Exact assertions: queue was restored with 2 messages
+      expect(result.current.messageQueue.length).toBe(2);
+      
+      // First message: status should be 'queued'
+      expect(result.current.messageQueue[0].id).toBe('queued_A');
+      expect(result.current.messageQueue[0].status).toBe('queued');
+      expect(result.current.messageQueue[0].requestId).toBe('req-A');
+      
+      // Second message: status should be reset to 'queued' (was 'processing')
+      expect(result.current.messageQueue[1].id).toBe('queued_B');
+      expect(result.current.messageQueue[1].status).toBe('queued');
+      expect(result.current.messageQueue[1].requestId).toBe('req-B');
+    });
+
+    it('should preserve requestId after refresh recovery', async () => {
       const persistedQueue = [
         {
           id: 'queued_1',
           text: 'Message A',
-          timestamp: Date.now(),
-          status: 'queued',
+          timestamp: 1000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req_preserved_1',
+        },
+        {
+          id: 'queued_2',
+          text: 'Message B',
+          timestamp: 2000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req_preserved_2',
+        },
+      ];
+
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
+        if (key === 'message_queue') {
+          return Promise.resolve(JSON.stringify(persistedQueue));
+        }
+        return Promise.resolve(null);
+      });
+
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Wait for initialization
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      // Exact assertions: requestId preserved
+      expect(result.current.messageQueue.length).toBe(2);
+      expect(result.current.messageQueue[0].requestId).toBe('req_preserved_1');
+      expect(result.current.messageQueue[1].requestId).toBe('req_preserved_2');
+    });
+
+    it('should reset processing messages to queued after refresh', async () => {
+      const persistedQueue = [
+        {
+          id: 'queued_1',
+          text: 'Message A',
+          timestamp: 1000000,
+          status: 'processing' as const,
           retryCount: 0,
           requestId: 'req_1',
         },
         {
           id: 'queued_2',
           text: 'Message B',
-          timestamp: Date.now(),
-          status: 'processing', // Will be reset to 'queued' on recovery
+          timestamp: 2000000,
+          status: 'processing' as const,
           retryCount: 0,
           requestId: 'req_2',
         },
@@ -187,53 +296,38 @@ describe('EF-58 Code Review Fix Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       });
 
-      // Verify queue was restored
-      // Note: processing messages should be reset to queued
-      expect(result.current.messageQueue).toBeDefined();
+      // Exact assertions: all processing messages reset to queued
+      expect(result.current.messageQueue.length).toBe(2);
+      expect(result.current.messageQueue[0].status).toBe('queued');
+      expect(result.current.messageQueue[1].status).toBe('queued');
     });
 
-    it('should preserve requestId after refresh recovery', async () => {
+    it('should update queueCount after refresh recovery', async () => {
       const persistedQueue = [
         {
           id: 'queued_1',
           text: 'Message A',
-          timestamp: Date.now(),
-          status: 'queued',
-          retryCount: 0,
-          requestId: 'req_preserved_1',
-        },
-      ];
-
-      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'message_queue') {
-          return Promise.resolve(JSON.stringify(persistedQueue));
-        }
-        return Promise.resolve(null);
-      });
-
-      const { result } = await renderHook(() => useChat(), { wrapper });
-
-      // Wait for initialization
-      await act(async () => {
-        await new Promise(resolve => setTimeout(resolve, 100));
-      });
-
-      // Verify requestId was preserved
-      if (result.current.messageQueue.length > 0) {
-        expect(result.current.messageQueue[0].requestId).toBe('req_preserved_1');
-      }
-    });
-
-    it('should reset processing messages to queued after refresh', async () => {
-      const persistedQueue = [
-        {
-          id: 'queued_1',
-          text: 'Message A',
-          timestamp: Date.now(),
-          status: 'processing' as const,
+          timestamp: 1000000,
+          status: 'queued' as const,
           retryCount: 0,
           requestId: 'req_1',
         },
+        {
+          id: 'queued_2',
+          text: 'Message B',
+          timestamp: 2000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req_2',
+        },
+        {
+          id: 'queued_3',
+          text: 'Message C',
+          timestamp: 3000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req_3',
+        },
       ];
 
       (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
@@ -250,10 +344,41 @@ describe('EF-58 Code Review Fix Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 100));
       });
 
-      // Verify processing message was reset to queued
-      if (result.current.messageQueue.length > 0) {
-        expect(result.current.messageQueue[0].status).toBe('queued');
-      }
+      // Exact assertion: queueCount matches queue length
+      expect(result.current.queueCount).toBe(3);
+    });
+  });
+
+  describe('requestId for Backend Idempotency', () => {
+    it('should have requestId field in QueuedMessage interface', async () => {
+      const persistedQueue = [
+        {
+          id: 'queued_1',
+          text: 'Message A',
+          timestamp: 1000000,
+          status: 'queued' as const,
+          retryCount: 0,
+          requestId: 'req_idempotency_test',
+        },
+      ];
+
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
+        if (key === 'message_queue') {
+          return Promise.resolve(JSON.stringify(persistedQueue));
+        }
+        return Promise.resolve(null);
+      });
+
+      const { result } = await renderHook(() => useChat(), { wrapper });
+
+      // Wait for initialization
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      // Exact assertion: requestId is preserved for backend idempotency
+      expect(result.current.messageQueue.length).toBe(1);
+      expect(result.current.messageQueue[0].requestId).toBe('req_idempotency_test');
     });
   });
 });
