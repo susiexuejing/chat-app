@@ -4,7 +4,7 @@
  * Verifies:
  * - Schema definitions load correctly
  * - Database tables exist and have correct structure
- * - RLS is enabled on new tables
+ * - Service role can access new tables
  */
 import { conversations, messages, healthCheck } from '../storage/database/shared/schema';
 import { getSupabaseClient } from '../storage/database/supabase-client';
@@ -72,27 +72,24 @@ describe('EF-59 Phase 1: Database Schema', () => {
     });
   });
 
-  describe('RLS configuration', () => {
+  describe('Service role access', () => {
     let client: ReturnType<typeof getSupabaseClient>;
 
     beforeAll(() => {
       client = getSupabaseClient();
     });
 
-    test('conversations table has RLS enabled', async () => {
-      // Check pg_tables for RLS status
+    test('service role can access conversations table', async () => {
+      // With service_role_key, RLS is bypassed - verifies table is accessible
       const { data, error } = await client
         .from('conversations')
         .select('id')
         .limit(1);
       
-      // With service_role_key, RLS is bypassed, so this should succeed
-      // If RLS were not enabled and we used anon_key, it would still work
-      // The real test is that service_role_key can access the table
       expect(error).toBeNull();
     });
 
-    test('messages table has RLS enabled', async () => {
+    test('service role can access messages table', async () => {
       const { data, error } = await client
         .from('messages')
         .select('id')
