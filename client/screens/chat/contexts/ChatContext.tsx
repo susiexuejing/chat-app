@@ -191,17 +191,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               console.log('[EF-59] Restored conversationIdRef:', session.conversationId);
             }
           }
-          
-          // EF-59 TRACE: loadPersistedState 完成后的状态
-          const traceSession = persistedSessions.find(s => s.id === persistedSessionId);
-          console.log('[EF59_TRACE] loadPersistedState completed', {
-            currentSessionId: persistedSessionId,
-            sessionsCount: persistedSessions.length,
-            messagesCount: traceSession?.messages?.length ?? 0,
-            conversationId: traceSession?.conversationId ?? null,
-            roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
-          });
         }
+        
+        // EF-59 TRACE: loadPersistedState 完成后的状态（移到外层作用域）
+        const traceSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
+        const traceSessions = await getChatSessions();
+        const traceSession = traceSessionId ? traceSessions.find(s => s.id === traceSessionId) : null;
+        console.log('[EF59_TRACE] loadPersistedState completed', {
+          currentSessionId: traceSessionId,
+          sessionsCount: traceSessions.length,
+          messagesCount: traceSession?.messages?.length ?? 0,
+          conversationId: traceSession?.conversationId ?? null,
+          roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
+        });
         
         // 加载当前角色
         const persistedRoleId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID);
