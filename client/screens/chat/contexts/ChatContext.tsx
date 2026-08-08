@@ -464,6 +464,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const createNewChat = useCallback((role?: PsychologistRole): string => {
     const newConversationId = generateConversationId();
     setMessages([]);
+    // EF-59 OVERWRITE TRACE: 追踪谁调用了 createNewChat
+    console.trace('[EF59_SESSION_TRACE] createNewChat called - setting currentSessionId null');
     setCurrentSessionId(null);
     setError(null);
     setIsLoading(false);
