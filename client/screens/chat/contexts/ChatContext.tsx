@@ -98,6 +98,13 @@ const MAX_QUEUE_SIZE = 10;
 const ChatContext = createContext<ChatContextValue | null>(null);
 
 export function ChatProvider({ children }: { children: React.ReactNode }) {
+  // EF-59 PROVIDER INSTANCE TRACE: 追踪 Provider 实例
+  const providerInstanceId = useRef<string>(
+    typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : `provider-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -133,10 +140,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EF-59 CONTEXT LIFECYCLE TRACE
   useEffect(() => {
     console.log('[EF59_CONTEXT_TRACE] ChatProvider mounted', {
+      instanceId: providerInstanceId.current,
       timestamp: Date.now()
     });
     return () => {
       console.log('[EF59_CONTEXT_TRACE] ChatProvider unmounted', {
+        instanceId: providerInstanceId.current,
         timestamp: Date.now()
       });
     };
@@ -194,6 +203,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EF-59 SESSION TRACE: currentSessionId 变化追踪（显式原始值）
   useEffect(() => {
     console.log('[EF59_SESSION_TRACE] currentSessionId changed', {
+      instanceId: providerInstanceId.current,
       value: String(currentSessionId),
       timestamp: Date.now()
     });
@@ -201,6 +211,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // EF-59 SESSION TRACE: overwrite detector
     if (!currentSessionId) {
       console.log('[EF59_SESSION_TRACE] currentSessionId became null', {
+        instanceId: providerInstanceId.current,
         timestamp: Date.now(),
         sessionsCount: sessions.length
       });
