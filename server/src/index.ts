@@ -21,6 +21,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import { getFirstTwoRoundsRulesWithTurn } from './flows/firstTwoRoundsRules';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
+import conversationsRouter from './routes/conversations.js';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -55,6 +56,11 @@ app.get('/api/v1/health', (_req, res) => {
 app.get('/api/v1/version', (_req, res) => {
   res.json(VERSION_INFO);
 });
+
+// ============================================================
+// EF-59: Conversation Persistence API
+// ============================================================
+app.use('/api/v1/conversations', conversationsRouter);
 
 // ============================================================
 // 环境变量
