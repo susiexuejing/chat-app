@@ -130,6 +130,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     ? messageQueue.findIndex(m => m.id === currentlyProcessingMessageId)
     : -1;
 
+  // EF-59 CONTEXT LIFECYCLE TRACE
+  useEffect(() => {
+    console.log('[EF59_CONTEXT_TRACE] ChatProvider mounted', {
+      timestamp: Date.now()
+    });
+    return () => {
+      console.log('[EF59_CONTEXT_TRACE] ChatProvider unmounted', {
+        timestamp: Date.now()
+      });
+    };
+  }, []);
+
   // EF-58 Code Review Fix: 统一队列持久化 helper
   // 在 enqueue/update status 时调用，确保 state update + immediate AsyncStorage persistence
   const persistQueue = useCallback(async (queue: QueuedMessage[]) => {
@@ -237,6 +249,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               currentSessionId: String(persistedSessionId)
             });
             
+            // EF-59 SETTER TRACE
+            console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+              value: String(persistedSessionId),
+              source: 'loadPersistedState',
+              timestamp: Date.now()
+            });
             setCurrentSessionId(persistedSessionId);
             // 恢复当前会话的消息（只恢复已完成的消息，不恢复 streaming 状态）
             const session = persistedSessions.find(s => s.id === persistedSessionId);
@@ -466,6 +484,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     setMessages([]);
     // EF-59 OVERWRITE TRACE: 追踪谁调用了 createNewChat
     console.trace('[EF59_SESSION_TRACE] createNewChat called - setting currentSessionId null');
+    // EF-59 SETTER TRACE
+    console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+      value: 'null',
+      source: 'createNewChat',
+      timestamp: Date.now()
+    });
     setCurrentSessionId(null);
     setError(null);
     setIsLoading(false);
@@ -483,6 +507,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const session = sessions.find((s) => s.id === sessionId);
       if (session) {
         setMessages(session.messages);
+        // EF-59 SETTER TRACE
+        console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+          value: String(session.id),
+          source: 'selectSession',
+          timestamp: Date.now()
+        });
         setCurrentSessionId(session.id);
         const role = getRoleById(session.roleId);
         if (role) setCurrentRole(role);
@@ -525,6 +555,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // 同步更新持久状态
       conversationIdRef.current = snapshot.conversationId;
       setConversationId(snapshot.conversationId);
+      // EF-59 SETTER TRACE
+      console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+        value: String(snapshot.sessionId),
+        source: 'sendMessageCore',
+        timestamp: Date.now()
+      });
       setCurrentSessionId(snapshot.sessionId);
       setCurrentRole(roleToUse);
 
@@ -892,6 +928,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // ── 启动打字机 ──
         scheduleNext();
 
+        // EF-59 SETTER TRACE
+        console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+          value: String(sessionId),
+          source: 'SSE_processing',
+          timestamp: Date.now()
+        });
         setCurrentSessionId(sessionId);
         setIsLoading(false);
 
@@ -1156,6 +1198,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     if (!session) return;
     const role = roles.find(r => r.id === session.roleId);
     setCurrentRole(role || roles[0]);
+    // EF-59 SETTER TRACE
+    console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
+      value: String(session.id),
+      source: 'loadSession',
+      timestamp: Date.now()
+    });
     setCurrentSessionId(session.id);
     setMessages(session.messages);
     // EM-43: 恢复会话的 conversationId
