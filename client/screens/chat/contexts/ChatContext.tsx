@@ -167,18 +167,51 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // EF-59 STATE TRACE: sessions state 变化追踪
+  useEffect(() => {
+    console.log('[EF59_STATE_TRACE] sessions state changed', {
+      count: sessions.length,
+      sessions: sessions.map(s => ({
+        id: s.id,
+        conversationId: s.conversationId,
+        messages: s.messages?.length
+      }))
+    });
+  }, [sessions]);
+
   // EM-54: 初始化时从 AsyncStorage 加载会话和角色
   useEffect(() => {
     const loadPersistedState = async () => {
       try {
         // 加载会话列表
         const persistedSessions = await getChatSessions();
+        
+        // EF-59 STATE TRACE: getChatSessions 返回后
+        console.log('[EF59_STATE_TRACE] persisted sessions loaded', {
+          count: persistedSessions.length,
+          sessions: persistedSessions.map(s => ({
+            id: s.id,
+            conversationId: s.conversationId,
+            messages: s.messages?.length
+          }))
+        });
+        
         if (persistedSessions.length > 0) {
+          // EF-59 STATE TRACE: setSessions 前
+          console.log('[EF59_STATE_TRACE] before setSessions', {
+            count: persistedSessions.length
+          });
+          
           setSessions(persistedSessions);
           
           // 加载当前会话 ID
           const persistedSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
           if (persistedSessionId && persistedSessions.find(s => s.id === persistedSessionId)) {
+            // EF-59 STATE TRACE: currentSessionId 恢复
+            console.log('[EF59_STATE_TRACE] currentSession restored', {
+              currentSessionId: persistedSessionId
+            });
+            
             setCurrentSessionId(persistedSessionId);
             // 恢复当前会话的消息（只恢复已完成的消息，不恢复 streaming 状态）
             const session = persistedSessions.find(s => s.id === persistedSessionId);
