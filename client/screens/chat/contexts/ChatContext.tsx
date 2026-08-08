@@ -185,6 +185,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (session && session.messages.length > 0) {
               setMessages(session.messages);
             }
+            // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
+            if (session?.conversationId) {
+              conversationIdRef.current = session.conversationId;
+              console.log('[EF-59] Restored conversationIdRef:', session.conversationId);
+            }
           }
         }
         
@@ -231,9 +236,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     const syncFromBackend = async () => {
       try {
-        const result = await fetchConversation(currentSessionId);
+        // EF-59 Fix: 使用会话的 conversationId（后端 ID）而不是 sessionId（前端 ID）
+        const session = sessions.find(s => s.id === currentSessionId);
+        const backendConversationId = session?.conversationId;
+        
+        if (!backendConversationId) {
+          console.log('[EF-59] No backend conversationId for session:', currentSessionId);
+          return;
+        }
+
+        const result = await fetchConversation(backendConversationId);
         if (!result) {
-          console.log('[EF-59] No backend conversation found for session:', currentSessionId);
+          console.log('[EF-59] No backend conversation found for id:', backendConversationId);
           return;
         }
 
@@ -241,13 +255,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           conversation: { id: string; roleId: string };
           messages: Array<{ id: string; role: string; content: string; timestamp: number; status?: string }>;
         };
-
-        // 更新会话信息
-        setSessions(prev => prev.map(s => 
-          s.id === currentSessionId 
-            ? { ...s, conversationId: conv.id }
-            : s
-        ));
 
         // 更新消息（后端数据为准）
         if (backendMessages && backendMessages.length > 0) {
@@ -274,7 +281,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
 
     syncFromBackend();
-  }, [currentSessionId]);
+  }, [currentSessionId, sessions]);
 
   // EM-54: 会话列表变化时保存到 AsyncStorage
   useEffect(() => {
