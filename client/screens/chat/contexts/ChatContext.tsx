@@ -179,6 +179,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     });
   }, [sessions]);
 
+  // EF-59 SESSION TRACE: currentSessionId 变化追踪
+  useEffect(() => {
+    console.log('[EF59_SESSION_TRACE] currentSessionId changed', {
+      currentSessionId
+    });
+  }, [currentSessionId]);
+
   // EM-54: 初始化时从 AsyncStorage 加载会话和角色
   useEffect(() => {
     const loadPersistedState = async () => {
@@ -206,6 +213,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           
           // 加载当前会话 ID
           const persistedSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
+          
+          // EF-59 SESSION TRACE: 恢复前详细状态
+          console.log('[EF59_SESSION_TRACE] restoring current session', {
+            persistedSessionId,
+            sessionsCount: persistedSessions.length,
+            sessionIds: persistedSessions.map(s => s.id),
+            matchFound: persistedSessionId ? !!persistedSessions.find(s => s.id === persistedSessionId) : false
+          });
+          
           if (persistedSessionId && persistedSessions.find(s => s.id === persistedSessionId)) {
             // EF-59 STATE TRACE: currentSessionId 恢复
             console.log('[EF59_STATE_TRACE] currentSession restored', {
