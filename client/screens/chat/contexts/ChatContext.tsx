@@ -232,13 +232,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // 只在有 sessionId 且未同步过时执行
     if (!currentSessionId || hasSyncedRef.current) return;
+
+    // EF-59 Fix: 先找到 session，确认存在后再锁定同步状态
+    // 防止 sessions 还未加载完成就锁定 hasSyncedRef
+    const session = sessions.find(s => s.id === currentSessionId);
+    if (!session) {
+      // sessions 还未加载完成，不锁定，等待下次 useEffect 触发
+      return;
+    }
+
+    // 确认 session 存在后才锁定，防止重复同步
     hasSyncedRef.current = true;
 
     const syncFromBackend = async () => {
       try {
         // EF-59 Fix: 使用会话的 conversationId（后端 ID）而不是 sessionId（前端 ID）
-        const session = sessions.find(s => s.id === currentSessionId);
-        const backendConversationId = session?.conversationId;
+        const backendConversationId = session.conversationId;
         
         if (!backendConversationId) {
           console.log('[EF-59] No backend conversationId for session:', currentSessionId);

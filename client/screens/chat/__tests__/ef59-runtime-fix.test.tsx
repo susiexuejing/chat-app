@@ -195,6 +195,102 @@ describe('EF-59 Runtime Fix Tests', () => {
     });
   });
 
+  describe('Scenario 4: Race condition regression', () => {
+    it('should sync from backend even when sessions load slower than sync useEffect triggers', async () => {
+      // This test verifies the fix for the race condition where:
+      // 1. Component mounts with sessions = []
+      // 2. syncFromBackend useEffect triggers when currentSessionId is set
+      // 3. sessions.find() returns undefined because sessions is still []
+      // 4. hasSyncedRef was set to true, preventing retry
+      // 
+      // The fix: hasSyncedRef is only set after session is found
+
+      const backendConvId = 'backend-conv-race';
+      const existingSession = {
+        id: 'session-race',
+        roleId: 'test-role',
+        conversationId: backendConvId,
+        messages: [
+          { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() - 1000 },
+        ],
+        messageQueue: [],
+        createdAt: Date.now(),
+      };
+
+      // Simulate slow session loading (async delay)
+      let resolveGetChatSessions: (value: any) => void;
+      const slowGetChatSessions = new Promise((resolve) => {
+        resolveGetChatSessions = resolve;
+      });
+      (sessionStore.getChatSessions as jest.Mock).mockReturnValue(slowGetChatSessions);
+
+      // Set currentSessionId immediately (simulating fast AsyncStorage read)
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
+        if (key === 'current_session_id') return Promise.resolve('session-race');
+        if (key === 'current_role_id') return Promise.resolve('test-role');
+        return Promise.resolve(null);
+      });
+
+      // Mock fetchConversation
+      (sessionStore.fetchConversation as jest.Mock).mockResolvedValue({
+        conversation: {
+          id: backendConvId,
+          user_id: 'test-device',
+          role_id: 'test-role',
+          state: 'active',
+          created_at: Date.now(),
+          updated_at: Date.now(),
+          last_message_at: Date.now(),
+        },
+        messages: [
+          { id: 'msg-backend', conversation_id: backendConvId, role: 'assistant', content: 'From backend', status: 'sent', timestamp: Date.now() },
+        ],
+      });
+
+      // Start rendering
+      const { result, unmount } = await renderHook(() => useChat(), { wrapper });
+
+      // Wait a bit for useEffect to trigger (sessions still empty at this point)
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      });
+
+      // Now resolve the slow session loading
+      await act(async () => {
+        resolveGetChatSessions!([existingSession]);
+        await new Promise(resolve => setTimeout(resolve, 100));
+      });
+
+      // Wait for sync to complete
+      await act(async () => {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      });
+
+      // Verify: fetchConversation was called with backend conversation ID
+      // This proves the race condition is fixed - sync waited for sessions to load
+      expect(sessionStore.fetchConversation).toHaveBeenCalledWith(backendConvId);
+
+      unmount();
+    });
+
+    it('should not lock hasSyncedRef when session is not found', async () => {
+      // Setup: No matching session
+      (sessionStore.getChatSessions as jest.Mock).mockResolvedValue([]);
+      (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
+        if (key === 'current_session_id') return Promise.resolve('session-nonexistent');
+        return Promise.resolve(null);
+      });
+
+      const { result, unmount } = await renderHook(() => useChat(), { wrapper });
+      await waitForInitialization();
+
+      // fetchConversation should NOT be called (no session found)
+      expect(sessionStore.fetchConversation).not.toHaveBeenCalled();
+
+      unmount();
+    });
+  });
+
   describe('Scenario 3: No backend available', () => {
     it('should keep AsyncStorage cache usable when backend is unavailable', async () => {
       const cachedMessages = [
