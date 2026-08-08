@@ -35,7 +35,7 @@ jest.mock('../constants/roles', () => ({
 
 // Mock sessionStore
 jest.mock('../stores/sessionStore', () => ({
-  saveChatSessions: jest.fn(),
+  saveChatSessions: jest.fn().mockResolvedValue(undefined),
   getChatSessions: jest.fn().mockResolvedValue([]),
   persistMessage: jest.fn().mockResolvedValue(null),
   createConversation: jest.fn().mockResolvedValue({ id: 'test-conv-id' }),

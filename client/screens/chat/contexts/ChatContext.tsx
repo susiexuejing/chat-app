@@ -342,9 +342,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EM-54: 会话列表变化时保存到 AsyncStorage
   useEffect(() => {
     if (sessions.length > 0) {
-      saveChatSessions(sessions);
+      // EF-59 WRITE TRACE: 写入前状态
+      const currentSession = sessions.find(s => s.id === currentSessionId);
+      console.log('[EF59_WRITE_TRACE] Before AsyncStorage write', {
+        sessionsCount: sessions.length,
+        sessionId: currentSessionId,
+        conversationId: currentSession?.conversationId ?? null,
+        messagesCount: currentSession?.messages?.length ?? 0,
+      });
+      
+      saveChatSessions(sessions).then(() => {
+        // EF-59 WRITE TRACE: 写入成功
+        console.log('[EF59_WRITE_SUCCESS] AsyncStorage write completed', {
+          key: 'chat_sessions',
+          sessionsCount: sessions.length,
+        });
+      }).catch(err => {
+        console.error('[EF59_WRITE_ERROR] AsyncStorage write failed', err);
+      });
     }
-  }, [sessions]);
+  }, [sessions, currentSessionId]);
 
   // EM-54: 当前会话 ID 变化时保存到 AsyncStorage
   useEffect(() => {

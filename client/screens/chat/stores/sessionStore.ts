@@ -31,12 +31,21 @@ function createMessage(
 export async function getChatSessions(): Promise<ChatSession[]> {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEY);
+    console.log('[EF59_STORE_TRACE] getChatSessions called', {
+      hasData: !!data,
+      dataSize: data?.length ?? 0,
+    });
     if (data) {
-      return JSON.parse(data);
+      const sessions = JSON.parse(data);
+      console.log('[EF59_STORE_TRACE] getChatSessions parsed', {
+        sessionsCount: sessions.length,
+        firstSessionId: sessions[0]?.id ?? null,
+      });
+      return sessions;
     }
     return [];
   } catch (error) {
-    console.error('获取对话历史失败:', error);
+    console.error('[EF59_STORE_ERROR] getChatSessions failed:', error);
     return [];
   }
 }
@@ -44,9 +53,18 @@ export async function getChatSessions(): Promise<ChatSession[]> {
 // 保存所有对话历史
 export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    const data = JSON.stringify(sessions);
+    console.log('[EF59_STORE_TRACE] saveChatSessions called', {
+      sessionsCount: sessions.length,
+      dataSize: data.length,
+      firstSessionId: sessions[0]?.id ?? null,
+    });
+    await AsyncStorage.setItem(STORAGE_KEY, data);
+    console.log('[EF59_STORE_SUCCESS] saveChatSessions completed', {
+      key: STORAGE_KEY,
+    });
   } catch (error) {
-    console.error('保存对话历史失败:', error);
+    console.error('[EF59_STORE_ERROR] saveChatSessions failed:', error);
   }
 }
 
