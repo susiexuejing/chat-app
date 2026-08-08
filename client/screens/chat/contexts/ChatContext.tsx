@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
 import { ChatSession, ChatMessage } from '../types';
-import { saveChatSessions, getChatSessions, persistMessage, createConversation } from '../stores/sessionStore';
+import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 
 
 interface ChatContextValue {
@@ -221,6 +221,60 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     
     loadPersistedState();
   }, []);
+
+  // EF-59 Phase 5: 刷新恢复 - 初始化后从后端同步对话和消息
+  const hasSyncedRef = useRef(false);
+  useEffect(() => {
+    // 只在有 sessionId 且未同步过时执行
+    if (!currentSessionId || hasSyncedRef.current) return;
+    hasSyncedRef.current = true;
+
+    const syncFromBackend = async () => {
+      try {
+        const result = await fetchConversation(currentSessionId);
+        if (!result) {
+          console.log('[EF-59] No backend conversation found for session:', currentSessionId);
+          return;
+        }
+
+        const { conversation: conv, messages: backendMessages } = result as {
+          conversation: { id: string; roleId: string };
+          messages: Array<{ id: string; role: string; content: string; timestamp: number; status?: string }>;
+        };
+
+        // 更新会话信息
+        setSessions(prev => prev.map(s => 
+          s.id === currentSessionId 
+            ? { ...s, conversationId: conv.id }
+            : s
+        ));
+
+        // 更新消息（后端数据为准）
+        if (backendMessages && backendMessages.length > 0) {
+          const mappedMessages: ChatMessage[] = backendMessages.map(m => ({
+            id: m.id,
+            role: m.role as 'user' | 'assistant',
+            content: m.content,
+            timestamp: m.timestamp,
+            isThinking: false,
+          }));
+          setMessages(mappedMessages);
+          console.log(`[EF-59] Synced ${mappedMessages.length} messages from backend`);
+
+          // 检查是否有失败的生成（status=failed 的最后一条助手消息）
+          const lastAssistantMsg = backendMessages.filter(m => m.role === 'assistant').pop();
+          if (lastAssistantMsg && lastAssistantMsg.status === 'failed') {
+            setError('Generation was interrupted. Please try again.');
+          }
+        }
+      } catch (error) {
+        // 网络错误时保持缓存数据，不覆盖
+        console.error('[EF-59] Failed to sync from backend:', error);
+      }
+    };
+
+    syncFromBackend();
+  }, [currentSessionId]);
 
   // EM-54: 会话列表变化时保存到 AsyncStorage
   useEffect(() => {
