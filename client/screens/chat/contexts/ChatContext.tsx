@@ -191,6 +191,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               console.log('[EF-59] Restored conversationIdRef:', session.conversationId);
             }
           }
+          
+          // EF-59 TRACE: loadPersistedState 完成后的状态
+          const traceSession = persistedSessions.find(s => s.id === persistedSessionId);
+          console.log('[EF59_TRACE] loadPersistedState completed', {
+            currentSessionId: persistedSessionId,
+            sessionsCount: persistedSessions.length,
+            messagesCount: traceSession?.messages?.length ?? 0,
+            conversationId: traceSession?.conversationId ?? null,
+            roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
+          });
         }
         
         // 加载当前角色
@@ -230,6 +240,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EF-59 Phase 5: 刷新恢复 - 初始化后从后端同步对话和消息
   const hasSyncedRef = useRef(false);
   useEffect(() => {
+    // EF-59 TRACE: syncFromBackend 开始
+    console.log('[EF59_TRACE] syncFromBackend start', {
+      currentSessionId,
+      sessionsCount: sessions.length,
+      hasSynced: hasSyncedRef.current
+    });
+
     // 只在有 sessionId 且未同步过时执行
     if (!currentSessionId || hasSyncedRef.current) return;
 
@@ -237,9 +254,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // 防止 sessions 还未加载完成就锁定 hasSyncedRef
     const session = sessions.find(s => s.id === currentSessionId);
     if (!session) {
+      // EF-59 TRACE: session 未找到
+      console.log('[EF59_TRACE] session not found, will retry');
       // sessions 还未加载完成，不锁定，等待下次 useEffect 触发
       return;
     }
+
+    // EF-59 TRACE: session 找到
+    console.log('[EF59_TRACE] session found', {
+      sessionId: session.id,
+      conversationId: session.conversationId,
+      messageCount: session.messages?.length ?? 0
+    });
 
     // 确认 session 存在后才锁定，防止重复同步
     hasSyncedRef.current = true;
@@ -254,7 +280,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
+        // EF-59 TRACE: 调用 fetchConversation
+        console.log('[EF59_TRACE] fetchConversation called', {
+          conversationId: backendConversationId
+        });
+
         const result = await fetchConversation(backendConversationId);
+        
+        // EF-59 TRACE: backend response
+        console.log('[EF59_TRACE] backend response', {
+          conversationId: (result?.conversation as { id?: string } | undefined)?.id ?? null,
+          messagesCount: result?.messages?.length ?? 0
+        });
+
         if (!result) {
           console.log('[EF-59] No backend conversation found for id:', backendConversationId);
           return;
@@ -276,6 +314,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }));
           setMessages(mappedMessages);
           console.log(`[EF-59] Synced ${mappedMessages.length} messages from backend`);
+
+          // EF-59 TRACE: merge result
+          console.log('[EF59_TRACE] merge result', {
+            finalMessagesCount: mappedMessages.length,
+            conversationId: conv.id,
+            roleId: conv.roleId
+          });
 
           // 检查是否有失败的生成（status=failed 的最后一条助手消息）
           const lastAssistantMsg = backendMessages.filter(m => m.role === 'assistant').pop();
