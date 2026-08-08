@@ -405,13 +405,25 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         };
         setMessages(prev => [...prev, userMsg]);
 
-        // EF-59 Phase 4: 持久化用户消息到后端
-        persistMessage(conversationIdRef.current, {
-          role: 'user',
-          content: userMessage,
-          status: 'sent',
-          requestId: snapshot.requestId,
-        }).catch(err => console.error('[EF-59] User message persist failed:', err));
+        // EF-59: 确保有后端对话 ID 后再持久化
+        let backendConvId = conversationIdRef.current;
+        if (!backendConvId) {
+          // 首次发送消息，创建后端对话
+          // 使用固定 userId（单用户应用）
+          const newConv = await createConversation('default-user', roleToUse.id);
+          if (newConv) {
+            backendConvId = newConv.id;
+            conversationIdRef.current = backendConvId;
+          }
+        }
+        if (backendConvId) {
+          persistMessage(backendConvId, {
+            role: 'user',
+            content: userMessage,
+            status: 'sent',
+            requestId: snapshot.requestId,
+          }).catch(err => console.error('[EF-59] User message persist failed:', err));
+        }
       }
 
       setChatPhase('responding');
@@ -436,7 +448,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           messages: updatedMessages,
           createdAt: existingIdx >= 0 ? existingSession.createdAt : Date.now(),
           updatedAt: Date.now(),
-          conversationId: snapshot.conversationId,
+          // EF-59: 优先使用后端对话 ID，否则使用 EM-43 幂等键
+          conversationId: conversationIdRef.current || snapshot.conversationId,
         };
         if (existingIdx >= 0) {
           const updated = [...prev];

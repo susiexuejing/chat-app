@@ -38,6 +38,8 @@ jest.mock('../stores/sessionStore', () => ({
   saveChatSessions: jest.fn(),
   getChatSessions: jest.fn().mockResolvedValue([]),
   persistMessage: jest.fn().mockResolvedValue(null),
+  createConversation: jest.fn().mockResolvedValue({ id: 'test-conv-id' }),
+  fetchConversation: jest.fn().mockResolvedValue(null),
 }));
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
