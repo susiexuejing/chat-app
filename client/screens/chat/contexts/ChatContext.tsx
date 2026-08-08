@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
 import { ChatSession, ChatMessage } from '../types';
-import { saveChatSessions, getChatSessions } from '../stores/sessionStore';
+import { saveChatSessions, getChatSessions, persistMessage, createConversation } from '../stores/sessionStore';
 
 
 interface ChatContextValue {
@@ -343,6 +343,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now(),
         };
         setMessages(prev => [...prev, userMsg]);
+
+        // EF-59 Phase 4: 持久化用户消息到后端
+        persistMessage(conversationIdRef.current, {
+          role: 'user',
+          content: userMessage,
+          status: 'sent',
+          requestId: snapshot.requestId,
+        }).catch(err => console.error('[EF-59] User message persist failed:', err));
       }
 
       setChatPhase('responding');
@@ -378,6 +386,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       });
 
       let chatStartSucceeded = false;
+      let deepBuffer = '';  // EF-59 Phase 4: 用于错误恢复时持久化已接收内容
 
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
@@ -419,7 +428,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const timelineSchedules: ReturnType<typeof setTimeout>[] = []; // 所有时间线定时器
         let isDeepStarted = false;    // 收到过百炼chunk
         let isDeepDone = false;       // 百炼全部完成
-        let deepBuffer = '';          // 等待期间百炼chunk缓存
+        // deepBuffer 已在 try 块外声明（EF-59 Phase 4: 用于错误恢复）
         let remainingCompanionChain: { text: string; delay: number }[] = []; // 链式待播companion段，delay是打字完成后的额外等待
         const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
 
@@ -652,6 +661,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     deepBuffer = '';
                   }
                 }
+
+                // EF-59 Phase 4: 持久化助手消息到后端（deep 完成后）
+                const finalDeepContent = deepBuffer || '';
+                if (finalDeepContent) {
+                  persistMessage(conversationIdRef.current, {
+                    role: 'assistant',
+                    content: finalDeepContent,
+                    status: 'sent',
+                  }).catch(err => console.error('[EF-59] Assistant message persist failed:', err));
+                }
+
                 scheduleNext();
               },
               onError: () => {
@@ -693,6 +713,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setError(err instanceof Error ? err.message : '请求失败');
           setIsLoading(false);
           setIsThinking(false);
+        }
+
+        // EF-59 Phase 4: 持久化失败的助手消息
+        if (chatStartSucceeded) {
+          const failedContent = deepBuffer || '';
+          persistMessage(conversationIdRef.current, {
+            role: 'assistant',
+            content: failedContent,
+            status: 'failed',
+          }).catch(persistErr => console.error('[EF-59] Failed message persist error:', persistErr));
         }
 
         // 根据失败阶段决定 retry 还是 regenerate

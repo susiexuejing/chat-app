@@ -37,6 +37,7 @@ jest.mock('../constants/roles', () => ({
 jest.mock('../stores/sessionStore', () => ({
   saveChatSessions: jest.fn(),
   getChatSessions: jest.fn().mockResolvedValue([]),
+  persistMessage: jest.fn().mockResolvedValue(null),
 }));
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (

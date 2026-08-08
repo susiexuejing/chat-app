@@ -107,3 +107,90 @@ export async function getSession(sessionId: string): Promise<ChatSession | null>
   const sessions = await getChatSessions();
   return sessions.find(s => s.id === sessionId) || null;
 }
+
+// ====== EF-59 Phase 4: 后端持久化 API ======
+
+// 获取后端基础 URL
+function getBackendBaseUrl(): string | null {
+  return process.env.EXPO_PUBLIC_BACKEND_BASE_URL || null;
+}
+
+// EF-59: 持久化消息到后端
+export interface PersistedMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant';
+  content: string;
+  status: 'sent' | 'failed';
+  requestId?: string;
+  timestamp: number;
+}
+
+// EF-59: 创建对话（如果不存在）
+export async function createConversation(
+  userId: string,
+  roleId: string
+): Promise<{ id: string } | null> {
+  const baseUrl = getBackendBaseUrl();
+  if (!baseUrl) return null;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/conversations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, roleId }),
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.error('[EF-59] createConversation failed:', error);
+    return null;
+  }
+}
+
+// EF-59: 持久化消息到后端
+export async function persistMessage(
+  conversationId: string,
+  message: {
+    role: 'user' | 'assistant';
+    content: string;
+    status: 'sent' | 'failed';
+    requestId?: string;
+  }
+): Promise<PersistedMessage | null> {
+  const baseUrl = getBackendBaseUrl();
+  if (!baseUrl) return null;
+
+  try {
+    const response = await fetch(
+      `${baseUrl}/api/v1/conversations/${conversationId}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      }
+    );
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.error('[EF-59] persistMessage failed:', error);
+    return null;
+  }
+}
+
+// EF-59: 从后端获取对话和消息
+export async function fetchConversation(
+  conversationId: string
+): Promise<{ conversation: unknown; messages: PersistedMessage[] } | null> {
+  const baseUrl = getBackendBaseUrl();
+  if (!baseUrl) return null;
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/conversations/${conversationId}`);
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    console.error('[EF-59] fetchConversation failed:', error);
+    return null;
+  }
+}
