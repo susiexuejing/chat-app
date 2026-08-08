@@ -35,15 +35,38 @@ export async function getChatSessions(): Promise<ChatSession[]> {
       hasData: !!data,
       dataSize: data?.length ?? 0,
     });
-    if (data) {
+    
+    // EF-59: 检测并清理损坏数据
+    if (!data || data === 'undefined' || data === 'null') {
+      if (data) {
+        console.warn('[EF59_STORE] corrupted chat_sessions detected, cleaning up');
+        await AsyncStorage.removeItem(STORAGE_KEY);
+      }
+      return [];
+    }
+    
+    // EF-59: 解析保护
+    try {
       const sessions = JSON.parse(data);
+      
+      // 验证是数组
+      if (!Array.isArray(sessions)) {
+        console.warn('[EF59_STORE] chat_sessions is not an array, cleaning up');
+        await AsyncStorage.removeItem(STORAGE_KEY);
+        return [];
+      }
+      
       console.log('[EF59_STORE_TRACE] getChatSessions parsed', {
         sessionsCount: sessions.length,
         firstSessionId: sessions[0]?.id ?? null,
       });
       return sessions;
+    } catch (parseError) {
+      // JSON 解析失败，清理损坏数据
+      console.warn('[EF59_STORE] chat_sessions JSON parse failed, cleaning up');
+      await AsyncStorage.removeItem(STORAGE_KEY);
+      return [];
     }
-    return [];
   } catch (error) {
     console.error('[EF59_STORE_ERROR] getChatSessions failed:', error);
     return [];
@@ -52,6 +75,12 @@ export async function getChatSessions(): Promise<ChatSession[]> {
 
 // 保存所有对话历史
 export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
+  // EF-59: 写入保护 - 防止非法数据写入
+  if (!Array.isArray(sessions)) {
+    console.error('[EF59_STORE] invalid sessions payload: not an array', { type: typeof sessions });
+    return;
+  }
+  
   try {
     const data = JSON.stringify(sessions);
     console.log('[EF59_STORE_TRACE] saveChatSessions called', {
