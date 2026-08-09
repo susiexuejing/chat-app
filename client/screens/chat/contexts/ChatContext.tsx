@@ -139,15 +139,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EF-59 CONTEXT LIFECYCLE TRACE
   useEffect(() => {
-    console.log('[EF59_CONTEXT_TRACE] ChatProvider mounted', {
+    console.log('[EF59_CONTEXT_TRACE] ChatProvider mounted ' + JSON.stringify({
       instanceId: providerInstanceId.current,
       timestamp: Date.now()
-    });
+    }));
     return () => {
-      console.log('[EF59_CONTEXT_TRACE] ChatProvider unmounted', {
+      console.log('[EF59_CONTEXT_TRACE] ChatProvider unmounted ' + JSON.stringify({
         instanceId: providerInstanceId.current,
         timestamp: Date.now()
-      });
+      }));
     };
   }, []);
 
@@ -202,19 +202,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EF-59 SESSION TRACE: currentSessionId 变化追踪（显式原始值）
   useEffect(() => {
-    console.log('[EF59_SESSION_TRACE] currentSessionId changed', {
+    console.log('[EF59_SESSION_TRACE] currentSessionId changed ' + JSON.stringify({
       instanceId: providerInstanceId.current,
       value: String(currentSessionId),
       timestamp: Date.now()
-    });
+    }));
     
     // EF-59 SESSION TRACE: overwrite detector
     if (!currentSessionId) {
-      console.log('[EF59_SESSION_TRACE] currentSessionId became null', {
+      console.log('[EF59_SESSION_TRACE] currentSessionId became null ' + JSON.stringify({
         instanceId: providerInstanceId.current,
         timestamp: Date.now(),
         sessionsCount: sessions.length
-      });
+      }));
     }
   }, [currentSessionId, sessions.length]);
 

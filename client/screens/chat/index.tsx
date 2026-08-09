@@ -423,17 +423,17 @@ export default function ChatScreen() {
   const pathname = usePathname();
   
   useEffect(() => {
-    console.log('[EF59_ROUTE_TRACE] ChatScreen mounted', {
+    console.log('[EF59_ROUTE_TRACE] ChatScreen mounted ' + JSON.stringify({
       screenInstanceId: screenInstanceId.current,
       route: pathname,
       timestamp: Date.now()
-    });
+    }));
     return () => {
-      console.log('[EF59_ROUTE_TRACE] ChatScreen unmounted', {
+      console.log('[EF59_ROUTE_TRACE] ChatScreen unmounted ' + JSON.stringify({
         screenInstanceId: screenInstanceId.current,
         route: pathname,
         timestamp: Date.now()
-      });
+      }));
     };
   }, [pathname]);
 
