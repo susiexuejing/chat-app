@@ -28,7 +28,7 @@ import {
   ChangeSystemCard,
   QueueStatusBar,
 } from './components';
-import { ChatProvider, useChat } from './contexts/ChatContext';
+import { useChat } from './contexts/ChatContext';
 import { DEFAULT_ROLES } from './constants/roles';
 import { shouldRenderChangeSystemCard } from './utils/debugMode';
 
@@ -437,9 +437,5 @@ export default function ChatScreen() {
     };
   }, [pathname]);
 
-  return (
-    <ChatProvider>
-      <ChatContent />
-    </ChatProvider>
-  );
+  return <ChatContent />;
 }

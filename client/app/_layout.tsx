@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { Provider } from '@/components/Provider';
+import { ChatProvider } from '@/screens/chat/contexts/ChatContext';
 
 import '../global.css';
 
@@ -14,17 +15,19 @@ LogBox.ignoreLogs([
 export default function RootLayout() {
   return (
     <Provider>
-      <Stack
-        screenOptions={{
-          animation: 'slide_from_right',
-          gestureEnabled: true,
-          gestureDirection: 'horizontal',
-          headerShown: false
-        }}
-      >
-        <Stack.Screen name="index" options={{ title: "" }} />
-        <Stack.Screen name="chat" options={{ title: "" }} />
-      </Stack>
+      <ChatProvider>
+        <Stack
+          screenOptions={{
+            animation: 'slide_from_right',
+            gestureEnabled: true,
+            gestureDirection: 'horizontal',
+            headerShown: false
+          }}
+        >
+          <Stack.Screen name="index" options={{ title: "" }} />
+          <Stack.Screen name="chat" options={{ title: "" }} />
+        </Stack>
+      </ChatProvider>
       <Toast />
     </Provider>
   );
