@@ -266,16 +266,27 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               source: 'loadPersistedState',
               timestamp: Date.now()
             });
+            // EF-59 ACTIVE SESSION TRACE
+            const restoredSession = persistedSessions.find(s => s.id === persistedSessionId);
+            console.log('[EF59_ACTIVE_SESSION_TRACE] ' + JSON.stringify({
+              persistedSessionId,
+              persistedSessionExists: !!restoredSession,
+              sessionsCount: persistedSessions.length,
+              restoredSessionId: restoredSession?.id ?? null,
+              currentSessionIdAfterRestore: persistedSessionId,
+              source: 'loadPersistedState',
+              timestamp: Date.now()
+            }));
+            
             setCurrentSessionId(persistedSessionId);
             // 恢复当前会话的消息（只恢复已完成的消息，不恢复 streaming 状态）
-            const session = persistedSessions.find(s => s.id === persistedSessionId);
-            if (session && session.messages.length > 0) {
-              setMessages(session.messages);
+            if (restoredSession && restoredSession.messages.length > 0) {
+              setMessages(restoredSession.messages);
             }
             // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
-            if (session?.conversationId) {
-              conversationIdRef.current = session.conversationId;
-              console.log('[EF-59] Restored conversationIdRef:', session.conversationId);
+            if (restoredSession?.conversationId) {
+              conversationIdRef.current = restoredSession.conversationId;
+              console.log('[EF-59] Restored conversationIdRef:', restoredSession.conversationId);
             }
           }
         }
