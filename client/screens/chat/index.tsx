@@ -14,6 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { usePathname } from 'expo-router';
 import { Screen } from '@/components/Screen';
 import { useSafeRouter } from '@/hooks/useSafeRouter';
 import {
@@ -417,6 +418,25 @@ function ChatContent() {
 }
 
 export default function ChatScreen() {
+  // EF-59 ROUTE TRACE: 追踪 ChatScreen 实例和路由
+  const screenInstanceId = useRef(Math.random().toString(36).substring(7));
+  const pathname = usePathname();
+  
+  useEffect(() => {
+    console.log('[EF59_ROUTE_TRACE] ChatScreen mounted', {
+      screenInstanceId: screenInstanceId.current,
+      route: pathname,
+      timestamp: Date.now()
+    });
+    return () => {
+      console.log('[EF59_ROUTE_TRACE] ChatScreen unmounted', {
+        screenInstanceId: screenInstanceId.current,
+        route: pathname,
+        timestamp: Date.now()
+      });
+    };
+  }, [pathname]);
+
   return (
     <ChatProvider>
       <ChatContent />
