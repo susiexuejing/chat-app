@@ -47,6 +47,8 @@ function ChatContent() {
     clearError,
     chatPhase,
     flowContext,
+    currentSessionId,
+    isHydrated,
   } = useChat();
 
   const [showHome, setShowHome] = useState(true);
@@ -140,6 +142,25 @@ function ChatContent() {
       }
     };
   }, [chatPhase]);
+
+  // EF-59 Fix: 水合完成后，根据 currentSessionId 恢复 showHome 状态
+  // 使用 ref 避免在 effect 中直接调用 setState
+  const hasRestoredShowHomeRef = useRef(false);
+  useEffect(() => {
+    if (!isHydrated || hasRestoredShowHomeRef.current) return;
+    
+    console.log('[EF59_HYDRATION] Restoring showHome', {
+      currentSessionId,
+      messagesCount: messages.length,
+    });
+    
+    // 如果有活跃的会话，直接显示聊天视图
+    if (currentSessionId && messages.length > 0) {
+      hasRestoredShowHomeRef.current = true;
+      // 使用 queueMicrotask 避免在 effect 中直接调用 setState
+      queueMicrotask(() => setShowHome(false));
+    }
+  }, [isHydrated, currentSessionId, messages.length]);
 
   // 开始对话：从首页进入聊天
   const handleStartChat = useCallback(async () => {
@@ -417,9 +438,12 @@ function ChatContent() {
   );
 }
 
+// 用于生成唯一的屏幕实例 ID
+let screenInstanceCounter = 0;
+
 export default function ChatScreen() {
   // EF-59 ROUTE TRACE: 追踪 ChatScreen 实例和路由
-  const screenInstanceId = useRef(Math.random().toString(36).substring(7));
+  const screenInstanceId = useRef(`screen_${++screenInstanceCounter}`);
   const pathname = usePathname();
   
   useEffect(() => {

@@ -38,6 +38,8 @@ interface ChatContextValue {
   queuePosition: number;
   // EF-58 Code Review Fix: 当前正在处理的消息 ID
   currentlyProcessingMessageId: string | null;
+  // EF-59 Fix: 水合状态守卫
+  isHydrated: boolean;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
@@ -136,6 +138,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const queuePosition = currentlyProcessingMessageId 
     ? messageQueue.findIndex(m => m.id === currentlyProcessingMessageId)
     : -1;
+
+  // EF-59 Fix: 水合状态守卫
+  // 在从 AsyncStorage 恢复完成前，阻止依赖 currentSessionId 的逻辑执行
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // EF-59 CONTEXT LIFECYCLE TRACE
   useEffect(() => {
@@ -329,8 +335,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             console.error('[EF-58] Failed to parse persisted queue:', parseError);
           }
         }
+        
+        // EF-59 Fix: 水合完成，允许依赖 currentSessionId 的逻辑执行
+        setIsHydrated(true);
+        console.log('[EF59_HYDRATION] Hydration completed', {
+          sessionsCount: persistedSessions?.length ?? 0,
+        });
       } catch (error) {
         console.error('EM-54: 加载持久化状态失败:', error);
+        // EF-59 Fix: 即使失败也要解除阻塞，避免永久卡住
+        setIsHydrated(true);
       }
     };
     
@@ -340,6 +354,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EF-59 Phase 5: 刷新恢复 - 初始化后从后端同步对话和消息
   const hasSyncedRef = useRef(false);
   useEffect(() => {
+    // EF-59 Fix: 等待水合完成后再执行同步
+    if (!isHydrated) {
+      console.log('[EF59_HYDRATION] syncFromBackend waiting for hydration...');
+      return;
+    }
+
     // EF-59 TRACE: syncFromBackend 开始
     console.log('[EF59_TRACE] syncFromBackend start', {
       currentSessionId,
@@ -435,7 +455,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
 
     syncFromBackend();
-  }, [currentSessionId, sessions]);
+  }, [currentSessionId, sessions, isHydrated]);
 
   // EM-54: 会话列表变化时保存到 AsyncStorage
   useEffect(() => {
@@ -1301,6 +1321,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         isProcessingQueue,
         queuePosition,
         currentlyProcessingMessageId,
+        // EF-59 Fix: 水合状态
+        isHydrated,
         setInputText,
         setCurrentRole,
         setShowRoleIntro,
