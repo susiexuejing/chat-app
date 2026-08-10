@@ -109,6 +109,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
+  
+  // EF-59: Authoritative refs for mutable conversation state
+  // These refs always contain the latest state, avoiding stale closure issues
+  const messagesRef = useRef<ChatMessage[]>([]);
+  const sessionsRef = useRef<ChatSession[]>([]);
+  
+  // EF-59: Centralized helpers to update both ref and state atomically
+  const replaceMessages = (updater: (previous: ChatMessage[]) => ChatMessage[]): ChatMessage[] => {
+    const next = updater(messagesRef.current);
+    messagesRef.current = next;
+    setMessages(next);
+    return next;
+  };
+  
+  const replaceSessions = (updater: (previous: ChatSession[]) => ChatSession[]): ChatSession[] => {
+    const next = updater(sessionsRef.current);
+    sessionsRef.current = next;
+    setSessions(next);
+    return next;
+  };
+  
+  // Sync refs with state on initial mount and when state changes externally
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  
+  useEffect(() => {
+    sessionsRef.current = sessions;
+  }, [sessions]);
+  
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<(typeof roles)[0]>(roles[0]);
   const [isLoading, setIsLoading] = useState(false);
@@ -645,24 +675,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EF-59: 更新会话的完成状态（消息 + chatPhase）
   // 当助手回复完成时调用，确保 sessions[].messages 与 UI messages 同步
+  // EF-59 CTO Fix: 使用 sessionsRef 而非 state updater，确保持久化真正被 await
   const updateSessionWithCompletedResponse = useCallback(
     async (sessionId: string, finalMessages: ChatMessage[], finalChatPhase: 'done' | 'idle') => {
-      setSessions(prev => {
-        const idx = prev.findIndex(s => s.id === sessionId);
-        if (idx < 0) return prev;
-        const updated = [...prev];
-        updated[idx] = {
-          ...updated[idx],
-          messages: finalMessages,
-          chatPhase: finalChatPhase,
-          updatedAt: Date.now(),
-        };
-        // EF-59: 立即持久化会话
-        saveChatSessions(updated).catch(err => {
-          console.error('[EF-59] Failed to persist session after completion:', err);
-        });
-        return updated;
-      });
+      // EF-59 CTO Fix: 使用 ref 计算最终 sessions，不依赖 state updater
+      const updatedSessions = sessionsRef.current.map(session =>
+        session.id === sessionId
+          ? {
+              ...session,
+              messages: finalMessages,
+              chatPhase: finalChatPhase,
+              updatedAt: Date.now(),
+            }
+          : session
+      );
+      
+      // 更新 ref 和 state
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
+      
+      // EF-59 CTO Fix: 真正 await 持久化，不在 state updater 中调用
+      try {
+        await saveChatSessions(updatedSessions);
+        await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
+      } catch (err) {
+        console.error('[EF-59] Failed to persist session after completion:', err);
+        throw err;
+      }
     },
     []
   );
@@ -705,7 +744,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           content: userMessage,
           timestamp: Date.now(),
         };
-        setMessages(prev => [...prev, userMsg]);
+        // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
+        replaceMessages(prev => [...prev, userMsg]);
 
         // EF-59: 确保有后端对话 ID 后再持久化
         let backendConvId = conversationIdRef.current;
@@ -790,7 +830,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const chatStartTime = Date.now();
         const assistantTimestamp = Date.now();
 
-        setMessages(prev => [...prev, {
+        // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
+        replaceMessages(prev => [...prev, {
           id: bubbleMsgId,
           role: 'assistant',
           content: firstReaction,
@@ -831,7 +872,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           let pIdx = 0;
           function showNextPara() {
             displayedContent += (pIdx === 0 ? '' : '\n\n') + paragraphs[pIdx];
-            setMessages(prev =>
+            // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
+            replaceMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
             pIdx++;
@@ -859,7 +901,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           if (ch !== undefined) {
             displayedContent += ch;
-            setMessages(prev =>
+            // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
+            replaceMessages(prev =>
               prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
             );
             const delay = getTypingDelay(ch);
@@ -1135,7 +1178,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
 
         // EF-59: UI 完全完成后，构建最终消息数组并原子性持久化
-        // 不再通过 setMessages 副作用，而是显式构建最终状态
+        // EF-59 CTO Fix: 使用 messagesRef.current 而非捕获的 messages，避免 stale state
         const finalAssistantMessage: ChatMessage = {
           id: bubbleMsgId,
           role: 'assistant',
@@ -1143,12 +1186,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           timestamp: assistantTimestamp,
         };
         
-        // 构建最终消息数组：替换占位助手消息为完成的消息
-        const finalMessages = messages.map(m => 
-          m.id === bubbleMsgId ? finalAssistantMessage : m
-        );
+        // EF-59 CTO Fix: 从 ref 构建最终消息数组，确保使用最新状态
+        const currentMessages = messagesRef.current;
+        const hasAssistantBubble = currentMessages.some(m => m.id === bubbleMsgId);
+        
+        let finalMessages: ChatMessage[];
+        if (hasAssistantBubble) {
+          // 替换占位助手消息为完成的消息
+          finalMessages = currentMessages.map(m => 
+            m.id === bubbleMsgId ? finalAssistantMessage : m
+          );
+        } else {
+          // EF-59 CTO Fix: 如果 bubble 不存在，追加而非静默返回空列表
+          console.warn('[EF-59] Assistant bubble not found in messages, appending');
+          finalMessages = [...currentMessages, finalAssistantMessage];
+        }
         
         // 原子性更新 UI 状态和持久化
+        messagesRef.current = finalMessages;
         setMessages(finalMessages);
         setChatPhase('done');
         
