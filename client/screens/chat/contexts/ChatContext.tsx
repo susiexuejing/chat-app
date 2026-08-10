@@ -43,6 +43,7 @@ interface ChatContextValue {
   // EF-38: Turn lifecycle for interrupted generation recovery
   turnStatus: TurnStatus;
   isInterrupted: boolean;
+  pendingTurn?: PendingTurn;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
@@ -764,22 +765,54 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // These functions atomically update session state and persist to storage
 
   // EF-38: Mark turn as generating (before chatStart)
+  // EF-38 CTO Fix: One authoritative transition that creates/updates session + user message + generating state
   const markTurnGenerating = useCallback(
-    async (sessionId: string, pendingTurn: PendingTurn) => {
-      const updatedSessions = sessionsRef.current.map(session =>
-        session.id === sessionId
-          ? {
-              ...session,
-              turnStatus: 'generating' as TurnStatus,
-              pendingTurn,
-              chatPhase: 'responding' as const,
-              updatedAt: Date.now(),
-            }
-          : session
-      );
+    async (
+      sessionId: string,
+      userMessage: ChatMessage,
+      pendingTurn: PendingTurn,
+      title: string,
+      roleId: string,
+      conversationId?: string
+    ) => {
+      const currentSessions = sessionsRef.current;
+      const existingIdx = currentSessions.findIndex(s => s.id === sessionId);
+      const existingSession = currentSessions[existingIdx];
+      
+      // Build updated messages: include user message
+      const updatedMessages = existingIdx >= 0
+        ? [...existingSession.messages, userMessage]
+        : [userMessage];
+      
+      // Create or update session with generating state
+      const sessionData = {
+        id: sessionId,
+        roleId,
+        title,
+        messages: updatedMessages,
+        createdAt: existingIdx >= 0 ? existingSession.createdAt : Date.now(),
+        updatedAt: Date.now(),
+        conversationId,
+        turnStatus: 'generating' as TurnStatus,
+        pendingTurn,
+        chatPhase: 'responding' as const,
+      };
+      
+      let updatedSessions: ChatSession[];
+      if (existingIdx >= 0) {
+        updatedSessions = [...currentSessions];
+        updatedSessions[existingIdx] = sessionData;
+      } else {
+        updatedSessions = [...currentSessions, sessionData];
+      }
+      
+      // Synchronously update ref and state
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
+      
+      // Await persistence
       await saveChatSessions(updatedSessions);
+      await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
     },
     []
   );
@@ -877,36 +910,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       });
       setCurrentRole(roleToUse);
 
-      // 创建用户消息（仅首次，retry 不重复创建）
-      if (!isRetry) {
-        const userMsg: ChatMessage = {
-          id: `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          role: 'user',
-          content: userMessage,
-          timestamp: Date.now(),
-        };
-        // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
-        replaceMessages(prev => [...prev, userMsg]);
+      // EF-38 CTO Fix: Create ONE user message with consistent ID
+      // This ID will be used for: visible messages, session.messages, pendingTurn.userMessageId
+      // For retry, we use the existing pendingTurn.userMessageId to maintain identity
+      const userMsgId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      
+      const userMsg: ChatMessage = {
+        id: userMsgId,
+        role: 'user',
+        content: userMessage,
+        timestamp: Date.now(),
+      };
 
-        // EF-59: 确保有后端对话 ID 后再持久化
-        let backendConvId = conversationIdRef.current;
-        if (!backendConvId) {
-          // 首次发送消息，创建后端对话
-          // 使用固定 userId（单用户应用）
-          const newConv = await createConversation('default-user', roleToUse.id);
-          if (newConv) {
-            backendConvId = newConv.id;
-            conversationIdRef.current = backendConvId;
-          }
-        }
-        if (backendConvId) {
-          persistMessage(backendConvId, {
-            role: 'user',
-            content: userMessage,
-            status: 'sent',
-            requestId: snapshot.requestId,
-          }).catch(err => console.error('[EF-59] User message persist failed:', err));
-        }
+      // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state (仅首次，retry 不重复创建)
+      if (!isRetry) {
+        replaceMessages(prev => [...prev, userMsg]);
       }
 
       setChatPhase('responding');
@@ -915,48 +933,52 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setError(null);
       setLightAnalysis('');
 
-      // 更新或创建会话记录
-      setSessions(prev => {
-        const existingIdx = prev.findIndex(s => s.id === snapshot.sessionId);
-        const existingSession = prev[existingIdx];
-        const updatedMessages = existingIdx >= 0 && isRetry
-          ? existingSession.messages  // retry 不重复用户消息
-          : existingIdx >= 0
-            ? [...existingSession.messages, { id: `user_${Date.now()}`, role: 'user' as const, content: userMessage, timestamp: Date.now() }]
-            : [{ id: `user_${Date.now()}`, role: 'user' as const, content: userMessage, timestamp: Date.now() }];
-        const sessionData = {
-          id: snapshot.sessionId,
-          roleId: snapshot.roleId,
-          title: userMessage.slice(0, 30),
-          messages: updatedMessages,
-          createdAt: existingIdx >= 0 ? existingSession.createdAt : Date.now(),
-          updatedAt: Date.now(),
-          // EF-59: 优先使用后端对话 ID，否则使用 EM-43 幂等键
-          conversationId: conversationIdRef.current || snapshot.conversationId,
-        };
-        if (existingIdx >= 0) {
-          const updated = [...prev];
-          updated[existingIdx] = sessionData;
-          return updated;
+      // EF-38 CTO Fix: One authoritative transition
+      // Creates/updates session + user message + generating state in one operation
+      // This replaces the separate setSessions call to avoid race condition
+      const pendingTurn: PendingTurn = {
+        requestId: snapshot.requestId,
+        userMessageId: userMsgId,  // EF-38: Use same ID as userMsg
+        userMessage,
+        startedAt: Date.now(),
+        roleId: snapshot.roleId,
+        conversationId: snapshot.conversationId,
+      };
+      
+      // EF-38: Mark turn as generating BEFORE chatStart
+      // This creates/updates session with user message and generating state
+      await markTurnGenerating(
+        snapshot.sessionId,
+        userMsg,
+        pendingTurn,
+        userMessage.slice(0, 30),  // title
+        snapshot.roleId,
+        snapshot.conversationId
+      );
+
+      // EF-59: 确保有后端对话 ID 后再持久化
+      let backendConvId = conversationIdRef.current;
+      if (!backendConvId && !isRetry) {
+        // 首次发送消息，创建后端对话
+        const newConv = await createConversation('default-user', roleToUse.id);
+        if (newConv) {
+          backendConvId = newConv.id;
+          conversationIdRef.current = backendConvId;
         }
-        return [...prev, sessionData];
-      });
+      }
+      if (backendConvId && !isRetry) {
+        persistMessage(backendConvId, {
+          role: 'user',
+          content: userMessage,
+          status: 'sent',
+          requestId: snapshot.requestId,
+        }).catch(err => console.error('[EF-59] User message persist failed:', err));
+      }
 
       let chatStartSucceeded = false;
       let deepBuffer = '';  // EF-59 Phase 4: 用于错误恢复时持久化已接收内容
 
       try {
-        // EF-38: Mark turn as generating before chatStart
-        const pendingTurn: PendingTurn = {
-          requestId: snapshot.requestId,
-          userMessageId: isRetry ? '' : `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-          userMessage,
-          startedAt: Date.now(),
-          roleId: snapshot.roleId,
-          conversationId: snapshot.conversationId,
-        };
-        await markTurnGenerating(snapshot.sessionId, pendingTurn);
-
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
         const sessionInfo = await chatStart(
           snapshot.roleId,
@@ -1272,9 +1294,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // EF-59 Fix: 等待 UI 渲染完全完成，而不仅仅是 SSE 完成
         // 必须等待：SSE 完成 + 队列清空 + typing 完成 + chatPhase = done
+        // EF-38 Fix: 添加超时机制，防止无限等待
         await new Promise<void>((resolve) => {
+          const startTime = Date.now();
+          const MAX_WAIT_TIME = 30000; // 30 seconds max wait
+          
           const checkUiComplete = () => {
             if (!mountedRef.current) {
+              resolve();
+              return;
+            }
+            
+            // EF-38: 超时检查 - 防止无限等待
+            if (Date.now() - startTime > MAX_WAIT_TIME) {
+              console.warn('[EF-38] UI completion timeout, forcing finalization', {
+                isDeepDone,
+                textQueueLength: textQueue.length,
+                typingTimerActive: typingTimer !== null,
+                companionChainLength: remainingCompanionChain.length,
+                chatPhase: chatPhaseRef.current,
+              });
               resolve();
               return;
             }
@@ -1375,6 +1414,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setIsLoading(false);
           setIsThinking(false);
         }
+
+        // EF-38: Persist failed/interrupted state
+        await markTurnFailed(snapshot.sessionId);
 
         // EF-59 Phase 4: 持久化失败的助手消息
         if (chatStartSucceeded) {

@@ -16,7 +16,7 @@ interface MessageListProps {
 }
 
 export function MessageList({ onShowIntro }: MessageListProps) {
-  const { messages, currentRole, lightAnalysis, isLoading, setInputText } = useChat();
+  const { messages, currentRole, lightAnalysis, isLoading, setInputText, turnStatus, retryLastMessage } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
   const [isAITyping, setIsAITyping] = React.useState(false);
   
@@ -143,8 +143,8 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         );
       })}
       
-      {/* AI 正在输入指示器（当最后一条是用户消息时显示） */}
-      {messages.length > 0 && messages[messages.length - 1].role === 'user' && (
+      {/* AI 正在输入指示器（当最后一条是用户消息时显示，且不在中断状态） */}
+      {messages.length > 0 && messages[messages.length - 1].role === 'user' && turnStatus !== 'interrupted' && (
         <View className="flex-row items-center mb-4 px-4">
           <Image
             source={{ uri: currentRole?.avatar }}
@@ -155,6 +155,30 @@ export function MessageList({ onShowIntro }: MessageListProps) {
             <Text className="text-gray-500 dark:text-gray-400 text-sm">
               {currentRole?.name} 正在思考中...
             </Text>
+          </View>
+        </View>
+      )}
+
+      {/* EF-38: 中断状态提示和重试按钮 */}
+      {turnStatus === 'interrupted' && (
+        <View className="flex-row items-center mb-4 px-4">
+          <Image
+            source={{ uri: currentRole?.avatar }}
+            className="w-8 h-8 rounded-full mr-2"
+          />
+          <View className="flex-1 bg-orange-50 dark:bg-orange-900/20 px-4 py-3 rounded-2xl rounded-bl-md">
+            <Text className="text-orange-700 dark:text-orange-300 text-sm mb-3">
+              刚才的回复因页面刷新而中断，你可以重新生成。
+            </Text>
+            <TouchableOpacity
+              onPress={retryLastMessage}
+              className="bg-orange-500 dark:bg-orange-600 px-4 py-2 rounded-xl self-start"
+              activeOpacity={0.8}
+            >
+              <Text className="text-white font-medium text-sm">
+                重新生成
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       )}
