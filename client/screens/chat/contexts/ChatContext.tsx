@@ -1027,7 +1027,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
         
         // EF-38: Stream outcome tracking for error handling
-        const streamState = { outcome: 'completed' as 'completed' | 'error' | 'empty' };
+        // EF-38 CTO Fix: Use awaited Promise instead of detached async
+        type CompletionOutcome = 'completed' | 'stream_error' | 'empty' | 'timed_out' | 'unmounted';
+        let streamSettled = false;
+        
+        // Create an awaited stream completion Promise
+        const streamCompletionPromise = new Promise<CompletionOutcome>((resolve) => {
+          const settleStream = (outcome: CompletionOutcome) => {
+            if (streamSettled) return; // Only settle once
+            streamSettled = true;
+            resolve(outcome);
+          };
+          
+          // Store settle function for use in callbacks
+          (window as any).__settleStream = settleStream;
+        });
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -1275,11 +1289,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               },
               onError: () => {
                 isDeepDone = true;
-                streamState.outcome = 'error';
+                // EF-38 CTO Fix: Settle stream as error immediately
+                (window as any).__settleStream?.('stream_error');
                 scheduleNext();
               },
             });
-          } catch { /* ignore */ }
+          } catch (error) {
+            // EF-38 CTO Fix: chatStream rejection must settle stream as error
+            console.error('[EF-38] chatStream rejection:', error);
+            (window as any).__settleStream?.('stream_error');
+            isDeepDone = true;
+          }
         })();
 
         // ── 启动打字机 ──
@@ -1296,100 +1316,107 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         setIsLoading(false);
 
-        // EF-59 Fix: 等待 UI 渲染完全完成，而不仅仅是 SSE 完成
-        // 必须等待：SSE 完成 + 队列清空 + typing 完成 + chatPhase = done
-        // EF-38 Fix: 添加超时机制，防止无限等待
+        // EF-38 CTO Fix: Define fallbackFinalize for timeout/empty cases
+        const fallbackFinalize = async (phase: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done') => {
+          console.log('[EF-38] Fallback finalize with phase:', phase);
+          setChatPhase(phase);
+          setIsThinking(false);
+          setIsLoading(false);
+          
+          // Persist current state without marking as completed
+          const currentMessages = messagesRef.current;
+          await updateSessionWithCompletedResponse(snapshot.sessionId, currentMessages, phase === 'done' ? 'done' : 'idle');
+        };
+
+        // EF-38 CTO Fix: Await stream completion independently from UI completion
+        // This ensures we don't wait 30 seconds for stream errors
+        let streamOutcome: CompletionOutcome = 'completed';
+        
+        // Wait for stream to settle (max 30 seconds)
+        const streamTimeout = new Promise<CompletionOutcome>((resolve) => {
+          setTimeout(() => resolve('timed_out'), 30000);
+        });
+        
+        streamOutcome = await Promise.race([streamCompletionPromise, streamTimeout]);
+        
+        // EF-38 CTO Fix: Check unmount before any finalization
+        if (!mountedRef.current) {
+          // Provider was unmounted, don't finalize
+          // The new Provider will convert generating -> interrupted during hydration
+          console.log('[EF-38] Provider unmounted, skipping finalization');
+          return 'interrupted';
+        }
+        
+        // EF-38 CTO Fix: Handle stream error immediately, don't wait for UI completion
+        if (streamOutcome === 'stream_error') {
+          console.log('[EF-38] Stream error detected, calling markTurnFailed');
+          await markTurnFailed(snapshot.sessionId);
+          return 'failed';
+        }
+        
+        // EF-38 CTO Fix: Handle timed_out
+        if (streamOutcome === 'timed_out') {
+          console.warn('[EF-38] Stream timed out, calling markTurnFailed');
+          await markTurnFailed(snapshot.sessionId);
+          return 'interrupted';
+        }
+        
+        // EF-38 CTO Fix: Handle empty stream
+        if (streamOutcome === 'empty') {
+          console.log('[EF-38] Empty stream, finalizing with idle phase');
+          await fallbackFinalize('idle');
+          return 'interrupted';
+        }
+        
+        // Only 'completed' outcome reaches here
+        // Now wait for UI completion (typing, companion chain, etc.)
         let uiCompletionTimedOut = false;
         await new Promise<void>((resolve) => {
           const startTime = Date.now();
-          const MAX_WAIT_TIME = 30000; // 30 seconds max wait
+          const MAX_WAIT_TIME = 10000; // 10 seconds max wait for UI after stream completed
           
           const checkUiComplete = () => {
+            // EF-38 CTO Fix: Check unmount
             if (!mountedRef.current) {
               resolve();
               return;
             }
             
-            // EF-38: 超时检查 - 防止无限等待
+            // Timeout check
             if (Date.now() - startTime > MAX_WAIT_TIME) {
-              console.warn('[EF-38] UI completion timeout, marking as interrupted', {
-                isDeepDone,
-                textQueueLength: textQueue.length,
-                typingTimerActive: typingTimer !== null,
-                companionChainLength: remainingCompanionChain.length,
-                chatPhase: chatPhaseRef.current,
-              });
+              console.warn('[EF-38] UI completion timeout after stream completed');
               uiCompletionTimedOut = true;
               resolve();
               return;
             }
             
-            // 条件 1: SSE 必须完成
-            if (!isDeepDone) {
-              const timer = setTimeout(checkUiComplete, 100);
-              timersRef.current.push(timer);
-              return;
-            }
-            
-            // 条件 2: 队列必须为空
-            if (textQueue.length > 0) {
+            // Check UI completion conditions
+            if (textQueue.length > 0 || typingTimer !== null || remainingCompanionChain.length > 0) {
               const timer = setTimeout(checkUiComplete, 50);
               timersRef.current.push(timer);
               return;
             }
             
-            // 条件 3: typing 定时器必须为空
-            if (typingTimer !== null) {
-              const timer = setTimeout(checkUiComplete, 50);
-              timersRef.current.push(timer);
-              return;
-            }
-            
-            // 条件 4: companion 链必须为空
-            if (remainingCompanionChain.length > 0) {
-              const timer = setTimeout(checkUiComplete, 100);
-              timersRef.current.push(timer);
-              return;
-            }
-            
-            // 条件 5: chatPhase 必须为 'done'
-            // 使用 ref 来获取最新的 chatPhase 值
-            if (chatPhaseRef.current !== 'done') {
-              const timer = setTimeout(checkUiComplete, 100);
-              timersRef.current.push(timer);
-              return;
-            }
-            
-            // 所有条件满足，UI 渲染完成
-            console.log('[EF-59] UI completion confirmed', {
-              isDeepDone,
-              textQueueLength: textQueue.length,
-              typingTimerActive: typingTimer !== null,
-              companionChainLength: remainingCompanionChain.length,
-              chatPhase: chatPhaseRef.current,
-              timestamp: Date.now()
-            });
+            // UI complete
             resolve();
           };
+          
           checkUiComplete();
         });
 
+        // EF-38 CTO Fix: Check unmount again after UI completion wait
+        if (!mountedRef.current) {
+          console.log('[EF-38] Provider unmounted during UI completion, skipping finalization');
+          return 'interrupted';
+        }
+
         // EF-38: 如果超时，标记为 interrupted 而不是 completed
         if (uiCompletionTimedOut) {
-          console.warn('[EF-38] Finalizing as interrupted due to timeout');
+          console.warn('[EF-38] Finalizing as interrupted due to UI timeout');
           await markTurnInterrupted(snapshot.sessionId);
           retrySnapshotRef.current = null;
           regenerateSnapshotRef.current = null;
           return 'interrupted';
-        }
-
-        // EF-38: 如果流式传输出错，标记为 failed
-        if (streamState.outcome === 'error') {
-          console.warn('[EF-38] Finalizing as failed due to stream error');
-          await markTurnFailed(snapshot.sessionId);
-          retrySnapshotRef.current = null;
-          regenerateSnapshotRef.current = null;
-          return 'failed';
         }
 
         // EF-59: UI 完全完成后，构建最终消息数组并原子性持久化
