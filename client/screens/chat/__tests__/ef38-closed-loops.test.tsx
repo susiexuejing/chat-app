@@ -39,7 +39,7 @@ jest.mock('../stores/sessionStore', () => ({
 }));
 
 jest.mock('../constants/roles', () => ({
-  DEFAULT_ROLE_ID: 'role_1',
+  DEFAULT_ROLE_ID: 'role-1',
   DEFAULT_CONVERSATION_ID: 'conv_1',
   roles: [{ id: 'role-1', name: 'Test Role' }],
 }));
@@ -134,8 +134,8 @@ describe('EF-38 Minimum Closed-Loop Tests', () => {
     it('should restore completed state after unmount/remount', async () => {
       let streamCtrl: StreamController | null = null;
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1' } as any);
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: '' });
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: StreamCallbacks) => {
         streamCtrl = createStreamController();
         streamCtrl.onChunk = callbacks.onChunk;
         streamCtrl.onDone = callbacks.onDone;
@@ -205,8 +205,8 @@ describe('EF-38 Minimum Closed-Loop Tests', () => {
     it('should restore interrupted state after unmount/remount', async () => {
       let streamCtrl: StreamController | null = null;
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1' } as any);
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: '' });
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: StreamCallbacks) => {
         streamCtrl = createStreamController();
         streamCtrl.onChunk = callbacks.onChunk;
         streamCtrl.onDone = callbacks.onDone;
@@ -275,8 +275,8 @@ describe('EF-38 Minimum Closed-Loop Tests', () => {
       let streamCtrl2: StreamController | null = null;
       let streamCallCount = 0;
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1' } as any);
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: '' });
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: StreamCallbacks) => {
         streamCallCount++;
         const ctrl = createStreamController();
         
