@@ -117,7 +117,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [lightAnalysis, setLightAnalysis] = useState('');
-  const [chatPhase, setChatPhase] = useState<'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done'>('idle');
+  const [chatPhase, setChatPhaseState] = useState<'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done'>('idle');
+  const chatPhaseRef = useRef<'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done'>('idle');
+  
+  // Helper function to update both state and ref
+  const setChatPhase = (phase: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done') => {
+    chatPhaseRef.current = phase;
+    setChatPhaseState(phase);
+  };
+  
   const [inputText, setInputText] = useState('');
   const [showRoleIntro, setShowRoleIntro] = useState(true);
   const [flowContext, setFlowContext] = useState<FlowContext | null>(null);
@@ -317,6 +325,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (mostRecentSession.messages.length > 0) {
               setMessages(mostRecentSession.messages);
             }
+            // EF-59: 恢复角色（从会话的 roleId，而不是全局 current_role_id）
+            if (mostRecentSession.roleId) {
+              const role = roles.find(r => r.id === mostRecentSession.roleId);
+              if (role) {
+                setCurrentRole(role);
+                AsyncStorage.setItem(STORAGE_KEY_CURRENT_ROLE_ID, mostRecentSession.roleId).catch(err => {
+                  console.error('[EF-59] Failed to restore roleId:', err);
+                });
+              }
+            }
             // 恢复 chatPhase
             if (mostRecentSession.chatPhase === 'done' || mostRecentSession.chatPhase === 'idle') {
               setChatPhase(mostRecentSession.chatPhase);
@@ -327,6 +345,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             }
             console.log('[EF-59] Fallback to most recent session:', {
               sessionId: mostRecentSession.id,
+              roleId: mostRecentSession.roleId,
               updatedAt: mostRecentSession.updatedAt,
               messagesCount: mostRecentSession.messages.length
             });
@@ -769,12 +788,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const firstReaction = reactionTimeline?.[0]?.text || reactionLayer || frontFlowText || '';
         let displayedContent = firstReaction;
         const chatStartTime = Date.now();
+        const assistantTimestamp = Date.now();
 
         setMessages(prev => [...prev, {
           id: bubbleMsgId,
           role: 'assistant',
           content: firstReaction,
-          timestamp: Date.now(),
+          timestamp: assistantTimestamp,
         }]);
 
         setIsThinking(false);
@@ -1055,26 +1075,85 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         setIsLoading(false);
 
-        // 等待 SSE 完成（简化处理：等待一段时间或 deep 完成）
-        // 实际实现中，这里应该有更复杂的等待逻辑
+        // EF-59 Fix: 等待 UI 渲染完全完成，而不仅仅是 SSE 完成
+        // 必须等待：SSE 完成 + 队列清空 + typing 完成 + chatPhase = done
         await new Promise<void>((resolve) => {
-          const checkDone = () => {
-            if (isDeepDone || !mountedRef.current) {
+          const checkUiComplete = () => {
+            if (!mountedRef.current) {
               resolve();
-            } else {
-              const timer = setTimeout(checkDone, 100);
-              timersRef.current.push(timer);
+              return;
             }
+            
+            // 条件 1: SSE 必须完成
+            if (!isDeepDone) {
+              const timer = setTimeout(checkUiComplete, 100);
+              timersRef.current.push(timer);
+              return;
+            }
+            
+            // 条件 2: 队列必须为空
+            if (textQueue.length > 0) {
+              const timer = setTimeout(checkUiComplete, 50);
+              timersRef.current.push(timer);
+              return;
+            }
+            
+            // 条件 3: typing 定时器必须为空
+            if (typingTimer !== null) {
+              const timer = setTimeout(checkUiComplete, 50);
+              timersRef.current.push(timer);
+              return;
+            }
+            
+            // 条件 4: companion 链必须为空
+            if (remainingCompanionChain.length > 0) {
+              const timer = setTimeout(checkUiComplete, 100);
+              timersRef.current.push(timer);
+              return;
+            }
+            
+            // 条件 5: chatPhase 必须为 'done'
+            // 使用 ref 来获取最新的 chatPhase 值
+            if (chatPhaseRef.current !== 'done') {
+              const timer = setTimeout(checkUiComplete, 100);
+              timersRef.current.push(timer);
+              return;
+            }
+            
+            // 所有条件满足，UI 渲染完成
+            console.log('[EF-59] UI completion confirmed', {
+              isDeepDone,
+              textQueueLength: textQueue.length,
+              typingTimerActive: typingTimer !== null,
+              companionChainLength: remainingCompanionChain.length,
+              chatPhase: chatPhaseRef.current,
+              timestamp: Date.now()
+            });
+            resolve();
           };
-          checkDone();
+          checkUiComplete();
         });
 
-        // EF-59: 响应完成后，更新会话的完成状态（消息 + chatPhase）
-        // 确保 sessions[].messages 与 UI messages 同步
-        setMessages(currentMessages => {
-          updateSessionWithCompletedResponse(snapshot.sessionId, currentMessages, 'done');
-          return currentMessages;
-        });
+        // EF-59: UI 完全完成后，构建最终消息数组并原子性持久化
+        // 不再通过 setMessages 副作用，而是显式构建最终状态
+        const finalAssistantMessage: ChatMessage = {
+          id: bubbleMsgId,
+          role: 'assistant',
+          content: displayedContent,
+          timestamp: assistantTimestamp,
+        };
+        
+        // 构建最终消息数组：替换占位助手消息为完成的消息
+        const finalMessages = messages.map(m => 
+          m.id === bubbleMsgId ? finalAssistantMessage : m
+        );
+        
+        // 原子性更新 UI 状态和持久化
+        setMessages(finalMessages);
+        setChatPhase('done');
+        
+        // 持久化到 session（使用显式构建的最终消息数组）
+        await updateSessionWithCompletedResponse(snapshot.sessionId, finalMessages, 'done');
 
         // 完整成功，清除 retry/regenerate 快照
         retrySnapshotRef.current = null;
