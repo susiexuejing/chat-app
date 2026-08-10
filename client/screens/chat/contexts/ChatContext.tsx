@@ -684,7 +684,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
 
-        const { sessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
+        // EF-59 Fix: 明确区分 backendSessionId（后端 UUID）和 clientSessionId（前端 session_xxx）
+        // backendSessionId 用于 SSE streaming，clientSessionId 用于 UI 状态管理
+        const { sessionId: backendSessionId, reactionLayer, companionLayer, frontFlowText, reactionTimeline, companionTimeline, flowContext: fc } = sessionInfo;
         setFlowContext(fc);
 
         // ====== 第二阶段：EmotionFlow V3 动态缓冲引擎 ======
@@ -867,7 +869,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // ── 并行：启动百炼流式 ──
         (async () => {
           try {
-            await chatStream(sessionId, {
+            await chatStream(backendSessionId, {
               onChunk: (chunk: string) => {
                 try {
                   const parsed = JSON.parse(chunk);
@@ -970,13 +972,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // ── 启动打字机 ──
         scheduleNext();
 
-        // EF-59 SETTER TRACE
-        console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
-          value: String(sessionId),
+        // EF-59 Fix: 不再用 backendSessionId 覆盖 currentSessionId
+        // currentSessionId 已在 sendMessageCore 开头设置为 snapshot.sessionId（前端 ID）
+        // backendSessionId 仅用于 SSE streaming，不用于 UI 状态管理
+        console.log('[EF59_FIX] Skipping setCurrentSessionId(backendSessionId)', {
+          backendSessionId,
+          currentSessionId: snapshot.sessionId,
           source: 'SSE_processing',
           timestamp: Date.now()
         });
-        setCurrentSessionId(sessionId);
         setIsLoading(false);
 
         // 等待 SSE 完成（简化处理：等待一段时间或 deep 完成）
