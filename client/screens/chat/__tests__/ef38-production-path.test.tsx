@@ -970,22 +970,28 @@ describe('EF-38 Production Path Tests', () => {
         expect(capturedCtx!.turnStatus).toBe('interrupted');
       });
 
+      // Verify pendingTurn.userMessageId is preserved immediately after hydration while still interrupted
+      const interruptedSessionBeforeRetry = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
+      expect(interruptedSessionBeforeRetry?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
+
       // Click retry
       const retryButton = await waitFor(() => {
         return renderResultB.getByText('重新生成');
       });
 
+      let retryPromise: Promise<boolean>;
       await act(async () => {
-        fireEvent.press(retryButton);
+        retryPromise = fireEvent.press(retryButton) as unknown as Promise<boolean>;
+      });
+
+      // Await the retry promise
+      await act(async () => {
+        await retryPromise;
       });
 
       await waitFor(() => {
         expect(callCount).toBe(2);
       });
-
-      // Verify user message ID is preserved
-      const interruptedSession = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
-      expect(interruptedSession?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
 
       // Complete retry
       await act(async () => {
@@ -1291,22 +1297,28 @@ describe('EF-38 Production Path Tests', () => {
         expect(capturedCtx!.turnStatus).toBe('interrupted');
       });
 
+      // Verify pendingTurn.userMessageId is preserved immediately after hydration while still interrupted
+      const interruptedSessionBeforeRetry = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
+      expect(interruptedSessionBeforeRetry?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
+
       // Click retry
       const retryButton = await waitFor(() => {
         return renderResultB.getByText('重新生成');
       });
 
+      let retryPromise: Promise<boolean>;
       await act(async () => {
-        fireEvent.press(retryButton);
+        retryPromise = fireEvent.press(retryButton) as unknown as Promise<boolean>;
+      });
+
+      // Await the retry promise
+      await act(async () => {
+        await retryPromise;
       });
 
       await waitFor(() => {
         expect(callCount).toBe(2);
       });
-
-      // Verify user message ID preserved
-      const interruptedSession = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
-      expect(interruptedSession?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
 
       // Complete retry
       await act(async () => {
