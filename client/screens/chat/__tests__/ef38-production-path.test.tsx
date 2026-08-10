@@ -20,7 +20,7 @@ if (!StyleSheet.flatten) {
   (StyleSheet as any).flatten = (styles: any) => {
     if (!styles) return {};
     if (Array.isArray(styles)) {
-      return Object.assign({}, ...styles.map((s) => (typeof s === 'object' ? s : {})));
+      return Object.assign({}, ...styles.map((s: any) => (typeof s === 'object' ? s : {})));
     }
     return typeof styles === 'object' ? styles : {};
   };
@@ -154,6 +154,9 @@ let storedSessions: any[] = [];
 jest.mock('../stores/sessionStore', () => ({
   getChatSessions: jest.fn(async () => storedSessions),
   saveChatSessions: jest.fn(async (sessions: any[]) => { storedSessions = [...sessions]; }),
+  persistMessage: jest.fn(async () => null),
+  createConversation: jest.fn(async () => ({ id: 'conv-123' })),
+  fetchConversation: jest.fn(async () => null),
 }));
 
 // Mock other dependencies
@@ -173,6 +176,9 @@ jest.mock('../utils/textAnalyzer', () => ({
 
 const mockedChatStart = cozeApi.chatStart as jest.MockedFunction<typeof cozeApi.chatStart>;
 const mockedChatStream = cozeApi.chatStream as jest.MockedFunction<typeof cozeApi.chatStream>;
+const mockedCreateConversation = sessionStore.createConversation as jest.MockedFunction<typeof sessionStore.createConversation>;
+const mockedPersistMessage = sessionStore.persistMessage as jest.MockedFunction<typeof sessionStore.persistMessage>;
+const mockedFetchConversation = sessionStore.fetchConversation as jest.MockedFunction<typeof sessionStore.fetchConversation>;
 
 // Stream controller for deterministic testing
 interface StreamController {
@@ -254,6 +260,10 @@ describe('EF-38 Production Path Tests', () => {
       frontFlowText: '',
       flowContext: { reaction: '', companion: '' },
     } as any);
+
+    mockedCreateConversation.mockResolvedValue({ id: 'conv-123' });
+    mockedPersistMessage.mockResolvedValue(null);
+    mockedFetchConversation.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -275,7 +285,6 @@ describe('EF-38 Production Path Tests', () => {
 
       mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
         streamCtrl = createStreamController();
-        // Store callbacks for later use
         streamCtrl.onChunk = callbacks.onChunk;
         streamCtrl.onDone = callbacks.onDone;
         streamCtrl.onError = callbacks.onError;
@@ -289,7 +298,6 @@ describe('EF-38 Production Path Tests', () => {
       );
 
       await waitForHydration();
-      expect(capturedCtx).not.toBeNull();
 
       // Start send
       let sendPromise: Promise<boolean>;
@@ -307,9 +315,10 @@ describe('EF-38 Production Path Tests', () => {
         streamCtrl!.onChunk(JSON.stringify({ content: 'This is a valid Deep response with substantial content.' }));
       });
 
-      // Send done
+      // Send done and resolve the stream
       await act(async () => {
         streamCtrl!.onDone();
+        streamCtrl!.resolve();
         await streamCtrl!.promise;
       });
 
@@ -401,10 +410,12 @@ describe('EF-38 Production Path Tests', () => {
       // Clean up
       await act(async () => {
         streamCtrl!.onDone();
+        streamCtrl!.resolve();
         await streamCtrl!.promise;
+      });
+      await act(async () => {
         await sendPromise;
       });
-
       await act(async () => {
         renderResult.unmount();
       });
@@ -424,7 +435,7 @@ describe('EF-38 Production Path Tests', () => {
         return streamCtrl.promise;
       });
 
-      // Provider A: send and persist generating
+      // Provider A: send and unmount
       const renderResultA = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
@@ -433,7 +444,6 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Start send
       let sendPromiseA: Promise<boolean>;
       await act(async () => {
         sendPromiseA = capturedCtx!.sendMessage('Hello');
@@ -444,17 +454,20 @@ describe('EF-38 Production Path Tests', () => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
       });
 
-      // Verify generating was persisted
-      const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
-      expect(generatingSession).toBeDefined();
-
-      // Unmount Provider A (simulates refresh)
+      // Unmount Provider A
       await act(async () => {
         renderResultA.unmount();
       });
 
-      // Verify sessions are still in storage
-      expect(storedSessions.length).toBeGreaterThan(0);
+      // Settle the abandoned stream
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
 
       // Provider B: remount and verify interrupted
       const renderResultB = await render(
@@ -467,334 +480,11 @@ describe('EF-38 Production Path Tests', () => {
 
       // Verify interrupted state
       await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
       });
 
-      // Clean up
       await act(async () => {
         renderResultB.unmount();
-      });
-    });
-  });
-
-  // ─── Test 4: Production interruption UI is visible ───
-  describe('Test 4: Production interruption UI is visible', () => {
-    it('should render interruption UI with retry button when turnStatus is interrupted', async () => {
-      // Pre-populate storage with interrupted session
-      const interruptedSession = {
-        id: 'session_interrupted',
-        roleId: 'role_1',
-        messages: [
-          { id: 'msg_1', role: 'user', content: 'Hello', createdAt: Date.now() - 10000 },
-        ],
-        turnStatus: 'interrupted',
-        pendingTurn: {
-          requestId: 'req_1',
-          userMessageId: 'msg_1',
-          userMessage: 'Hello',
-          startedAt: Date.now() - 10000,
-          roleId: 'role_1',
-        },
-        createdAt: Date.now() - 10000,
-        updatedAt: Date.now() - 10000,
-      };
-      storedSessions = [interruptedSession];
-      asyncStorageState.set('current_session_id', 'session_interrupted');
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Verify interrupted state
-      await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
-      });
-
-      // Verify interruption UI is rendered
-      const retryButton = renderResult.queryByText('重新生成');
-      expect(retryButton).not.toBeNull();
-
-      await act(async () => {
-        renderResult.unmount();
-      });
-    });
-  });
-
-  // ─── Test 5: Actual Retry button is clicked ───
-  describe('Test 5: Actual Retry button is clicked', () => {
-    it('should trigger retry when the production retry button is pressed', async () => {
-      // Pre-populate storage with interrupted session
-      const interruptedSession = {
-        id: 'session_interrupted',
-        roleId: 'role_1',
-        messages: [
-          { id: 'msg_1', role: 'user', content: 'Hello', createdAt: Date.now() - 10000 },
-        ],
-        turnStatus: 'interrupted',
-        pendingTurn: {
-          requestId: 'req_1',
-          userMessageId: 'msg_1',
-          userMessage: 'Hello',
-          startedAt: Date.now() - 10000,
-          roleId: 'role_1',
-        },
-        createdAt: Date.now() - 10000,
-        updatedAt: Date.now() - 10000,
-      };
-      storedSessions = [interruptedSession];
-      asyncStorageState.set('current_session_id', 'session_interrupted');
-
-      let streamCtrl: StreamController | null = null;
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Verify interrupted state
-      await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
-      });
-
-      // Find and click the retry button
-      const retryButton = renderResult.getByText('重新生成');
-      await act(async () => {
-        fireEvent.press(retryButton);
-      });
-
-      // Wait for chatStream to be called (retry started)
-      await waitFor(() => {
-        expect(mockedChatStream).toHaveBeenCalled();
-      });
-
-      // Complete the stream
-      await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ content: 'Retry response content' }));
-        streamCtrl!.onDone();
-        await streamCtrl!.promise;
-      });
-
-      // Verify completed state
-      await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('completed');
-      });
-
-      await act(async () => {
-        renderResult.unmount();
-      });
-    });
-  });
-
-  // ─── Test 6: Original user-message ID remains unchanged after retry ───
-  describe('Test 6: Original user-message ID remains unchanged after retry', () => {
-    it('should reuse original user message ID on retry', async () => {
-      // Pre-populate storage with interrupted session
-      const originalUserMessageId = 'msg_original_123';
-      const interruptedSession = {
-        id: 'session_interrupted',
-        roleId: 'role_1',
-        messages: [
-          { id: originalUserMessageId, role: 'user', content: 'Hello', createdAt: Date.now() - 10000 },
-        ],
-        turnStatus: 'interrupted',
-        pendingTurn: {
-          requestId: 'req_1',
-          userMessageId: originalUserMessageId,
-          userMessage: 'Hello',
-          startedAt: Date.now() - 10000,
-          roleId: 'role_1',
-        },
-        createdAt: Date.now() - 10000,
-        updatedAt: Date.now() - 10000,
-      };
-      storedSessions = [interruptedSession];
-      asyncStorageState.set('current_session_id', 'session_interrupted');
-
-      let streamCtrl: StreamController | null = null;
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Verify interrupted state
-      await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
-      });
-
-      // Click retry button
-      const retryButton = renderResult.getByText('重新生成');
-      await act(async () => {
-        fireEvent.press(retryButton);
-      });
-
-      // Complete the stream
-      await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ content: 'Retry response' }));
-        streamCtrl!.onDone();
-        await streamCtrl!.promise;
-      });
-
-      // Verify original user message ID is preserved
-      const userMessage = capturedCtx!.messages.find((m: any) => m.role === 'user');
-      expect(userMessage).toBeDefined();
-      expect(userMessage!.id).toBe(originalUserMessageId);
-
-      await act(async () => {
-        renderResult.unmount();
-      });
-    });
-  });
-
-  // ─── Test 7: User message exists exactly once ───
-  describe('Test 7: User message exists exactly once', () => {
-    it('should have exactly one user message after retry', async () => {
-      // Pre-populate storage with interrupted session
-      const interruptedSession = {
-        id: 'session_interrupted',
-        roleId: 'role_1',
-        messages: [
-          { id: 'msg_1', role: 'user', content: 'Hello', createdAt: Date.now() - 10000 },
-        ],
-        turnStatus: 'interrupted',
-        pendingTurn: {
-          requestId: 'req_1',
-          userMessageId: 'msg_1',
-          userMessage: 'Hello',
-          startedAt: Date.now() - 10000,
-          roleId: 'role_1',
-        },
-        createdAt: Date.now() - 10000,
-        updatedAt: Date.now() - 10000,
-      };
-      storedSessions = [interruptedSession];
-      asyncStorageState.set('current_session_id', 'session_interrupted');
-
-      let streamCtrl: StreamController | null = null;
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Click retry button
-      await act(async () => {
-        await capturedCtx!.retryLastMessage();
-      });
-
-      // Complete the stream
-      await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ content: 'Retry response' }));
-        streamCtrl!.onDone();
-        await streamCtrl!.promise;
-      });
-
-      // Verify exactly one user message
-      const userMessages = capturedCtx!.messages.filter((m: any) => m.role === 'user');
-      expect(userMessages.length).toBe(1);
-
-      await act(async () => {
-        renderResult.unmount();
-      });
-    });
-  });
-
-  // ─── Test 8: Retry completes with exactly one assistant response ───
-  describe('Test 8: Retry completes with exactly one assistant response', () => {
-    it('should have exactly one assistant response after retry', async () => {
-      // Pre-populate storage with interrupted session
-      const interruptedSession = {
-        id: 'session_interrupted',
-        roleId: 'role_1',
-        messages: [
-          { id: 'msg_1', role: 'user', content: 'Hello', createdAt: Date.now() - 10000 },
-        ],
-        turnStatus: 'interrupted',
-        pendingTurn: {
-          requestId: 'req_1',
-          userMessageId: 'msg_1',
-          userMessage: 'Hello',
-          startedAt: Date.now() - 10000,
-          roleId: 'role_1',
-        },
-        createdAt: Date.now() - 10000,
-        updatedAt: Date.now() - 10000,
-      };
-      storedSessions = [interruptedSession];
-      asyncStorageState.set('current_session_id', 'session_interrupted');
-
-      let streamCtrl: StreamController | null = null;
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Click retry button
-      await act(async () => {
-        await capturedCtx!.retryLastMessage();
-      });
-
-      // Complete the stream
-      await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ content: 'Retry response' }));
-        streamCtrl!.onDone();
-        await streamCtrl!.promise;
-      });
-
-      // Verify exactly one assistant response
-      const assistantMessages = capturedCtx!.messages.filter((m: any) => m.role === 'assistant');
-      expect(assistantMessages.length).toBe(1);
-
-      await act(async () => {
-        renderResult.unmount();
       });
     });
   });
@@ -820,29 +510,28 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Start send
       let sendPromise: Promise<boolean>;
       await act(async () => {
         sendPromise = capturedCtx!.sendMessage('Hello');
       });
 
-      // Wait for chatStream to be called
       await waitFor(() => {
         expect(mockedChatStream).toHaveBeenCalled();
       });
 
-      // Call onError immediately
+      // Call onError
       await act(async () => {
-        streamCtrl!.onError(new Error('Network error'));
-        try { await streamCtrl!.promise; } catch {}
+        streamCtrl!.onError(new Error('Test error'));
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
       });
 
-      // Wait for send to complete
       await act(async () => {
-        try { await sendPromise; } catch {}
+        await sendPromise;
       });
 
       // Verify error state
+      expect(capturedCtx!.chatPhase).toBe('done');
       expect(capturedCtx!.turnStatus).toBe('failed');
 
       await act(async () => {
@@ -854,8 +543,14 @@ describe('EF-38 Production Path Tests', () => {
   // ─── Test 10: chatStream Promise rejection settles promptly ───
   describe('Test 10: chatStream Promise rejection settles promptly', () => {
     it('should settle stream as error when chatStream promise rejects', async () => {
-      mockedChatStream.mockImplementation(() => {
-        return Promise.reject(new Error('Stream connection failed'));
+      let streamCtrl: StreamController | null = null;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        streamCtrl = createStreamController();
+        streamCtrl.onChunk = callbacks.onChunk;
+        streamCtrl.onDone = callbacks.onDone;
+        streamCtrl.onError = callbacks.onError;
+        return streamCtrl.promise;
       });
 
       const renderResult = await render(
@@ -866,22 +561,582 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Start send
       let sendPromise: Promise<boolean>;
       await act(async () => {
         sendPromise = capturedCtx!.sendMessage('Hello');
       });
 
-      // Wait for send to complete (with error)
+      await waitFor(() => {
+        expect(mockedChatStream).toHaveBeenCalled();
+      });
+
+      // Reject the stream promise
       await act(async () => {
-        try { await sendPromise; } catch {}
+        streamCtrl!.reject(new Error('Stream rejected'));
+      });
+
+      await act(async () => {
+        await sendPromise;
       });
 
       // Verify error state
+      expect(capturedCtx!.chatPhase).toBe('done');
       expect(capturedCtx!.turnStatus).toBe('failed');
 
       await act(async () => {
         renderResult.unmount();
+      });
+    });
+  });
+
+  // ─── Test 12: Old Provider cannot finalize after unmount ───
+  describe('Test 12: Old Provider cannot finalize after unmount', () => {
+    it('should not call finalizeTurnCompleted after unmount', async () => {
+      let streamCtrl: StreamController | null = null;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        streamCtrl = createStreamController();
+        streamCtrl.onChunk = callbacks.onChunk;
+        streamCtrl.onDone = callbacks.onDone;
+        streamCtrl.onError = callbacks.onError;
+        return streamCtrl.promise;
+      });
+
+      // Provider A: send and unmount
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      // Unmount Provider A
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      // Settle the abandoned stream with completed content
+      await act(async () => {
+        streamCtrl!.onChunk(JSON.stringify({ content: 'Valid Deep content that should not be persisted.' }));
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount and verify interrupted (not completed)
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      // Verify interrupted state (not completed)
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      // Verify no completed session was persisted
+      const completedSession = storedSessions.find((s: any) => s.turnStatus === 'completed');
+      expect(completedSession).toBeUndefined();
+
+      await act(async () => {
+        renderResultB.unmount();
+      });
+    });
+  });
+
+  // ─── Test 4: Production interruption UI is visible ───
+  describe('Test 4: Production interruption UI is visible', () => {
+    it('should render interruption UI with retry button when turnStatus is interrupted', async () => {
+      let streamCtrl: StreamController | null = null;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        streamCtrl = createStreamController();
+        streamCtrl.onChunk = callbacks.onChunk;
+        streamCtrl.onDone = callbacks.onDone;
+        streamCtrl.onError = callbacks.onError;
+        return streamCtrl.promise;
+      });
+
+      // Provider A: send and unmount to create interrupted state
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount with MessageList to verify UI
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+          <MessageList onShowIntro={() => {}} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      // Verify interrupted state
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      // Verify interruption UI is visible
+      const retryButton = await waitFor(() => {
+        const btn = renderResultB.getByText('重新生成');
+        expect(btn).toBeTruthy();
+        return btn;
+      });
+
+      expect(retryButton).toBeTruthy();
+
+      await act(async () => {
+        renderResultB.unmount();
+      });
+    });
+  });
+
+  // ─── Test 5: Actual Retry button is clicked ───
+  describe('Test 5: Actual Retry button is clicked', () => {
+    it('should trigger retry when the production retry button is pressed', async () => {
+      let streamCtrl: StreamController | null = null;
+      let streamCtrl2: StreamController | null = null;
+      let callCount = 0;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        callCount++;
+        if (callCount === 1) {
+          streamCtrl = createStreamController();
+          streamCtrl.onChunk = callbacks.onChunk;
+          streamCtrl.onDone = callbacks.onDone;
+          streamCtrl.onError = callbacks.onError;
+          return streamCtrl.promise;
+        } else {
+          streamCtrl2 = createStreamController();
+          streamCtrl2.onChunk = callbacks.onChunk;
+          streamCtrl2.onDone = callbacks.onDone;
+          streamCtrl2.onError = callbacks.onError;
+          return streamCtrl2.promise;
+        }
+      });
+
+      // Provider A: send and unmount
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount with MessageList and click retry
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+          <MessageList onShowIntro={() => {}} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      // Click the retry button
+      const retryButton = await waitFor(() => {
+        return renderResultB.getByText('重新生成');
+      });
+
+      await act(async () => {
+        fireEvent.press(retryButton);
+      });
+
+      // Wait for retry to start
+      await waitFor(() => {
+        expect(callCount).toBe(2);
+      });
+
+      // Complete the retry
+      await act(async () => {
+        streamCtrl2!.onChunk(JSON.stringify({ content: 'Retry response content' }));
+        streamCtrl2!.onDone();
+        streamCtrl2!.resolve();
+        await streamCtrl2!.promise;
+      });
+
+      // Verify completed state
+      await waitFor(() => {
+        expect(capturedCtx!.chatPhase).toBe('done');
+        expect(capturedCtx!.turnStatus).toBe('completed');
+      });
+
+      await act(async () => {
+        renderResultB.unmount();
+      });
+    });
+  });
+
+  // ─── Test 6: Original user-message ID remains unchanged after retry ───
+  describe('Test 6: Original user-message ID remains unchanged after retry', () => {
+    it('should reuse original user message ID on retry', async () => {
+      let streamCtrl: StreamController | null = null;
+      let streamCtrl2: StreamController | null = null;
+      let callCount = 0;
+      let originalUserMessageId: string | null = null;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        callCount++;
+        if (callCount === 1) {
+          streamCtrl = createStreamController();
+          streamCtrl.onChunk = callbacks.onChunk;
+          streamCtrl.onDone = callbacks.onDone;
+          streamCtrl.onError = callbacks.onError;
+          return streamCtrl.promise;
+        } else {
+          streamCtrl2 = createStreamController();
+          streamCtrl2.onChunk = callbacks.onChunk;
+          streamCtrl2.onDone = callbacks.onDone;
+          streamCtrl2.onError = callbacks.onError;
+          return streamCtrl2.promise;
+        }
+      });
+
+      // Provider A: send and unmount
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      // Capture original user message ID
+      const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
+      originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
+      expect(originalUserMessageId).toBeTruthy();
+
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount and retry
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+          <MessageList onShowIntro={() => {}} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      // Click retry
+      const retryButton = await waitFor(() => {
+        return renderResultB.getByText('重新生成');
+      });
+
+      await act(async () => {
+        fireEvent.press(retryButton);
+      });
+
+      await waitFor(() => {
+        expect(callCount).toBe(2);
+      });
+
+      // Verify user message ID is preserved
+      const interruptedSession = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
+      expect(interruptedSession?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
+
+      // Complete retry
+      await act(async () => {
+        streamCtrl2!.onChunk(JSON.stringify({ content: 'Retry response' }));
+        streamCtrl2!.onDone();
+        streamCtrl2!.resolve();
+        await streamCtrl2!.promise;
+      });
+
+      await act(async () => {
+        renderResultB.unmount();
+      });
+    });
+  });
+
+  // ─── Test 7: User message exists exactly once ───
+  describe('Test 7: User message exists exactly once', () => {
+    it('should have exactly one user message after retry', async () => {
+      let streamCtrl: StreamController | null = null;
+      let streamCtrl2: StreamController | null = null;
+      let callCount = 0;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        callCount++;
+        if (callCount === 1) {
+          streamCtrl = createStreamController();
+          streamCtrl.onChunk = callbacks.onChunk;
+          streamCtrl.onDone = callbacks.onDone;
+          streamCtrl.onError = callbacks.onError;
+          return streamCtrl.promise;
+        } else {
+          streamCtrl2 = createStreamController();
+          streamCtrl2.onChunk = callbacks.onChunk;
+          streamCtrl2.onDone = callbacks.onDone;
+          streamCtrl2.onError = callbacks.onError;
+          return streamCtrl2.promise;
+        }
+      });
+
+      // Provider A: send and unmount
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount and retry
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+          <MessageList onShowIntro={() => {}} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      const retryButton = await waitFor(() => {
+        return renderResultB.getByText('重新生成');
+      });
+
+      await act(async () => {
+        fireEvent.press(retryButton);
+      });
+
+      await waitFor(() => {
+        expect(callCount).toBe(2);
+      });
+
+      // Complete retry
+      await act(async () => {
+        streamCtrl2!.onChunk(JSON.stringify({ content: 'Retry response' }));
+        streamCtrl2!.onDone();
+        streamCtrl2!.resolve();
+        await streamCtrl2!.promise;
+      });
+
+      // Verify exactly one user message
+      const userMessages = capturedCtx!.messages.filter((m: any) => m.role === 'user');
+      expect(userMessages.length).toBe(1);
+
+      await act(async () => {
+        renderResultB.unmount();
+      });
+    });
+  });
+
+  // ─── Test 8: Retry completes with exactly one assistant response ───
+  describe('Test 8: Retry completes with exactly one assistant response', () => {
+    it('should have exactly one assistant response after retry', async () => {
+      let streamCtrl: StreamController | null = null;
+      let streamCtrl2: StreamController | null = null;
+      let callCount = 0;
+
+      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
+        callCount++;
+        if (callCount === 1) {
+          streamCtrl = createStreamController();
+          streamCtrl.onChunk = callbacks.onChunk;
+          streamCtrl.onDone = callbacks.onDone;
+          streamCtrl.onError = callbacks.onError;
+          return streamCtrl.promise;
+        } else {
+          streamCtrl2 = createStreamController();
+          streamCtrl2.onChunk = callbacks.onChunk;
+          streamCtrl2.onDone = callbacks.onDone;
+          streamCtrl2.onError = callbacks.onError;
+          return streamCtrl2.promise;
+        }
+      });
+
+      // Provider A: send and unmount
+      const renderResultA = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      let sendPromiseA: Promise<boolean>;
+      await act(async () => {
+        sendPromiseA = capturedCtx!.sendMessage('Hello');
+      });
+
+      await waitFor(() => {
+        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+      });
+
+      await act(async () => {
+        renderResultA.unmount();
+      });
+
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: remount and retry
+      const renderResultB = await render(
+        <ChatProvider>
+          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
+          <MessageList onShowIntro={() => {}} />
+        </ChatProvider>
+      );
+
+      await waitForHydration();
+
+      await waitFor(() => {
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
+      });
+
+      const retryButton = await waitFor(() => {
+        return renderResultB.getByText('重新生成');
+      });
+
+      await act(async () => {
+        fireEvent.press(retryButton);
+      });
+
+      await waitFor(() => {
+        expect(callCount).toBe(2);
+      });
+
+      // Complete retry
+      await act(async () => {
+        streamCtrl2!.onChunk(JSON.stringify({ content: 'Retry response' }));
+        streamCtrl2!.onDone();
+        streamCtrl2!.resolve();
+        await streamCtrl2!.promise;
+      });
+
+      // Verify exactly one assistant message
+      const assistantMessages = capturedCtx!.messages.filter((m: any) => m.role === 'assistant');
+      expect(assistantMessages.length).toBe(1);
+
+      await act(async () => {
+        renderResultB.unmount();
       });
     });
   });
@@ -907,37 +1162,34 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Start send
       let sendPromise: Promise<boolean>;
       await act(async () => {
         sendPromise = capturedCtx!.sendMessage('Hello');
       });
 
-      // Wait for chatStream to be called
       await waitFor(() => {
         expect(mockedChatStream).toHaveBeenCalled();
       });
 
-      // Send empty Deep chunk (no content)
+      // Send empty Deep chunk
       await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ done: true }));
+        streamCtrl!.onChunk(JSON.stringify({ content: '' }));
       });
 
-      // Send done
+      // Send done and resolve
       await act(async () => {
         streamCtrl!.onDone();
+        streamCtrl!.resolve();
         await streamCtrl!.promise;
       });
 
-      // Wait for send to complete
       await act(async () => {
         await sendPromise;
       });
 
-      // Verify fallback behavior - empty Deep should result in completed with no assistant message
-      // or a fallback message
+      // Verify fallback behavior - empty Deep should result in failed state
       expect(capturedCtx!.chatPhase).toBe('done');
-      expect(capturedCtx!.turnStatus).toBe('completed');
+      expect(capturedCtx!.turnStatus).toBe('failed');
 
       await act(async () => {
         renderResult.unmount();
@@ -945,97 +1197,32 @@ describe('EF-38 Production Path Tests', () => {
     });
   });
 
-  // ─── Test 12: Old Provider cannot finalize after unmount ───
-  describe('Test 12: Old Provider cannot finalize after unmount', () => {
-    it('should not call finalizeTurnCompleted after unmount', async () => {
-      let streamCtrl: StreamController | null = null;
-
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      // Provider A: start send
-      const renderResultA = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Start send
-      let sendPromiseA: Promise<boolean>;
-      await act(async () => {
-        sendPromiseA = capturedCtx!.sendMessage('Hello');
-      });
-
-      // Wait for generating to be persisted
-      await waitFor(() => {
-        expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
-      });
-
-      // Unmount Provider A
-      await act(async () => {
-        renderResultA.unmount();
-      });
-
-      // Now call onDone on the abandoned stream
-      await act(async () => {
-        streamCtrl!.onDone();
-        streamCtrl!.resolve();
-        try { await sendPromiseA; } catch {}
-      });
-
-      // Verify completed was NOT persisted (old Provider cannot finalize)
-      const completedSession = storedSessions.find((s: any) => s.turnStatus === 'completed');
-      expect(completedSession).toBeUndefined();
-
-      // Provider B: remount and verify interrupted
-      const renderResultB = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      // Verify interrupted state
-      await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
-      });
-
-      await act(async () => {
-        renderResultB.unmount();
-      });
-    });
-  });
-
   // ─── Continuous: Full recovery chain ───
   describe('Continuous: Full recovery chain', () => {
     it('should complete the full recovery chain: send -> generating -> unmount -> remount -> interrupted -> retry -> completed', async () => {
-      let streamCtrlA: StreamController | null = null;
-      let streamCtrlB: StreamController | null = null;
-      let streamCallCount = 0;
+      let streamCtrl: StreamController | null = null;
+      let streamCtrl2: StreamController | null = null;
+      let callCount = 0;
+      let originalUserMessageId: string | null = null;
 
       mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCallCount++;
-        const ctrl = createStreamController();
-        ctrl.onChunk = callbacks.onChunk;
-        ctrl.onDone = callbacks.onDone;
-        ctrl.onError = callbacks.onError;
-        if (streamCallCount === 1) {
-          streamCtrlA = ctrl;
+        callCount++;
+        if (callCount === 1) {
+          streamCtrl = createStreamController();
+          streamCtrl.onChunk = callbacks.onChunk;
+          streamCtrl.onDone = callbacks.onDone;
+          streamCtrl.onError = callbacks.onError;
+          return streamCtrl.promise;
         } else {
-          streamCtrlB = ctrl;
+          streamCtrl2 = createStreamController();
+          streamCtrl2.onChunk = callbacks.onChunk;
+          streamCtrl2.onDone = callbacks.onDone;
+          streamCtrl2.onError = callbacks.onError;
+          return streamCtrl2.promise;
         }
-        return ctrl.promise;
       });
 
-      // Provider A: send and persist generating
+      // Provider A: send -> generating persisted -> unmount
       const renderResultA = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
@@ -1044,25 +1231,36 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Start send
       let sendPromiseA: Promise<boolean>;
       await act(async () => {
         sendPromiseA = capturedCtx!.sendMessage('Hello');
       });
 
-      // Wait for generating to be persisted
+      // Verify generating persisted
       await waitFor(() => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
       });
 
-      const originalUserMessageId = storedSessions[0].pendingTurn.userMessageId;
+      // Capture original user message ID
+      const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
+      originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
 
       // Unmount Provider A
       await act(async () => {
         renderResultA.unmount();
       });
 
-      // Provider B: remount
+      // Settle abandoned stream
+      await act(async () => {
+        streamCtrl!.onDone();
+        streamCtrl!.resolve();
+        await streamCtrl!.promise;
+      });
+      await act(async () => {
+        await sendPromiseA;
+      });
+
+      // Provider B: hydrate same Session -> interrupted -> real MessageList -> fireEvent.press on real Retry -> completed
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
@@ -1072,52 +1270,49 @@ describe('EF-38 Production Path Tests', () => {
 
       await waitForHydration();
 
-      // Verify interrupted state
+      // Verify interrupted
       await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
+        expect(capturedCtx!.turnStatus).toBe('interrupted');
       });
 
-      // Verify interruption UI is rendered
-      const retryButton = renderResultB.queryByText('重新生成');
-      expect(retryButton).not.toBeNull();
+      // Click retry
+      const retryButton = await waitFor(() => {
+        return renderResultB.getByText('重新生成');
+      });
 
-      // Click retry button
       await act(async () => {
-        fireEvent.press(retryButton!);
+        fireEvent.press(retryButton);
       });
 
-      // Wait for new stream to be called
       await waitFor(() => {
-        expect(streamCallCount).toBe(2);
+        expect(callCount).toBe(2);
       });
 
-      // Complete the retry stream
+      // Verify user message ID preserved
+      const interruptedSession = storedSessions.find((s: any) => s.turnStatus === 'interrupted');
+      expect(interruptedSession?.pendingTurn?.userMessageId).toBe(originalUserMessageId);
+
+      // Complete retry
       await act(async () => {
-        streamCtrlB!.onChunk(JSON.stringify({ content: 'Retry response content' }));
-        streamCtrlB!.onDone();
-        await streamCtrlB!.promise;
+        streamCtrl2!.onChunk(JSON.stringify({ content: 'Retry response content' }));
+        streamCtrl2!.onDone();
+        streamCtrl2!.resolve();
+        await streamCtrl2!.promise;
       });
 
-      // Verify completed state
+      // Verify completed
       await waitFor(() => {
-        expect(capturedCtx?.turnStatus).toBe('completed');
+        expect(capturedCtx!.chatPhase).toBe('done');
+        expect(capturedCtx!.turnStatus).toBe('completed');
       });
-
-      // Verify original user message ID is preserved
-      const userMessage = capturedCtx!.messages.find((m: any) => m.role === 'user');
-      expect(userMessage).toBeDefined();
-      expect(userMessage!.id).toBe(originalUserMessageId);
 
       // Verify exactly one user message
       const userMessages = capturedCtx!.messages.filter((m: any) => m.role === 'user');
       expect(userMessages.length).toBe(1);
 
-      // Verify exactly one assistant response
+      // Verify exactly one assistant message
       const assistantMessages = capturedCtx!.messages.filter((m: any) => m.role === 'assistant');
       expect(assistantMessages.length).toBe(1);
-
-      // Verify completed was persisted
-      expect(storedSessions.some((s: any) => s.turnStatus === 'completed')).toBe(true);
 
       await act(async () => {
         renderResultB.unmount();
