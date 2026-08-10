@@ -6,14 +6,6 @@
  * Uses stateful in-memory persistence adapter.
  */
 
-import React from 'react';
-import { render, act, waitFor, fireEvent } from '@testing-library/react-native';
-import { ChatProvider, useChat } from '../contexts/ChatContext';
-import * as cozeApi from '../api/cozeApi';
-import * as sessionStore from '../stores/sessionStore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { MessageList } from '../components/MessageList';
-
 // Polyfill StyleSheet.flatten for test environment
 import { StyleSheet } from 'react-native';
 if (!StyleSheet.flatten) {
@@ -32,6 +24,36 @@ jest.mock('@expo/vector-icons', () => {
   return {
     FontAwesome6: ({ name, size, color }: any) => React.createElement('Text', { testID: `icon-${name}` }, name),
     MaterialIcons: ({ name, size, color }: any) => React.createElement('Text', { testID: `icon-${name}` }, name),
+    Ionicons: ({ name, size, color }: any) => React.createElement('Text', { testID: `icon-${name}` }, name),
+  };
+});
+
+// Mock MessageBubble and DeepAnalysisCard (they're imported as default in MessageList but are named exports)
+jest.mock('../components/MessageBubble', () => {
+  const React = require('react');
+  const { Text, View } = require('react-native');
+  return {
+    __esModule: true,
+    default: ({ message }: any) => React.createElement(View, { testID: `message-${message.id}` }, 
+      React.createElement(Text, null, message.content)
+    ),
+    MessageBubble: ({ message }: any) => React.createElement(View, { testID: `message-${message.id}` }, 
+      React.createElement(Text, null, message.content)
+    ),
+  };
+});
+
+jest.mock('../components/DeepAnalysisCard', () => {
+  const React = require('react');
+  const { Text, View } = require('react-native');
+  return {
+    __esModule: true,
+    default: ({ analysis }: any) => React.createElement(View, { testID: 'deep-analysis-card' }, 
+      React.createElement(Text, null, 'Deep Analysis')
+    ),
+    DeepAnalysisCard: ({ analysis }: any) => React.createElement(View, { testID: 'deep-analysis-card' }, 
+      React.createElement(Text, null, 'Deep Analysis')
+    ),
   };
 });
 
@@ -173,6 +195,15 @@ jest.mock('../utils/storage', () => ({
 jest.mock('../utils/textAnalyzer', () => ({
   analyzeText: jest.fn().mockResolvedValue({ emotions: [], keyEvent: '', keywords: [], interactionOptions: [] }),
 }));
+
+// Now import the modules after mocks are set up
+import React from 'react';
+import { render, act, waitFor, fireEvent } from '@testing-library/react-native';
+import { ChatProvider, useChat } from '../contexts/ChatContext';
+import * as cozeApi from '../api/cozeApi';
+import * as sessionStore from '../stores/sessionStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { MessageList } from '../components/MessageList';
 
 const mockedChatStart = cozeApi.chatStart as jest.MockedFunction<typeof cozeApi.chatStart>;
 const mockedChatStream = cozeApi.chatStream as jest.MockedFunction<typeof cozeApi.chatStream>;
