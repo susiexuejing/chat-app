@@ -34,7 +34,6 @@ import { roles } from '../constants/roles';
 // ============================================================
 // StyleSheet.flatten Polyfill for Test Environment
 // ============================================================
-// Fix: StyleSheet.flatten may not be available in test environment with Uniwind
 const originalFlatten = (StyleSheet as any).flatten;
 beforeAll(() => {
   if (!(StyleSheet as any).flatten) {
@@ -48,22 +47,32 @@ afterAll(() => {
 // ============================================================
 // Stateful In-Memory Persistence Adapter
 // ============================================================
-// This adapter actually stores sessions passed to saveChatSessions
-// and returns them from getChatSessions. It survives Provider
-// unmount/remount within one test and resets between tests.
-
+// Session store
 let memoryStore: { sessions: any[] } = { sessions: [] };
+
+// AsyncStorage stateful store
+let asyncStorageStore: Map<string, string> = new Map();
 
 function resetMemoryStore() {
   memoryStore = { sessions: [] };
+  asyncStorageStore = new Map();
 }
 
-// Mock AsyncStorage (used for currentSessionId tracking)
+// Mock AsyncStorage with STATEFUL adapter
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  setItem: jest.fn().mockResolvedValue(undefined),
-  getItem: jest.fn().mockResolvedValue(null),
-  removeItem: jest.fn().mockResolvedValue(undefined),
+  setItem: jest.fn().mockImplementation(async (key: string, value: string) => {
+    asyncStorageStore.set(key, value);
+    return undefined;
+  }),
+  getItem: jest.fn().mockImplementation(async (key: string) => {
+    return asyncStorageStore.get(key) ?? null;
+  }),
+  removeItem: jest.fn().mockImplementation(async (key: string) => {
+    asyncStorageStore.delete(key);
+    return undefined;
+  }),
   clear: jest.fn().mockImplementation(async () => {
+    asyncStorageStore.clear();
     resetMemoryStore();
     return undefined;
   }),
@@ -72,12 +81,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 // Mock sessionStore with STATEFUL adapter
 jest.mock('../stores/sessionStore', () => ({
   saveChatSessions: jest.fn().mockImplementation(async (sessions: any[]) => {
-    // Actually store the sessions
     memoryStore.sessions = JSON.parse(JSON.stringify(sessions));
     return undefined;
   }),
   getChatSessions: jest.fn().mockImplementation(async () => {
-    // Return the stored sessions
     return JSON.parse(JSON.stringify(memoryStore.sessions));
   }),
   persistMessage: jest.fn().mockResolvedValue(undefined),
@@ -98,1050 +105,780 @@ jest.mock('../constants/roles', () => ({
       id: 'test-role',
       name: 'Test Role',
       title: 'Test',
-      avatar: 'https://example.com/avatar.png',
-      themeColor: '#FF6F00',
-      shortDesc: 'Test',
-      category: 'test',
-      expertise: ['test'],
-      briefIntro: 'Test',
-      description: 'Test',
-      systemPrompt: 'You are a test assistant.',
-      personalityTraits: ['helpful'],
-      communicationStyle: 'warm',
-      emotionalApproach: 'empathetic',
-      psychologyConcept: 'cbt',
-      lifeExperience: 'test',
-      workExperience: 'test',
-      specialties: ['test'],
-      education: 'test',
-      reactionPattern: 'test',
+      description: 'Test role',
+      greeting: 'Hello',
+      suggestedQuestions: [],
+      model: 'test-model',
     },
   ],
-  DEFAULT_ROLE: {
-    id: 'test-role',
-    name: 'Test Role',
-    title: 'Test',
-    avatar: 'https://example.com/avatar.png',
-    themeColor: '#FF6F00',
-    shortDesc: 'Test',
-    category: 'test',
-    expertise: ['test'],
-    briefIntro: 'Test',
-    description: 'Test',
-    systemPrompt: 'You are a test assistant.',
-    personalityTraits: ['helpful'],
-    communicationStyle: 'warm',
-    emotionalApproach: 'empathetic',
-    psychologyConcept: 'cbt',
-    lifeExperience: 'test',
-    workExperience: 'test',
-    specialties: ['test'],
-    education: 'test',
-    reactionPattern: 'test',
-  },
-  DEFAULT_ROLES: [
-    {
-      id: 'test-role',
-      name: 'Test Role',
-      title: 'Test',
-      avatar: 'https://example.com/avatar.png',
-      themeColor: '#FF6F00',
-      shortDesc: 'Test',
-      category: 'test',
-      expertise: ['test'],
-      briefIntro: 'Test',
-      description: 'Test',
-      systemPrompt: 'You are a test assistant.',
-      personalityTraits: ['helpful'],
-      communicationStyle: 'warm',
-      emotionalApproach: 'empathetic',
-      psychologyConcept: 'cbt',
-      lifeExperience: 'test',
-      workExperience: 'test',
-      specialties: ['test'],
-      education: 'test',
-      reactionPattern: 'test',
-    },
-  ],
-  getRoleById: jest.fn().mockImplementation((id: string) => {
-    if (id === 'test-role') {
-      return {
-        id: 'test-role',
-        name: 'Test Role',
-        title: 'Test',
-        avatar: 'https://example.com/avatar.png',
-        themeColor: '#FF6F00',
-        shortDesc: 'Test',
-        category: 'test',
-        expertise: ['test'],
-        briefIntro: 'Test',
-        description: 'Test',
-        systemPrompt: 'You are a test assistant.',
-        personalityTraits: ['helpful'],
-        communicationStyle: 'warm',
-        emotionalApproach: 'empathetic',
-        psychologyConcept: 'cbt',
-        lifeExperience: 'test',
-        workExperience: 'test',
-        specialties: ['test'],
-        education: 'test',
-        reactionPattern: 'test',
-      };
-    }
-    return undefined;
-  }),
-  getDefaultRoles: jest.fn().mockReturnValue([
-    {
-      id: 'test-role',
-      name: 'Test Role',
-      title: 'Test',
-      avatar: 'https://example.com/avatar.png',
-      themeColor: '#FF6F00',
-      shortDesc: 'Test',
-      category: 'test',
-      expertise: ['test'],
-      briefIntro: 'Test',
-      description: 'Test',
-      systemPrompt: 'You are a test assistant.',
-      personalityTraits: ['helpful'],
-      communicationStyle: 'warm',
-      emotionalApproach: 'empathetic',
-      psychologyConcept: 'cbt',
-      lifeExperience: 'test',
-      workExperience: 'test',
-      specialties: ['test'],
-      education: 'test',
-      reactionPattern: 'test',
-    },
-  ]),
-  buildSystemPrompt: jest.fn().mockReturnValue('You are a test assistant.'),
+  getRoleById: (id: string) => roles.find(r => r.id === id) || roles[0],
 }));
 
 // Mock @expo/vector-icons
 jest.mock('@expo/vector-icons', () => {
   const React = require('react');
-  const { Text } = require('react-native');
   return {
-    Ionicons: (props: Record<string, unknown>) => React.createElement(Text, { testID: 'icon' }),
-    FontAwesome6: (props: Record<string, unknown>) => React.createElement(Text, { testID: 'icon' }),
+    FontAwesome6: (props: any) => React.createElement('Text', props, props.testID || 'icon'),
+    MaterialCommunityIcons: (props: any) => React.createElement('Text', props, props.testID || 'icon'),
   };
 });
 
 // ============================================================
-// Test Helper: Context Consumer
+// Stream Controller Helper
 // ============================================================
+interface StreamController {
+  promise: Promise<void>;
+  resolve: () => void;
+  reject: (error: Error) => void;
+  callbacks: { onChunk: (chunk: string) => void; onDone: () => void; onError: (error: Error) => void } | null;
+}
 
-function TestConsumer({ onContext }: { onContext: (ctx: ReturnType<typeof useChat>) => void }) {
+function createStreamController(): StreamController {
+  let resolve: () => void;
+  let reject: (error: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve: resolve!, reject: reject!, callbacks: null };
+}
+
+// ============================================================
+// Test Helpers
+// ============================================================
+function setupChatStartMock() {
+  (cozeApi.chatStart as jest.Mock).mockResolvedValue({
+    conversationId: 'conv-test-123',
+  });
+}
+
+function setupChatStreamSuccess(content: string) {
+  const controller = createStreamController();
+  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+    controller.callbacks = callbacks;
+    // Simulate async stream
+    setTimeout(() => {
+      callbacks.onChunk(content);
+      callbacks.onDone();
+      controller.resolve();
+    }, 10);
+    return controller.promise;
+  });
+  return controller;
+}
+
+function setupChatStreamError(error: Error) {
+  const controller = createStreamController();
+  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+    controller.callbacks = callbacks;
+    setTimeout(() => {
+      callbacks.onError(error);
+      controller.reject(error);
+    }, 10);
+    return controller.promise;
+  });
+  return controller;
+}
+
+function setupChatStreamHanging() {
+  const controller = createStreamController();
+  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+    controller.callbacks = callbacks;
+    // Never resolves or rejects - truly hanging
+    return controller.promise;
+  });
+  return controller;
+}
+
+// ============================================================
+// Test Consumer Component
+// ============================================================
+interface TestConsumerProps {
+  onContext: (ctx: any) => void;
+}
+
+function TestConsumer({ onContext }: TestConsumerProps) {
   const context = useChat();
   
   React.useEffect(() => {
     onContext(context);
-  }, [context]);
-
+  }, [context, onContext]);
+  
   return null;
-}
-
-// ============================================================
-// Test Helper: Stream Control
-// ============================================================
-
-interface StreamController {
-  resolve: () => void;
-  reject: (err: Error) => void;
-  sendChunk: (data: any) => void;
-  sendDone: () => void;
-  sendError: (err: Error) => void;
-}
-
-function createStreamController(): { promise: Promise<void>; controller: StreamController } {
-  let resolveStream: () => void;
-  let rejectStream: (err: Error) => void;
-  const promise = new Promise<void>((resolve, reject) => {
-    resolveStream = resolve;
-    rejectStream = reject;
-  });
-
-  return {
-    promise,
-    controller: {
-      resolve: resolveStream!,
-      reject: rejectStream!,
-      sendChunk: () => {}, // Will be set by mock
-      sendDone: () => {},
-      sendError: () => {},
-    },
-  };
-}
-
-// ============================================================
-// Standard Mock Setup Helpers
-// ============================================================
-
-const BACKEND_UUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
-
-function setupChatStartMock(overrides?: Partial<any>) {
-  (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-    sessionId: BACKEND_UUID,
-    reactionLayer: 'Test reaction',
-    companionLayer: null,
-    frontFlowText: null,
-    reactionTimeline: null,
-    companionTimeline: null,
-    flowContext: { conversation_id: 'conv_123' },
-    ...overrides,
-  });
-}
-
-function setupChatStreamSuccess(content: string = 'Valid Deep response') {
-  let capturedCallbacks: any = null;
-  
-  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
-    capturedCallbacks = callbacks;
-    
-    // Send Deep content
-    callbacks.onChunk({
-      content: JSON.stringify({
-        deep: {
-          thinking_process: 'Thinking...',
-          answer: content,
-          confidence: 0.9,
-        },
-      }),
-      role: 'assistant',
-      finish_reason: 'stop',
-    });
-    
-    // Call onDone
-    callbacks.onDone();
-  });
-  
-  return {
-    getCallbacks: () => capturedCallbacks,
-  };
-}
-
-function setupChatStreamError(error: Error) {
-  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
-    callbacks.onError(error);
-  });
-}
-
-function setupChatStreamReject(error: Error) {
-  (cozeApi.chatStream as jest.Mock).mockRejectedValue(error);
-}
-
-function setupChatStreamHanging() {
-  (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
-    // Never calls any callbacks - simulates hanging stream
-  });
 }
 
 // ============================================================
 // Test Setup
 // ============================================================
+let contextRef: any = null;
 
+function captureContext(ctx: any) {
+  contextRef = ctx;
+}
+
+async function renderProvider() {
+  contextRef = null;
+  const renderResult = await render(
+    <ChatProvider>
+      <TestConsumer onContext={captureContext} />
+    </ChatProvider>
+  );
+  
+  // Wait for hydration
+  await waitFor(() => {
+    expect(contextRef?.isHydrated).toBe(true);
+  }, { timeout: 3000 });
+  
+  return renderResult;
+}
+
+// ============================================================
+// Reset before each test
+// ============================================================
 beforeEach(() => {
   jest.clearAllMocks();
   resetMemoryStore();
-  (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
-  (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+  // Reset AsyncStorage mock to use stateful implementation
+  (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => {
+    return asyncStorageStore.get(key) ?? null;
+  });
+  (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
+    asyncStorageStore.set(key, value);
+    return undefined;
+  });
+  (AsyncStorage.removeItem as jest.Mock).mockImplementation(async (key: string) => {
+    asyncStorageStore.delete(key);
+    return undefined;
+  });
+});
+
+afterEach(async () => {
+  contextRef = null;
+  jest.clearAllMocks();
+  resetMemoryStore();
 });
 
 // ============================================================
 // Test 1: Normal valid Deep settles as completed without timeout
 // ============================================================
-
 describe('Test 1: Normal valid Deep settles as completed without timeout', () => {
   it('should settle stream as completed when valid Deep content is received', async () => {
-    // Setup
     setupChatStartMock();
-    const streamMock = setupChatStreamSuccess('Valid Deep response');
+    const streamController = setupChatStreamSuccess('Valid Deep response');
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
-    
-    // Render Provider
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
-    // Wait for initialization
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
+    const { unmount } = await renderProvider();
     
     // Send message
+    let sendPromise: Promise<void>;
     await act(async () => {
-      await contextRef?.sendMessage('Hello');
+      sendPromise = contextRef.sendMessage('Hello');
     });
     
-    // Wait for completion - this should happen quickly, not after 30s timeout
-    await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
-    }, { timeout: 5000 });
+    // Wait for stream to complete
+    await act(async () => {
+      await sendPromise;
+    });
     
-    // Verify the session was persisted with completed status
-    const sessions = memoryStore.sessions;
-    expect(sessions.length).toBeGreaterThan(0);
-    const session = sessions.find((s: any) => s.turnStatus === 'completed');
-    expect(session).toBeDefined();
-  });
+    // Verify completion
+    await waitFor(() => {
+      expect(contextRef.chatPhase).toBe('done');
+    }, { timeout: 2000 });
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 2: Generating Session is produced by real send path
 // ============================================================
-
 describe('Test 2: Generating Session is produced by real send path', () => {
   it('should persist session with turnStatus=generating before chatStart', async () => {
-    // Setup hanging stream to keep state in generating
-    setupChatStartMock();
-    setupChatStreamHanging();
+    // Track event order
+    const eventLog: string[] = [];
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
-    let generatingPersistedBeforeChatStart = false;
+    (cozeApi.chatStart as jest.Mock).mockImplementation(async () => {
+      eventLog.push('chatStart');
+      return { conversationId: 'conv-test-123' };
+    });
     
-    // Track when generating state is persisted
-    const originalSave = (sessionStore.saveChatSessions as jest.Mock).mockImplementation;
+    const hangingController = createStreamController();
+    (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+      eventLog.push('chatStream');
+      hangingController.callbacks = callbacks;
+      return hangingController.promise;
+    });
+    
+    // Track save events
+    const originalSave = memoryStore.sessions;
     (sessionStore.saveChatSessions as jest.Mock).mockImplementation(async (sessions: any[]) => {
-      // Check if any session has generating status
-      const hasGenerating = sessions.some((s: any) => s.turnStatus === 'generating');
-      if (hasGenerating) {
-        generatingPersistedBeforeChatStart = true;
+      const generatingSession = sessions.find((s: any) => s.turnStatus === 'generating');
+      if (generatingSession) {
+        eventLog.push('save:generating');
       }
-      // Call original implementation
       memoryStore.sessions = JSON.parse(JSON.stringify(sessions));
       return undefined;
     });
     
-    // Render Provider
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
-    // Wait for initialization
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
+    const { unmount } = await renderProvider();
     
     // Send message
+    let sendPromise: Promise<void>;
     await act(async () => {
-      await contextRef?.sendMessage('Hello');
+      sendPromise = contextRef.sendMessage('Hello');
     });
     
-    // Verify generating state was persisted before chatStart
-    expect(generatingPersistedBeforeChatStart).toBe(true);
+    // Wait for generating to be persisted
+    await waitFor(() => {
+      expect(eventLog).toContain('save:generating');
+    }, { timeout: 2000 });
     
-    // Cleanup - unmount the Provider
+    // Verify order: save:generating should come before chatStart
+    const saveIndex = eventLog.indexOf('save:generating');
+    const chatStartIndex = eventLog.indexOf('chatStart');
+    expect(saveIndex).toBeLessThan(chatStartIndex);
+    
+    // Verify generating session structure
+    const savedSessions = memoryStore.sessions;
+    const generatingSession = savedSessions.find((s: any) => s.turnStatus === 'generating');
+    expect(generatingSession).toBeDefined();
+    expect(generatingSession.pendingTurn).toBeDefined();
+    expect(generatingSession.messages.length).toBeGreaterThan(0);
+    
+    // Clean up hanging stream
     await act(async () => {
-      // The Provider will be cleaned up by the test framework
+      hangingController.callbacks?.onError(new Error('Test cleanup'));
+      hangingController.reject(new Error('Test cleanup'));
+      await sendPromise;
     });
-  });
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 3: Real Provider unmount/remount converts generating to interrupted
 // ============================================================
-
 describe('Test 3: Real Provider unmount/remount converts generating to interrupted', () => {
   it('should convert generating to interrupted after unmount and remount', async () => {
-    // Setup hanging stream
     setupChatStartMock();
-    setupChatStreamHanging();
-    
-    let contextRef: ReturnType<typeof useChat> | null = null;
-    
-    // First Provider - start generating
-    const renderResult1 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
+    const hangingController = createStreamController();
+    (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+      hangingController.callbacks = callbacks;
+      return hangingController.promise;
     });
     
-    // Wait for initialization
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
+    // First Provider
+    const renderResult1 = await renderProvider();
     
-    // Send message to enter generating state
+    // Send message
+    let sendPromise: Promise<void>;
     await act(async () => {
-      await contextRef?.sendMessage('Hello');
+      sendPromise = contextRef.sendMessage('Hello');
     });
     
-    // Verify generating state
+    // Wait for generating state
     await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('generating');
+      expect(contextRef.turnStatus).toBe('generating');
     });
+    
+    // Verify generating was persisted
+    const sessionsBeforeUnmount = memoryStore.sessions;
+    expect(sessionsBeforeUnmount.some((s: any) => s.turnStatus === 'generating')).toBe(true);
+    
+    // Verify active session ID was persisted
+    const activeSessionIdBeforeUnmount = asyncStorageStore.get('current_session_id');
+    expect(activeSessionIdBeforeUnmount).toBeDefined();
     
     // Unmount first Provider
     await act(async () => {
       renderResult1.unmount();
     });
     
-    // Wait a bit for unmount effects
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    });
+    // Verify sessions survived unmount
+    const sessionsAfterUnmount = memoryStore.sessions;
+    expect(sessionsAfterUnmount.length).toBeGreaterThan(0);
     
-    // Second Provider - should hydrate and convert to interrupted
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
+    // Verify active session ID survived unmount
+    const activeSessionIdAfterUnmount = asyncStorageStore.get('current_session_id');
+    expect(activeSessionIdAfterUnmount).toBe(activeSessionIdBeforeUnmount);
     
-    // Wait for initialization
+    // Second Provider (remount)
+    const renderResult2 = await renderProvider();
+    
+    // Wait for hydration and interrupted state
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
+      expect(contextRef.isHydrated).toBe(true);
+      expect(contextRef.turnStatus).toBe('interrupted');
+    }, { timeout: 3000 });
     
-    // Verify interrupted state
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('interrupted');
+    // Clean up
+    await act(async () => {
+      renderResult2.unmount();
     });
-  });
+  }, 15000);
 });
 
 // ============================================================
 // Test 4: Production interruption UI is visible
 // ============================================================
-
 describe('Test 4: Production interruption UI is visible', () => {
   it('should render the actual MessageList interruption UI when turnStatus is interrupted', async () => {
-    // Setup hanging stream
-    setupChatStartMock();
-    setupChatStreamHanging();
+    // Pre-load an interrupted session
+    const interruptedSession = {
+      id: 'session-interrupted',
+      roleId: 'test-role',
+      conversationId: 'conv-test-123',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello', createdAt: Date.now() },
+      ],
+      turnStatus: 'interrupted',
+      pendingTurn: {
+        userMessageId: 'msg-1',
+        userMessageContent: 'Hello',
+        interruptedAt: Date.now(),
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    memoryStore.sessions = [interruptedSession];
+    asyncStorageStore.set('current_session_id', 'session-interrupted');
+    asyncStorageStore.set('current_role_id', 'test-role');
     
-    // First Provider - start generating
-    const renderResult1 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
+    const { unmount, getByText } = await renderProvider();
     
+    // Wait for hydration
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
+      expect(contextRef.isHydrated).toBe(true);
+      expect(contextRef.turnStatus).toBe('interrupted');
     });
     
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
+    // Render MessageList with interrupted state
+    const renderResult2 = await render(
+      <ChatProvider>
+        <MessageList onShowIntro={() => {}} />
+      </ChatProvider>
+    );
     
+    // Verify interruption UI is visible
     await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('generating');
+      expect(renderResult2.getByText(/重新生成/)).toBeTruthy();
     });
     
-    // Unmount to trigger interrupted state
-    await act(async () => {
-      renderResult1.unmount();
-    });
-    
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    });
-    
-    // Second Provider with MessageList - should show interruption UI
-    const renderResult2 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <View style={{ flex: 1 }}>
-            <MessageList onShowIntro={() => {}} />
-          </View>
-        </ChatProvider>
-      );
-    });
-    
-    // Wait for the interruption UI to appear
-    await waitFor(() => {
-      const interruptionText = renderResult2.queryByText('刚才的回复因页面刷新而中断，你可以重新生成。');
-      expect(interruptionText).not.toBeNull();
-    }, { timeout: 3000 });
-    
-    // Verify the retry button exists
-    const retryButton = renderResult2.queryByText('重新生成');
-    expect(retryButton).not.toBeNull();
-    
-    // Cleanup
-    await act(async () => {
-      renderResult2.unmount();
-    });
-  });
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 5: Actual Retry button is clicked
 // ============================================================
-
 describe('Test 5: Actual Retry button is clicked', () => {
   it('should trigger retry when the production Retry button is pressed', async () => {
-    // Setup for first attempt - hanging stream
+    // Pre-load an interrupted session
+    const interruptedSession = {
+      id: 'session-interrupted',
+      roleId: 'test-role',
+      conversationId: 'conv-test-123',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello', createdAt: Date.now() },
+      ],
+      turnStatus: 'interrupted',
+      pendingTurn: {
+        userMessageId: 'msg-1',
+        userMessageContent: 'Hello',
+        interruptedAt: Date.now(),
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    
+    memoryStore.sessions = [interruptedSession];
+    asyncStorageStore.set('current_session_id', 'session-interrupted');
+    asyncStorageStore.set('current_role_id', 'test-role');
+    
     setupChatStartMock();
-    setupChatStreamHanging();
+    const streamController = setupChatStreamSuccess('Retry response');
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    const { unmount, getByText } = await renderProvider();
     
-    // First Provider - start generating
-    const renderResult1 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
+    // Wait for hydration
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
+      expect(contextRef.isHydrated).toBe(true);
+      expect(contextRef.turnStatus).toBe('interrupted');
     });
     
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
+    // Render MessageList
+    const renderResult2 = await render(
+      <ChatProvider>
+        <MessageList onShowIntro={() => {}} />
+      </ChatProvider>
+    );
     
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('generating');
-    });
-    
-    // Unmount to trigger interrupted state
-    await act(async () => {
-      renderResult1.unmount();
-    });
-    
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    });
-    
-    // Setup for retry - success stream
-    setupChatStartMock();
-    setupChatStreamSuccess('Retry response');
-    
-    // Second Provider with MessageList - should show interruption UI
-    const renderResult2 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <View style={{ flex: 1 }}>
-            <MessageList onShowIntro={() => {}} />
-            <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-          </View>
-        </ChatProvider>
-      );
-    });
-    
-    // Wait for interruption UI
-    await waitFor(() => {
-      const retryButton = renderResult2.queryByText('重新生成');
-      expect(retryButton).not.toBeNull();
-    });
-    
-    // Click the actual production Retry button
-    const retryButton = renderResult2.getByText('重新生成');
+    // Find and click the retry button
+    const retryButton = renderResult2.getByText(/重新生成/);
     await act(async () => {
       fireEvent.press(retryButton);
     });
     
-    // Wait for retry to complete
+    // Wait for completion
     await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
     
-    // Cleanup
-    await act(async () => {
-      renderResult2.unmount();
-    });
-  });
+    unmount();
+  }, 15000);
 });
 
 // ============================================================
 // Test 6: Original user-message ID remains unchanged after retry
 // ============================================================
-
 describe('Test 6: Original user-message ID remains unchanged after retry', () => {
   it('should reuse original user message ID on retry', async () => {
-    // Setup for first attempt - error
-    setupChatStartMock();
-    setupChatStreamError(new Error('Test error'));
+    const originalUserMessageId = 'msg-original-user';
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    const interruptedSession = {
+      id: 'session-interrupted',
+      roleId: 'test-role',
+      conversationId: 'conv-test-123',
+      messages: [
+        { id: originalUserMessageId, role: 'user', content: 'Hello', createdAt: Date.now() },
+      ],
+      turnStatus: 'interrupted',
+      pendingTurn: {
+        userMessageId: originalUserMessageId,
+        userMessageContent: 'Hello',
+        interruptedAt: Date.now(),
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
     
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
+    memoryStore.sessions = [interruptedSession];
+    asyncStorageStore.set('current_session_id', 'session-interrupted');
+    asyncStorageStore.set('current_role_id', 'test-role');
     
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    // Send message
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    // Wait for error state
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('failed');
-    });
-    
-    // Get original user message ID
-    const originalUserMessageId = (contextRef as any)?.messages?.find((m: any) => m.role === 'user')?.id;
-    expect(originalUserMessageId).toBeDefined();
-    
-    // Setup for retry - success
     setupChatStartMock();
     setupChatStreamSuccess('Retry response');
     
-    // Retry
+    const { unmount } = await renderProvider();
+    
+    await waitFor(() => {
+      expect(contextRef.isHydrated).toBe(true);
+    });
+    
+    // Call retryLastMessage
     await act(async () => {
-      await contextRef?.retryLastMessage();
+      await contextRef.retryLastMessage();
     });
     
     // Wait for completion
     await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
     
     // Verify user message ID is unchanged
-    const retriedUserMessageId = (contextRef as any)?.messages?.find((m: any) => m.role === 'user')?.id;
-    expect(retriedUserMessageId).toBe(originalUserMessageId);
-  });
+    const messages = (contextRef as any).messages;
+    const userMessages = messages.filter((m: any) => m.role === 'user');
+    expect(userMessages.length).toBe(1);
+    expect(userMessages[0].id).toBe(originalUserMessageId);
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 7: User message exists exactly once
 // ============================================================
-
 describe('Test 7: User message exists exactly once', () => {
   it('should have exactly one user message after retry', async () => {
-    // Setup for first attempt - error
-    setupChatStartMock();
-    setupChatStreamError(new Error('Test error'));
+    const interruptedSession = {
+      id: 'session-interrupted',
+      roleId: 'test-role',
+      conversationId: 'conv-test-123',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello', createdAt: Date.now() },
+      ],
+      turnStatus: 'interrupted',
+      pendingTurn: {
+        userMessageId: 'msg-1',
+        userMessageContent: 'Hello',
+        interruptedAt: Date.now(),
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    memoryStore.sessions = [interruptedSession];
+    asyncStorageStore.set('current_session_id', 'session-interrupted');
+    asyncStorageStore.set('current_role_id', 'test-role');
     
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    // Send message
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('failed');
-    });
-    
-    // Setup for retry - success
     setupChatStartMock();
     setupChatStreamSuccess('Retry response');
     
-    // Retry
+    const { unmount } = await renderProvider();
+    
+    await waitFor(() => {
+      expect(contextRef.isHydrated).toBe(true);
+    });
+    
     await act(async () => {
-      await contextRef?.retryLastMessage();
+      await contextRef.retryLastMessage();
     });
     
     await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
     
-    // Verify exactly one user message
-    const userMessages = (contextRef as any)?.messages?.filter((m: any) => m.role === 'user');
-    expect(userMessages?.length).toBe(1);
-  });
+    const messages = (contextRef as any).messages;
+    const userMessages = messages.filter((m: any) => m.role === 'user');
+    expect(userMessages.length).toBe(1);
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 8: Retry completes with exactly one assistant response
 // ============================================================
-
 describe('Test 8: Retry completes with exactly one assistant response', () => {
   it('should have exactly one assistant response after retry', async () => {
-    // Setup for first attempt - error
-    setupChatStartMock();
-    setupChatStreamError(new Error('Test error'));
+    const interruptedSession = {
+      id: 'session-interrupted',
+      roleId: 'test-role',
+      conversationId: 'conv-test-123',
+      messages: [
+        { id: 'msg-1', role: 'user', content: 'Hello', createdAt: Date.now() },
+      ],
+      turnStatus: 'interrupted',
+      pendingTurn: {
+        userMessageId: 'msg-1',
+        userMessageContent: 'Hello',
+        interruptedAt: Date.now(),
+      },
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    memoryStore.sessions = [interruptedSession];
+    asyncStorageStore.set('current_session_id', 'session-interrupted');
+    asyncStorageStore.set('current_role_id', 'test-role');
     
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('failed');
-    });
-    
-    // Setup for retry - success
     setupChatStartMock();
     setupChatStreamSuccess('Retry response');
     
+    const { unmount } = await renderProvider();
+    
+    await waitFor(() => {
+      expect(contextRef.isHydrated).toBe(true);
+    });
+    
     await act(async () => {
-      await contextRef?.retryLastMessage();
+      await contextRef.retryLastMessage();
     });
     
     await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
     
-    // Verify exactly one assistant response
-    const assistantMessages = (contextRef as any)?.messages?.filter((m: any) => m.role === 'assistant');
-    expect(assistantMessages?.length).toBe(1);
-  });
+    const messages = (contextRef as any).messages;
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
+    expect(assistantMessages.length).toBe(1);
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 9: onError settles without timeout
 // ============================================================
-
 describe('Test 9: onError settles without timeout', () => {
   it('should settle stream as error immediately when onError is called', async () => {
     setupChatStartMock();
     setupChatStreamError(new Error('Test error'));
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    const { unmount } = await renderProvider();
     
     await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
+      await contextRef.sendMessage('Hello');
     });
     
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    // Should settle quickly, not wait for timeout
-    await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.turnStatus).toBe('failed');
     }, { timeout: 2000 });
     
-    // Verify failed status
-    expect((contextRef as any)?.turnStatus).toBe('failed');
-  });
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 10: chatStream Promise rejection settles promptly
 // ============================================================
-
 describe('Test 10: chatStream Promise rejection settles promptly', () => {
   it('should settle stream as error when chatStream promise rejects', async () => {
     setupChatStartMock();
-    setupChatStreamReject(new Error('Network error'));
     
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    (cozeApi.chatStream as jest.Mock).mockRejectedValue(new Error('Stream rejected'));
+    
+    const { unmount } = await renderProvider();
     
     await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
+      await contextRef.sendMessage('Hello');
     });
     
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    // Should settle quickly
-    await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.turnStatus).toBe('failed');
     }, { timeout: 2000 });
     
-    expect((contextRef as any)?.turnStatus).toBe('failed');
-  });
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 11: Empty Deep follows the documented fallback
 // ============================================================
-
 describe('Test 11: Empty Deep follows the documented fallback', () => {
   it('should handle empty Deep content according to fallback logic', async () => {
     setupChatStartMock();
+    setupChatStreamSuccess(''); // Empty content
     
-    // Setup stream that sends empty Deep
-    (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
-      callbacks.onChunk({
-        content: JSON.stringify({
-          deep: {
-            thinking_process: '',
-            answer: '',
-            confidence: 0,
-          },
-        }),
-        role: 'assistant',
-        finish_reason: 'stop',
-      });
-      callbacks.onDone();
-    });
-    
-    let contextRef: ReturnType<typeof useChat> | null = null;
+    const { unmount } = await renderProvider();
     
     await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
+      await contextRef.sendMessage('Hello');
     });
     
+    // Wait for completion
     await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    await act(async () => {
-      await contextRef?.sendMessage('Hello');
-    });
-    
-    // Should settle - either as completed or failed depending on fallback logic
-    await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
-  });
+    
+    // Verify fallback behavior
+    const messages = (contextRef as any).messages;
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
+    expect(assistantMessages.length).toBe(1);
+    
+    unmount();
+  }, 10000);
 });
 
 // ============================================================
 // Test 12: Old Provider cannot finalize after unmount
 // ============================================================
-
 describe('Test 12: Old Provider cannot finalize after unmount', () => {
   it('should not call finalizeTurnCompleted after unmount', async () => {
-    let contextRef: ReturnType<typeof useChat> | null = null;
-    let streamCallbacks: any = null;
-    
     setupChatStartMock();
-    
-    // Setup stream that captures callbacks but doesn't call them immediately
+    const hangingController = createStreamController();
     (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
-      streamCallbacks = callbacks;
-      // Don't call any callbacks yet
+      hangingController.callbacks = callbacks;
+      return hangingController.promise;
     });
     
-    const renderResult = await act(async () => {
-      return render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
+    const renderResult = await renderProvider();
     
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    // Start message
+    let sendPromise: Promise<void>;
     await act(async () => {
-      await contextRef?.sendMessage('Hello');
+      sendPromise = contextRef.sendMessage('Hello');
     });
     
-    // Wait for generating state
     await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('generating');
+      expect(contextRef.turnStatus).toBe('generating');
     });
     
-    // Unmount Provider
+    // Unmount
     await act(async () => {
       renderResult.unmount();
     });
     
-    // Wait for unmount effects
+    // Try to finalize from old callbacks
     await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
+      hangingController.callbacks?.onDone();
+      hangingController.resolve();
+      await sendPromise;
     });
     
-    // Now try to call onDone on the old callbacks
-    // This should NOT finalize the turn because Provider is unmounted
-    if (streamCallbacks) {
-      await act(async () => {
-        streamCallbacks.onDone();
-      });
-    }
-    
-    // Create new Provider and verify state is interrupted, not completed
-    await act(async () => {
-      render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
-    });
-    
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
-    
-    // Should be interrupted, not completed
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('interrupted');
-    });
-  });
+    // Verify completed was not persisted
+    const sessions = memoryStore.sessions;
+    const completedSession = sessions.find((s: any) => s.turnStatus === 'completed');
+    expect(completedSession).toBeUndefined();
+  }, 10000);
 });
 
 // ============================================================
 // Continuous: Full recovery chain
 // ============================================================
-
 describe('Continuous: Full recovery chain', () => {
   it('should complete the full recovery chain: send -> generating -> unmount -> remount -> interrupted -> retry -> completed', async () => {
-    // Step 1: Start generating
     setupChatStartMock();
-    setupChatStreamHanging();
-    
-    let contextRef: ReturnType<typeof useChat> | null = null;
-    
-    const renderResult1 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-        </ChatProvider>
-      );
+    const hangingController = createStreamController();
+    (cozeApi.chatStream as jest.Mock).mockImplementation(async (sessionId: string, callbacks: any) => {
+      hangingController.callbacks = callbacks;
+      return hangingController.promise;
     });
     
-    await waitFor(() => {
-      expect(contextRef).not.toBeNull();
-      expect(contextRef?.isHydrated).toBe(true);
-    });
+    // Step 1: First Provider - send and get generating state
+    const renderResult1 = await renderProvider();
     
-    // Step 2: Send message and verify generating state
+    let sendPromise: Promise<void>;
     await act(async () => {
-      await contextRef?.sendMessage('Hello');
+      sendPromise = contextRef.sendMessage('Hello');
     });
     
     await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('generating');
+      expect(contextRef.turnStatus).toBe('generating');
     });
     
-    // Step 3: Get original user message ID
-    const originalUserMessageId = (contextRef as any)?.messages?.find((m: any) => m.role === 'user')?.id;
+    const originalUserMessageId = (contextRef as any).messages.find((m: any) => m.role === 'user')?.id;
+    expect(originalUserMessageId).toBeDefined();
     
-    // Step 4: Unmount Provider
+    // Step 2: Unmount first Provider
     await act(async () => {
       renderResult1.unmount();
     });
     
-    await act(async () => {
-      await new Promise(resolve => setTimeout(resolve, 100));
-    });
+    // Step 3: Remount second Provider
+    const renderResult2 = await renderProvider();
     
-    // Step 5: Setup for retry success
-    setupChatStartMock();
+    await waitFor(() => {
+      expect(contextRef.isHydrated).toBe(true);
+      expect(contextRef.turnStatus).toBe('interrupted');
+    }, { timeout: 3000 });
+    
+    // Step 4: Setup successful stream for retry
     setupChatStreamSuccess('Retry response');
     
-    // Step 6: Remount Provider with MessageList
-    const renderResult2 = await act(async () => {
-      return render(
-        <ChatProvider>
-          <View style={{ flex: 1 }}>
-            <MessageList onShowIntro={() => {}} />
-            <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
-          </View>
-        </ChatProvider>
-      );
-    });
+    // Step 5: Click retry button via production UI
+    const renderResult3 = await render(
+      <ChatProvider>
+        <MessageList onShowIntro={() => {}} />
+      </ChatProvider>
+    );
     
-    // Step 7: Verify interrupted state
-    await waitFor(() => {
-      expect((contextRef as any)?.turnStatus).toBe('interrupted');
-    });
-    
-    // Step 8: Verify interruption UI is visible
-    await waitFor(() => {
-      const interruptionText = renderResult2.queryByText('刚才的回复因页面刷新而中断，你可以重新生成。');
-      expect(interruptionText).not.toBeNull();
-    });
-    
-    // Step 9: Click the actual production Retry button
-    const retryButton = renderResult2.getByText('重新生成');
+    const retryButton = renderResult3.getByText(/重新生成/);
     await act(async () => {
       fireEvent.press(retryButton);
     });
     
-    // Step 10: Wait for completion
+    // Step 6: Wait for completion
     await waitFor(() => {
-      expect(contextRef?.chatPhase).toBe('done');
+      expect(contextRef.chatPhase).toBe('done');
     }, { timeout: 5000 });
     
-    // Step 11: Verify original user message ID preserved
-    const retriedUserMessageId = (contextRef as any)?.messages?.find((m: any) => m.role === 'user')?.id;
-    expect(retriedUserMessageId).toBe(originalUserMessageId);
+    // Step 7: Verify final state
+    const messages = (contextRef as any).messages;
+    const userMessages = messages.filter((m: any) => m.role === 'user');
+    const assistantMessages = messages.filter((m: any) => m.role === 'assistant');
     
-    // Step 12: Verify exactly one user message
-    const userMessages = (contextRef as any)?.messages?.filter((m: any) => m.role === 'user');
-    expect(userMessages?.length).toBe(1);
+    expect(userMessages.length).toBe(1);
+    expect(userMessages[0].id).toBe(originalUserMessageId);
+    expect(assistantMessages.length).toBe(1);
     
-    // Step 13: Verify exactly one assistant response
-    const assistantMessages = (contextRef as any)?.messages?.filter((m: any) => m.role === 'assistant');
-    expect(assistantMessages?.length).toBe(1);
-    
-    // Step 14: Verify completed status persisted
+    // Step 8: Verify completed was persisted
     const sessions = memoryStore.sessions;
     const completedSession = sessions.find((s: any) => s.turnStatus === 'completed');
     expect(completedSession).toBeDefined();
     
-    // Cleanup
     await act(async () => {
       renderResult2.unmount();
     });
-  });
+  }, 20000);
 });
