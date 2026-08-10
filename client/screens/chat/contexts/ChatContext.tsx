@@ -10,7 +10,7 @@ import React, {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
-import { ChatSession, ChatMessage } from '../types';
+import { ChatSession, ChatMessage, TurnStatus, PendingTurn } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 
 
@@ -40,6 +40,9 @@ interface ChatContextValue {
   currentlyProcessingMessageId: string | null;
   // EF-59 Fix: 水合状态守卫
   isHydrated: boolean;
+  // EF-38: Turn lifecycle for interrupted generation recovery
+  turnStatus: TurnStatus;
+  isInterrupted: boolean;
   setInputText: (text: string) => void;
   setCurrentRole: (role: (typeof roles)[0]) => void;
   setShowRoleIntro: (show: boolean) => void;
@@ -335,6 +338,37 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 console.log('[EF-59] Restored chatPhase:', restoredSession.chatPhase);
               }
             }
+            // EF-38: Hydration recovery for interrupted generation
+            // If turnStatus is 'generating', the previous request was abandoned during refresh
+            // Convert to 'interrupted' state and show recovery UI
+            if (restoredSession?.turnStatus === 'generating') {
+              console.warn('[EF-38] Detected interrupted generation, converting to interrupted state');
+              // Remove any partial assistant message (incomplete bubble)
+              const recoveredMessages = restoredSession.messages.filter(m => 
+                m.role === 'user' || (m.role === 'assistant' && m.content && m.content.length > 0 && !m.isThinking)
+              );
+              // Update session with interrupted state
+              const updatedSession = {
+                ...restoredSession,
+                messages: recoveredMessages,
+                turnStatus: 'interrupted' as TurnStatus,
+                chatPhase: 'idle' as const,
+                updatedAt: Date.now(),
+              };
+              // Update ref and state
+              const updatedSessions = persistedSessions.map(s => s.id === restoredSession.id ? updatedSession : s);
+              sessionsRef.current = updatedSessions;
+              setSessions(updatedSessions);
+              setMessages(recoveredMessages);
+              setChatPhase('idle');
+              // Persist the interrupted state
+              await saveChatSessions(updatedSessions);
+              console.log('[EF-38] Interrupted state persisted:', {
+                sessionId: restoredSession.id,
+                recoveredMessagesCount: recoveredMessages.length,
+                pendingTurn: restoredSession.pendingTurn
+              });
+            }
             // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
             if (restoredSession?.conversationId) {
               conversationIdRef.current = restoredSession.conversationId;
@@ -368,6 +402,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // 恢复 chatPhase
             if (mostRecentSession.chatPhase === 'done' || mostRecentSession.chatPhase === 'idle') {
               setChatPhase(mostRecentSession.chatPhase);
+            }
+            // EF-38: Hydration recovery for interrupted generation (fallback case)
+            if (mostRecentSession.turnStatus === 'generating') {
+              console.warn('[EF-38] Detected interrupted generation in fallback, converting to interrupted state');
+              const recoveredMessages = mostRecentSession.messages.filter(m => 
+                m.role === 'user' || (m.role === 'assistant' && m.content && m.content.length > 0 && !m.isThinking)
+              );
+              const updatedSession = {
+                ...mostRecentSession,
+                messages: recoveredMessages,
+                turnStatus: 'interrupted' as TurnStatus,
+                chatPhase: 'idle' as const,
+                updatedAt: Date.now(),
+              };
+              const updatedSessions = persistedSessions.map(s => s.id === mostRecentSession.id ? updatedSession : s);
+              sessionsRef.current = updatedSessions;
+              setSessions(updatedSessions);
+              setMessages(recoveredMessages);
+              setChatPhase('idle');
+              await saveChatSessions(updatedSessions);
             }
             // 恢复 conversationIdRef
             if (mostRecentSession.conversationId) {
@@ -706,6 +760,93 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     []
   );
 
+  // EF-38: Centralized turn transition functions
+  // These functions atomically update session state and persist to storage
+
+  // EF-38: Mark turn as generating (before chatStart)
+  const markTurnGenerating = useCallback(
+    async (sessionId: string, pendingTurn: PendingTurn) => {
+      const updatedSessions = sessionsRef.current.map(session =>
+        session.id === sessionId
+          ? {
+              ...session,
+              turnStatus: 'generating' as TurnStatus,
+              pendingTurn,
+              chatPhase: 'responding' as const,
+              updatedAt: Date.now(),
+            }
+          : session
+      );
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
+      await saveChatSessions(updatedSessions);
+    },
+    []
+  );
+
+  // EF-38: Mark turn as interrupted (during hydration recovery)
+  const markTurnInterrupted = useCallback(
+    async (sessionId: string) => {
+      const updatedSessions = sessionsRef.current.map(session =>
+        session.id === sessionId
+          ? {
+              ...session,
+              turnStatus: 'interrupted' as TurnStatus,
+              chatPhase: 'idle' as const,
+              updatedAt: Date.now(),
+            }
+          : session
+      );
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
+      await saveChatSessions(updatedSessions);
+    },
+    []
+  );
+
+  // EF-38: Finalize turn as completed (after UI completion)
+  const finalizeTurnCompleted = useCallback(
+    async (sessionId: string, finalMessages: ChatMessage[]) => {
+      const updatedSessions = sessionsRef.current.map(session =>
+        session.id === sessionId
+          ? {
+              ...session,
+              messages: finalMessages,
+              turnStatus: 'completed' as TurnStatus,
+              pendingTurn: undefined,
+              chatPhase: 'done' as const,
+              updatedAt: Date.now(),
+            }
+          : session
+      );
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
+      await saveChatSessions(updatedSessions);
+      await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
+    },
+    []
+  );
+
+  // EF-38: Mark turn as failed (on error)
+  const markTurnFailed = useCallback(
+    async (sessionId: string, keepMessages?: ChatMessage[]) => {
+      const updatedSessions = sessionsRef.current.map(session => {
+        if (session.id !== sessionId) return session;
+        return {
+          ...session,
+          messages: keepMessages || session.messages,
+          turnStatus: 'failed' as TurnStatus,
+          chatPhase: 'idle' as const,
+          updatedAt: Date.now(),
+        };
+      });
+      sessionsRef.current = updatedSessions;
+      setSessions(updatedSessions);
+      await saveChatSessions(updatedSessions);
+    },
+    []
+  );
+
   // EM-43: 发送核心函数（内部使用，不直接暴露）
   const sendMessageCore = useCallback(
     async (
@@ -805,6 +946,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       let deepBuffer = '';  // EF-59 Phase 4: 用于错误恢复时持久化已接收内容
 
       try {
+        // EF-38: Mark turn as generating before chatStart
+        const pendingTurn: PendingTurn = {
+          requestId: snapshot.requestId,
+          userMessageId: isRetry ? '' : `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+          userMessage,
+          startedAt: Date.now(),
+          roleId: snapshot.roleId,
+          conversationId: snapshot.conversationId,
+        };
+        await markTurnGenerating(snapshot.sessionId, pendingTurn);
+
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
         const sessionInfo = await chatStart(
           snapshot.roleId,
@@ -1207,8 +1359,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setMessages(finalMessages);
         setChatPhase('done');
         
-        // 持久化到 session（使用显式构建的最终消息数组）
-        await updateSessionWithCompletedResponse(snapshot.sessionId, finalMessages, 'done');
+        // EF-38: 持久化到 session（使用显式构建的最终消息数组）
+        // finalizeTurnCompleted 会设置 turnStatus='completed', 移除 pendingTurn, chatPhase='done'
+        await finalizeTurnCompleted(snapshot.sessionId, finalMessages);
 
         // 完整成功，清除 retry/regenerate 快照
         retrySnapshotRef.current = null;
@@ -1424,15 +1577,34 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   );
 
   // EM-43: Retry（chatStart 失败时使用，不增加 userTurn）
+  // EF-38: Also support retry from persisted pendingTurn after refresh
   const retryLastMessage = useCallback(async () => {
-    const snapshot = retrySnapshotRef.current;
+    // First try in-memory snapshot (normal case)
+    let snapshot = retrySnapshotRef.current;
+    
+    // EF-38: If no in-memory snapshot, try to reconstruct from persisted pendingTurn
+    if (!snapshot && currentSessionId) {
+      const session = sessionsRef.current.find(s => s.id === currentSessionId);
+      if (session?.turnStatus === 'interrupted' && session?.pendingTurn) {
+        console.log('[EF-38] Reconstructing retry from persisted pendingTurn');
+        const pendingTurn = session.pendingTurn;
+        snapshot = {
+          requestId: pendingTurn.requestId,
+          conversationId: pendingTurn.conversationId || '',
+          sessionId: currentSessionId,
+          roleId: pendingTurn.roleId,
+          message: pendingTurn.userMessage,
+        };
+      }
+    }
+    
     if (!snapshot) {
       console.log('[retry] No retry snapshot available');
       return;
     }
 
     await withSendGuard(() => sendMessageCore(snapshot.message, snapshot, true));
-  }, [withSendGuard, sendMessageCore]);
+  }, [withSendGuard, sendMessageCore, currentSessionId]);
 
   // EM-43: Regenerate（chatStart 成功但 SSE 失败时使用，复用同一 requestId 不增加轮次）
   const regenerateLastResponse = useCallback(async () => {
@@ -1447,7 +1619,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [withSendGuard, sendMessageCore]);
 
   // EM-43: 计算 canRetry 和 canRegenerate
-  const canRetry = retrySnapshotRef.current !== null;
+  // EF-38: Also check for persisted pendingTurn for retry after refresh
+  const currentSessionForRetry = sessions.find(s => s.id === currentSessionId);
+  const canRetry = retrySnapshotRef.current !== null || 
+    (currentSessionForRetry?.turnStatus === 'interrupted' && !!currentSessionForRetry?.pendingTurn);
   const canRegenerate = regenerateSnapshotRef.current !== null;
 
   const currentSession = sessions.find(s => s.id === currentSessionId);
@@ -1540,6 +1715,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         currentlyProcessingMessageId,
         // EF-59 Fix: 水合状态
         isHydrated,
+        // EF-38: Turn lifecycle for interrupted generation recovery
+        turnStatus: currentSession?.turnStatus || 'idle',
+        isInterrupted: currentSession?.turnStatus === 'interrupted' ? true : false,
         setInputText,
         setCurrentRole,
         setShowRoleIntro,

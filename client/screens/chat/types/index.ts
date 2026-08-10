@@ -16,6 +16,19 @@ export interface DeepAnalysisData {
   reframe?: string;
 }
 
+// EF-38: Turn lifecycle status for interrupted generation recovery
+export type TurnStatus = 'idle' | 'generating' | 'completed' | 'interrupted' | 'failed';
+
+// EF-38: Pending turn information for recovery after refresh
+export interface PendingTurn {
+  requestId: string;
+  userMessageId: string;
+  userMessage: string;
+  startedAt: number;
+  roleId: string;
+  conversationId?: string;
+}
+
 export interface ChatSession {
   id: string;
   roleId: string;
@@ -25,6 +38,9 @@ export interface ChatSession {
   conversationId?: string;
   // EF-59: 持久化聊天阶段，用于恢复 UI 状态
   chatPhase?: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done';
+  // EF-38: Turn lifecycle for interrupted generation recovery
+  turnStatus?: TurnStatus;
+  pendingTurn?: PendingTurn;
 }
 
 // AnalysisResult used by textAnalyzer.ts
