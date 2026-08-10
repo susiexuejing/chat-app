@@ -23,6 +23,8 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
+  // EF-59: 持久化聊天阶段，用于恢复 UI 状态
+  chatPhase?: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done';
 }
 
 // AnalysisResult used by textAnalyzer.ts

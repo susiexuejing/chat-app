@@ -289,11 +289,47 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (restoredSession && restoredSession.messages.length > 0) {
               setMessages(restoredSession.messages);
             }
+            // EF-59: 恢复 chatPhase（用于恢复 UI 状态，如 "轮到你了"）
+            if (restoredSession?.chatPhase && restoredSession.chatPhase !== 'responding') {
+              // 只恢复完成状态，不恢复中间状态（responding/companion/waiting_deep/deep_arriving）
+              if (restoredSession.chatPhase === 'done' || restoredSession.chatPhase === 'idle') {
+                setChatPhase(restoredSession.chatPhase);
+                console.log('[EF-59] Restored chatPhase:', restoredSession.chatPhase);
+              }
+            }
             // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
             if (restoredSession?.conversationId) {
               conversationIdRef.current = restoredSession.conversationId;
               console.log('[EF-59] Restored conversationIdRef:', restoredSession.conversationId);
             }
+          } else if (persistedSessions.length > 0) {
+            // EF-59: 无效活动指针回退 - 选择最近更新的会话
+            console.warn('[EF-59] Consistency warning: persisted currentSessionId is invalid, falling back to most recent session');
+            const mostRecentSession = persistedSessions.reduce((latest, session) => 
+              session.updatedAt > latest.updatedAt ? session : latest
+            );
+            setCurrentSessionId(mostRecentSession.id);
+            // 立即修正 AsyncStorage 中的 current_session_id
+            AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, mostRecentSession.id).catch(err => {
+              console.error('[EF-59] Failed to correct current_session_id:', err);
+            });
+            // 恢复最近会话的消息
+            if (mostRecentSession.messages.length > 0) {
+              setMessages(mostRecentSession.messages);
+            }
+            // 恢复 chatPhase
+            if (mostRecentSession.chatPhase === 'done' || mostRecentSession.chatPhase === 'idle') {
+              setChatPhase(mostRecentSession.chatPhase);
+            }
+            // 恢复 conversationIdRef
+            if (mostRecentSession.conversationId) {
+              conversationIdRef.current = mostRecentSession.conversationId;
+            }
+            console.log('[EF-59] Fallback to most recent session:', {
+              sessionId: mostRecentSession.id,
+              updatedAt: mostRecentSession.updatedAt,
+              messagesCount: mostRecentSession.messages.length
+            });
           }
         }
         
@@ -556,12 +592,20 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           timestamp: Date.now()
         });
         setCurrentSessionId(session.id);
+        // EF-59: 立即持久化 current_session_id（不依赖 useEffect）
+        AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, session.id).catch(err => {
+          console.error('[EF-59] Failed to persist current_session_id on select:', err);
+        });
         const role = getRoleById(session.roleId);
         if (role) setCurrentRole(role);
         // EM-43: 恢复会话的 conversationId
         if (session.conversationId) {
           setConversationId(session.conversationId);
           conversationIdRef.current = session.conversationId;
+        }
+        // EF-59: 恢复 chatPhase
+        if (session.chatPhase === 'done' || session.chatPhase === 'idle') {
+          setChatPhase(session.chatPhase);
         }
         setShowHistory(false);
       }
@@ -578,6 +622,30 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
     },
     [sessions, currentSessionId, createNewChat]
+  );
+
+  // EF-59: 更新会话的完成状态（消息 + chatPhase）
+  // 当助手回复完成时调用，确保 sessions[].messages 与 UI messages 同步
+  const updateSessionWithCompletedResponse = useCallback(
+    async (sessionId: string, finalMessages: ChatMessage[], finalChatPhase: 'done' | 'idle') => {
+      setSessions(prev => {
+        const idx = prev.findIndex(s => s.id === sessionId);
+        if (idx < 0) return prev;
+        const updated = [...prev];
+        updated[idx] = {
+          ...updated[idx],
+          messages: finalMessages,
+          chatPhase: finalChatPhase,
+          updatedAt: Date.now(),
+        };
+        // EF-59: 立即持久化会话
+        saveChatSessions(updated).catch(err => {
+          console.error('[EF-59] Failed to persist session after completion:', err);
+        });
+        return updated;
+      });
+    },
+    []
   );
 
   // EM-43: 发送核心函数（内部使用，不直接暴露）
@@ -604,6 +672,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         timestamp: Date.now()
       });
       setCurrentSessionId(snapshot.sessionId);
+      // EF-59: 立即持久化 current_session_id（不依赖 useEffect）
+      AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, snapshot.sessionId).catch(err => {
+        console.error('[EF-59] Failed to persist current_session_id on send:', err);
+      });
       setCurrentRole(roleToUse);
 
       // 创建用户消息（仅首次，retry 不重复创建）
@@ -995,6 +1067,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             }
           };
           checkDone();
+        });
+
+        // EF-59: 响应完成后，更新会话的完成状态（消息 + chatPhase）
+        // 确保 sessions[].messages 与 UI messages 同步
+        setMessages(currentMessages => {
+          updateSessionWithCompletedResponse(snapshot.sessionId, currentMessages, 'done');
+          return currentMessages;
         });
 
         // 完整成功，清除 retry/regenerate 快照
