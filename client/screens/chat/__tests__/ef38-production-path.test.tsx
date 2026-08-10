@@ -932,11 +932,16 @@ describe('EF-38 Production Path Tests', () => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
       });
 
+      // Wait for pendingTurn to be set in the generating session
+      await waitFor(() => {
+        const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
+        expect(generatingSession?.pendingTurn).toBeDefined();
+        expect(generatingSession?.pendingTurn?.userMessageId).toBeTruthy();
+      });
+
       // Capture original user message ID
       const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
       originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
-      expect(generatingSession?.pendingTurn).toBeDefined();
-      expect(originalUserMessageId).toBeTruthy();
 
       await act(async () => {
         renderResultA.unmount();
@@ -1196,61 +1201,9 @@ describe('EF-38 Production Path Tests', () => {
 
   // ─── Test 11: Empty Deep follows the documented fallback ───
   // SPECIFICATION-BLOCKED: No approved empty-Deep fallback contract exists.
-  // This test is skipped until the fallback contract is approved.
+  // This test is marked as todo until the fallback contract is approved.
   describe('Test 11: Empty Deep follows the documented fallback (SPECIFICATION-BLOCKED)', () => {
     it.todo('should handle empty Deep content according to fallback logic (awaiting approved contract)');
-    it.skip('should handle empty Deep content according to fallback logic', async () => {
-      let streamCtrl: StreamController | null = null;
-
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
-
-      const renderResult = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitForHydration();
-
-      let sendPromise: Promise<boolean>;
-      await act(async () => {
-        sendPromise = capturedCtx!.sendMessage('Hello');
-      });
-
-      await waitFor(() => {
-        expect(mockedChatStream).toHaveBeenCalled();
-      });
-
-      // Send empty Deep chunk
-      await act(async () => {
-        streamCtrl!.onChunk(JSON.stringify({ content: '' }));
-      });
-
-      // Send done and resolve
-      await act(async () => {
-        streamCtrl!.onDone();
-        streamCtrl!.resolve();
-        await streamCtrl!.promise;
-      });
-
-      await act(async () => {
-        await sendPromise;
-      });
-
-      // Verify fallback behavior - empty Deep should result in failed state
-      expect(capturedCtx!.chatPhase).toBe('done');
-      expect(capturedCtx!.turnStatus).toBe('failed');
-
-      await act(async () => {
-        renderResult.unmount();
-      });
-    });
   });
 
   // ─── Continuous: Full recovery chain ───
@@ -1297,11 +1250,16 @@ describe('EF-38 Production Path Tests', () => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
       });
 
+      // Wait for pendingTurn to be set in the generating session
+      await waitFor(() => {
+        const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
+        expect(generatingSession?.pendingTurn).toBeDefined();
+        expect(generatingSession?.pendingTurn?.userMessageId).toBeTruthy();
+      });
+
       // Capture original user message ID
       const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
       originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
-      expect(generatingSession?.pendingTurn).toBeDefined();
-      expect(originalUserMessageId).toBeTruthy();
 
       // Unmount Provider A
       await act(async () => {
