@@ -1027,21 +1027,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
         
         // EF-38: Stream outcome tracking for error handling
-        // EF-38 CTO Fix: Use awaited Promise instead of detached async
+        // EF-38 CTO Fix: Use locally scoped settle function, not global window
         type CompletionOutcome = 'completed' | 'stream_error' | 'empty' | 'timed_out' | 'unmounted';
         let streamSettled = false;
+        let settleStreamLocal: ((outcome: CompletionOutcome) => void) | null = null;
         
-        // Create an awaited stream completion Promise
+        // Create an awaited stream completion Promise with locally scoped settle function
         const streamCompletionPromise = new Promise<CompletionOutcome>((resolve) => {
-          const settleStream = (outcome: CompletionOutcome) => {
+          settleStreamLocal = (outcome: CompletionOutcome) => {
             if (streamSettled) return; // Only settle once
             streamSettled = true;
             resolve(outcome);
           };
-          
-          // Store settle function for use in callbacks
-          (window as any).__settleStream = settleStream;
         });
+        
+        // Helper to settle stream (used in callbacks)
+        const settleStream = (outcome: CompletionOutcome) => {
+          settleStreamLocal?.(outcome);
+        };
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -1193,7 +1196,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         scheduleTimeline();
 
         // ── 并行：启动百炼流式 ──
-        (async () => {
+        // EF-38 CTO Fix: Remove detached async, properly await chatStream
+        // and settle stream in onDone
+        const streamPromise = (async () => {
           try {
             await chatStream(backendSessionId, {
               onChunk: (chunk: string) => {
@@ -1285,19 +1290,26 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   }).catch(err => console.error('[EF-59] Assistant message persist failed:', err));
                 }
 
+                // EF-38 CTO Fix: Settle stream as completed or empty
+                if (finalDeepContent) {
+                  settleStream('completed');
+                } else {
+                  settleStream('empty');
+                }
+
                 scheduleNext();
               },
               onError: () => {
                 isDeepDone = true;
                 // EF-38 CTO Fix: Settle stream as error immediately
-                (window as any).__settleStream?.('stream_error');
+                settleStream('stream_error');
                 scheduleNext();
               },
             });
           } catch (error) {
             // EF-38 CTO Fix: chatStream rejection must settle stream as error
             console.error('[EF-38] chatStream rejection:', error);
-            (window as any).__settleStream?.('stream_error');
+            settleStream('stream_error');
             isDeepDone = true;
           }
         })();
