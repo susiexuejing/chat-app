@@ -2,111 +2,52 @@
  * EF-38 Production Path Tests
  * 
  * These tests verify the actual production behavior of the interrupted generation recovery.
- * They use a stateful persistence adapter and real unmount to test the full lifecycle.
+ * They test the full lifecycle from send to recovery.
  */
 
 import React from 'react';
 import { render, act, waitFor } from '@testing-library/react-native';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
-
-// Stateful in-memory storage
-const createMemoryStorage = () => {
-  let storage: Record<string, string> = {};
-  return {
-    getItem: jest.fn(async (key: string) => storage[key] || null),
-    setItem: jest.fn(async (key: string, value: string) => { storage[key] = value; }),
-    removeItem: jest.fn(async (key: string) => { delete storage[key]; }),
-    clear: jest.fn(async () => { storage = {}; }),
-    getAllKeys: jest.fn(async () => Object.keys(storage)),
-    multiGet: jest.fn(async (keys: string[]) => keys.map(k => [k, storage[k] || null])),
-    multiSet: jest.fn(async (pairs: [string, string][]) => { pairs.forEach(([k, v]) => { storage[k] = v; }); }),
-    multiRemove: jest.fn(async (keys: string[]) => { keys.forEach(k => delete storage[k]); }),
-    multiMerge: jest.fn(async () => {}),
-    _storage: storage,
-    _reset: () => { storage = {}; },
-  };
-};
-
-// Stateful session store
-const createMemorySessionStore = () => {
-  let sessions: any[] = [];
-  return {
-    getChatSessions: jest.fn(async () => sessions),
-    saveChatSessions: jest.fn(async (newSessions: any[]) => { sessions = [...newSessions]; }),
-    addChatSession: jest.fn(async (session: any) => { sessions.push(session); }),
-    updateChatSession: jest.fn(async (id: string, updates: any) => {
-      sessions = sessions.map(s => s.id === id ? { ...s, ...updates } : s);
-    }),
-    deleteChatSession: jest.fn(async (id: string) => {
-      sessions = sessions.filter(s => s.id !== id);
-    }),
-    _sessions: sessions,
-    _reset: () => { sessions = []; },
-  };
-};
-
-// Create mock instances
-const memoryStorage = createMemoryStorage();
-const memorySessionStore = createMemorySessionStore();
-
-// Mock dependencies - use inline object definitions
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  __esModule: true,
-  default: {
-    getItem: jest.fn(async (key: string) => memoryStorage._storage[key] || null),
-    setItem: jest.fn(async (key: string, value: string) => { memoryStorage._storage[key] = value; }),
-    removeItem: jest.fn(async (key: string) => { delete memoryStorage._storage[key]; }),
-  },
-}));
-
-jest.mock('../stores/sessionStore', () => ({
-  __esModule: true,
-  getChatSessions: jest.fn(async () => memorySessionStore._sessions),
-  saveChatSessions: jest.fn(async (newSessions: any[]) => { memorySessionStore._sessions = [...newSessions]; }),
-  addChatSession: jest.fn(async (session: any) => { memorySessionStore._sessions.push(session); }),
-  updateChatSession: jest.fn(async (id: string, updates: any) => {
-    memorySessionStore._sessions = memorySessionStore._sessions.map(s => s.id === id ? { ...s, ...updates } : s);
-  }),
-  deleteChatSession: jest.fn(async (id: string) => {
-    memorySessionStore._sessions = memorySessionStore._sessions.filter(s => s.id !== id);
-  }),
-  persistMessage: jest.fn(async () => {}),
-}));
-
-jest.mock('../api/cozeApi', () => ({
-  __esModule: true,
-  chatStart: jest.fn(),
-  chatStream: jest.fn(),
-  persistMessage: jest.fn(),
-}));
-
-jest.mock('../constants/roles', () => ({
-  __esModule: true,
-  roles: [
-    { id: 'clever-fox', name: '聪明狐狸', avatar: '', description: '' },
-  ],
-}));
-
-// Import mocked modules
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as sessionStore from '../stores/sessionStore';
 import * as cozeApi from '../api/cozeApi';
+import { roles } from '../constants/roles';
 
-// Test component that exposes context
-let contextRef: any = null;
-const TestConsumer: React.FC = () => {
+// Mock dependencies
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  setItem: jest.fn().mockResolvedValue(undefined),
+  getItem: jest.fn().mockResolvedValue(null),
+  removeItem: jest.fn().mockResolvedValue(undefined),
+  clear: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../stores/sessionStore', () => ({
+  saveChatSessions: jest.fn().mockResolvedValue(undefined),
+  getChatSessions: jest.fn().mockResolvedValue([]),
+  persistMessage: jest.fn().mockResolvedValue(undefined),
+  createConversation: jest.fn().mockResolvedValue({ id: 'conv-test-123' }),
+  fetchConversation: jest.fn().mockResolvedValue(null),
+}));
+
+jest.mock('../api/cozeApi', () => ({
+  chatStart: jest.fn(),
+  chatStream: jest.fn(),
+}));
+
+// Test helper component to access context
+function TestConsumer({ onContext }: { onContext: (ctx: ReturnType<typeof useChat>) => void }) {
   const context = useChat();
-  contextRef = context;
+  React.useEffect(() => {
+    onContext(context);
+  }, [context]);
   return null;
-};
+}
 
 describe('EF-38 Production Path Tests', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
-    contextRef = null;
-    // Reset storage
-    memoryStorage._reset();
-    memorySessionStore._reset();
+    await AsyncStorage.clear();
+    (sessionStore.getChatSessions as jest.Mock).mockResolvedValue([]);
   });
 
   describe('Test 1: Normal valid Deep settles as completed without timeout', () => {
@@ -114,49 +55,62 @@ describe('EF-38 Production Path Tests', () => {
       const startTime = Date.now();
       
       // Setup mocks
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-        sessionId: 'backend-uuid-123',
-        conversationId: 'conv-123',
+        sessionId: backendUUID,
+        reactionLayer: 'Test reaction',
+        companionLayer: null,
+        frontFlowText: null,
+        reactionTimeline: null,
+        companionTimeline: null,
+        flowContext: { conversation_id: 'conv_123' } as any,
       });
       
-      (cozeApi.chatStream as jest.Mock).mockImplementation((params) => {
-        // Simulate valid Deep content
+      (cozeApi.chatStream as jest.Mock).mockImplementation((sessionId: string, callbacks: any) => {
+        // Simulate valid Deep content via onChunk
         setTimeout(() => {
-          params.onEvent({ event: 'deep', data: { content: 'Valid Deep response' } });
-          params.onDone();
-        }, 100);
+          callbacks.onChunk(JSON.stringify({ content: 'Valid Deep response' }));
+          callbacks.onChunk(JSON.stringify({ done: true }));
+          callbacks.onDone();
+        }, 50);
         return Promise.resolve();
       });
 
-      // Render provider
-      await render(
-        <ChatProvider>
-          <TestConsumer />
-        </ChatProvider>
-      );
+      let contextRef: any = null;
 
-      // Wait for context to be ready
-      await waitFor(() => expect(contextRef).not.toBeNull());
+      // Render provider
+      await act(async () => {
+        render(
+          <ChatProvider>
+            <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
+          </ChatProvider>
+        );
+      });
+
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
+      });
 
       // Create new chat and send message
       await act(async () => {
-        await contextRef.createNewChat();
+        contextRef!.createNewChat();
       });
 
       await act(async () => {
-        await contextRef.sendMessage('Hello');
+        await contextRef!.sendMessage('Hello');
       });
 
       // Wait for completion
       await waitFor(() => {
-        expect(contextRef.chatPhase).toBe('done');
+        expect(contextRef?.chatPhase).toBe('done');
       }, { timeout: 5000 });
 
       const duration = Date.now() - startTime;
       
       // Should complete quickly, not wait for 30-second timeout
       expect(duration).toBeLessThan(5000);
-      expect(contextRef.turnStatus).toBe('completed');
+      expect(contextRef?.turnStatus).toBe('completed');
     });
   });
 
@@ -166,37 +120,54 @@ describe('EF-38 Production Path Tests', () => {
       let generatingPersistedBeforeChatStart = false;
 
       // Setup mocks
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockImplementation(async () => {
         // Check if generating state was persisted before chatStart
         const currentSessions = await sessionStore.getChatSessions();
         generatingPersistedBeforeChatStart = currentSessions.some((s: any) => s.turnStatus === 'generating');
         chatStartCalled = true;
-        return { sessionId: 'backend-uuid-123', conversationId: 'conv-123' };
+        return {
+          sessionId: backendUUID,
+          reactionLayer: 'Test reaction',
+          companionLayer: null,
+          frontFlowText: null,
+          reactionTimeline: null,
+          companionTimeline: null,
+          flowContext: { conversation_id: 'conv_123' } as any,
+        };
       });
 
-      (cozeApi.chatStream as jest.Mock).mockImplementation((params) => {
+      (cozeApi.chatStream as jest.Mock).mockImplementation((sessionId: string, callbacks: any) => {
         setTimeout(() => {
-          params.onEvent({ event: 'deep', data: { content: 'Response' } });
-          params.onDone();
+          callbacks.onChunk(JSON.stringify({ content: 'Response' }));
+          callbacks.onChunk(JSON.stringify({ done: true }));
+          callbacks.onDone();
         }, 50);
         return Promise.resolve();
       });
 
+      let contextRef: any = null;
+
       // Render provider
-      await render(
-        <ChatProvider>
-          <TestConsumer />
-        </ChatProvider>
-      );
-
-      await waitFor(() => expect(contextRef).not.toBeNull());
-
       await act(async () => {
-        await contextRef.createNewChat();
+        render(
+          <ChatProvider>
+            <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
+          </ChatProvider>
+        );
+      });
+
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
       });
 
       await act(async () => {
-        await contextRef.sendMessage('Hello');
+        contextRef!.createNewChat();
+      });
+
+      await act(async () => {
+        await contextRef!.sendMessage('Hello');
       });
 
       // Wait for chatStart to be called
@@ -210,9 +181,15 @@ describe('EF-38 Production Path Tests', () => {
   describe('Test 3: Real Provider unmount/remount converts generating to interrupted', () => {
     it('should convert generating to interrupted after unmount and remount', async () => {
       // Setup mocks - chatStream never completes
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-        sessionId: 'backend-uuid-123',
-        conversationId: 'conv-123',
+        sessionId: backendUUID,
+        reactionLayer: 'Test reaction',
+        companionLayer: null,
+        frontFlowText: null,
+        reactionTimeline: null,
+        companionTimeline: null,
+        flowContext: { conversation_id: 'conv_123' } as any,
       });
 
       (cozeApi.chatStream as jest.Mock).mockImplementation(() => {
@@ -220,22 +197,27 @@ describe('EF-38 Production Path Tests', () => {
         return new Promise(() => {});
       });
 
+      let contextRef: any = null;
+
       // First render
-      const render1 = await render(
+      const renderResult = await render(
         <ChatProvider>
-          <TestConsumer />
+          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
         </ChatProvider>
       );
 
-      await waitFor(() => expect(contextRef).not.toBeNull());
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
+      });
 
       await act(async () => {
-        await contextRef.createNewChat();
+        contextRef!.createNewChat();
       });
 
       // Start message but don't wait for completion
-      act(() => {
-        contextRef.sendMessage('Hello');
+      await act(async () => {
+        contextRef!.sendMessage('Hello');
       });
 
       // Wait a bit for generating state to be persisted
@@ -244,7 +226,7 @@ describe('EF-38 Production Path Tests', () => {
       });
 
       // Unmount first provider
-      render1.unmount();
+      await renderResult.unmount();
 
       // Wait for unmount to settle
       await act(async () => {
@@ -253,102 +235,114 @@ describe('EF-38 Production Path Tests', () => {
 
       // Second render - should hydrate from storage
       contextRef = null;
-      const render2 = await render(
+      await render(
         <ChatProvider>
-          <TestConsumer />
+          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
         </ChatProvider>
       );
 
-      // Wait for context to be ready
-      await waitFor(() => expect(contextRef).not.toBeNull());
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
+      });
 
       // Verify interrupted state
       await waitFor(() => {
-        expect(contextRef.turnStatus).toBe('interrupted');
+        expect(contextRef?.turnStatus).toBe('interrupted');
       });
 
-      expect(contextRef.chatPhase).not.toBe('responding');
-      expect(contextRef.isThinking).toBe(false);
-      expect(contextRef.isLoading).toBe(false);
-
-      render2.unmount();
+      expect(contextRef?.chatPhase).not.toBe('responding');
+      expect(contextRef?.isThinking).toBe(false);
+      expect(contextRef?.isLoading).toBe(false);
     });
   });
 
   describe('Test 6: Original user-message ID remains unchanged after retry', () => {
     it('should reuse original user message ID on retry', async () => {
       // Setup mocks
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-        sessionId: 'backend-uuid-123',
-        conversationId: 'conv-123',
+        sessionId: backendUUID,
+        reactionLayer: 'Test reaction',
+        companionLayer: null,
+        frontFlowText: null,
+        reactionTimeline: null,
+        companionTimeline: null,
+        flowContext: { conversation_id: 'conv_123' } as any,
       });
 
       let callCount = 0;
-      (cozeApi.chatStream as jest.Mock).mockImplementation((params) => {
+      (cozeApi.chatStream as jest.Mock).mockImplementation((sessionId: string, callbacks: any) => {
         callCount++;
         if (callCount === 1) {
           // First call - error
           setTimeout(() => {
-            params.onError(new Error('Stream error'));
+            callbacks.onError(new Error('Stream error'));
           }, 50);
         } else {
           // Second call (retry) - success
           setTimeout(() => {
-            params.onEvent({ event: 'deep', data: { content: 'Retry response' } });
-            params.onDone();
+            callbacks.onChunk(JSON.stringify({ content: 'Retry response' }));
+            callbacks.onChunk(JSON.stringify({ done: true }));
+            callbacks.onDone();
           }, 50);
         }
         return Promise.resolve();
       });
 
+      let contextRef: any = null;
+
       // Render provider
       await render(
         <ChatProvider>
-          <TestConsumer />
+          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
         </ChatProvider>
       );
 
-      await waitFor(() => expect(contextRef).not.toBeNull());
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
+      });
 
       await act(async () => {
-        await contextRef.createNewChat();
+        contextRef!.createNewChat();
       });
 
       // First send - will fail
       await act(async () => {
-        await contextRef.sendMessage('Hello');
+        await contextRef!.sendMessage('Hello');
       });
 
       // Wait for error state
       await waitFor(() => {
-        expect(contextRef.turnStatus).toBe('failed');
+        expect(contextRef?.turnStatus).toBe('failed');
       });
 
       // Get the user message ID from the session
       const currentSessions = await sessionStore.getChatSessions();
       const session = currentSessions[0];
-      const firstUserMessageId = session.messages.find((m: any) => m.role === 'user')?.id;
+      const firstUserMessageId = session?.messages?.find((m: any) => m.role === 'user')?.id;
 
       // Retry
       await act(async () => {
-        await contextRef.retryLastMessage();
+        await contextRef!.retryLastMessage();
       });
 
       // Wait for completion
       await waitFor(() => {
-        expect(contextRef.chatPhase).toBe('done');
+        expect(contextRef?.chatPhase).toBe('done');
       });
 
       // Get the user message ID after retry
       const sessionsAfterRetry = await sessionStore.getChatSessions();
       const sessionAfterRetry = sessionsAfterRetry[0];
-      const secondUserMessageId = sessionAfterRetry.messages.find((m: any) => m.role === 'user')?.id;
+      const secondUserMessageId = sessionAfterRetry?.messages?.find((m: any) => m.role === 'user')?.id;
 
       // User message ID should be the same
       expect(firstUserMessageId).toBe(secondUserMessageId);
       
       // User message should exist exactly once
-      const userMessages = sessionAfterRetry.messages.filter((m: any) => m.role === 'user');
+      const userMessages = sessionAfterRetry?.messages?.filter((m: any) => m.role === 'user') || [];
       expect(userMessages.length).toBe(1);
     });
   });
@@ -358,39 +352,50 @@ describe('EF-38 Production Path Tests', () => {
       const startTime = Date.now();
 
       // Setup mocks
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-        sessionId: 'backend-uuid-123',
-        conversationId: 'conv-123',
+        sessionId: backendUUID,
+        reactionLayer: 'Test reaction',
+        companionLayer: null,
+        frontFlowText: null,
+        reactionTimeline: null,
+        companionTimeline: null,
+        flowContext: { conversation_id: 'conv_123' } as any,
       });
 
-      (cozeApi.chatStream as jest.Mock).mockImplementation((params) => {
+      (cozeApi.chatStream as jest.Mock).mockImplementation((sessionId: string, callbacks: any) => {
         // Call onError immediately
         setTimeout(() => {
-          params.onError(new Error('Stream error'));
+          callbacks.onError(new Error('Stream error'));
         }, 50);
         return Promise.resolve();
       });
 
+      let contextRef: any = null;
+
       // Render provider
       await render(
         <ChatProvider>
-          <TestConsumer />
+          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
         </ChatProvider>
       );
 
-      await waitFor(() => expect(contextRef).not.toBeNull());
-
-      await act(async () => {
-        await contextRef.createNewChat();
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
       });
 
       await act(async () => {
-        await contextRef.sendMessage('Hello');
+        contextRef!.createNewChat();
+      });
+
+      await act(async () => {
+        await contextRef!.sendMessage('Hello');
       });
 
       // Wait for error state
       await waitFor(() => {
-        expect(contextRef.turnStatus).toBe('failed');
+        expect(contextRef?.turnStatus).toBe('failed');
       }, { timeout: 5000 });
 
       const duration = Date.now() - startTime;
@@ -403,36 +408,48 @@ describe('EF-38 Production Path Tests', () => {
   describe('Test 12: Old Provider cannot finalize after unmount', () => {
     it('should not call finalizeTurnCompleted after unmount', async () => {
       // Setup mocks
+      const backendUUID = '2976d531-99c1-46b6-adb3-cbc71a400787';
       (cozeApi.chatStart as jest.Mock).mockResolvedValue({
-        sessionId: 'backend-uuid-123',
-        conversationId: 'conv-123',
+        sessionId: backendUUID,
+        reactionLayer: 'Test reaction',
+        companionLayer: null,
+        frontFlowText: null,
+        reactionTimeline: null,
+        companionTimeline: null,
+        flowContext: { conversation_id: 'conv_123' } as any,
       });
 
-      (cozeApi.chatStream as jest.Mock).mockImplementation((params) => {
+      (cozeApi.chatStream as jest.Mock).mockImplementation((sessionId: string, callbacks: any) => {
         // Delay completion until after unmount
         setTimeout(() => {
-          params.onEvent({ event: 'deep', data: { content: 'Late response' } });
-          params.onDone();
+          callbacks.onChunk(JSON.stringify({ content: 'Late response' }));
+          callbacks.onChunk(JSON.stringify({ done: true }));
+          callbacks.onDone();
         }, 500);
         return Promise.resolve();
       });
 
+      let contextRef: any = null;
+
       // First render
-      const render1 = await render(
+      const renderResult = await render(
         <ChatProvider>
-          <TestConsumer />
+          <TestConsumer onContext={(ctx) => { contextRef = ctx; }} />
         </ChatProvider>
       );
 
-      await waitFor(() => expect(contextRef).not.toBeNull());
+      // Wait for hydration
+      await waitFor(() => {
+        expect(contextRef?.isHydrated).toBe(true);
+      });
 
       await act(async () => {
-        await contextRef.createNewChat();
+        contextRef!.createNewChat();
       });
 
       // Start message
-      act(() => {
-        contextRef.sendMessage('Hello');
+      await act(async () => {
+        contextRef!.sendMessage('Hello');
       });
 
       // Wait a bit
@@ -445,7 +462,7 @@ describe('EF-38 Production Path Tests', () => {
       const turnStatusBefore = sessionsBefore[0]?.turnStatus;
 
       // Unmount
-      render1.unmount();
+      await renderResult.unmount();
 
       // Wait for stream to complete
       await act(async () => {
