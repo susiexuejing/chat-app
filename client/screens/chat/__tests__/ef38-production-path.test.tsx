@@ -358,6 +358,11 @@ describe('EF-38 Production Path Tests', () => {
         await sendPromise;
       });
 
+      // Flush all timers and promises to ensure state transitions complete
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
       // Verify stream settled as completed
       expect(capturedCtx!.chatPhase).toBe('done');
       expect(capturedCtx!.turnStatus).toBe('completed');
@@ -561,6 +566,11 @@ describe('EF-38 Production Path Tests', () => {
         await sendPromise;
       });
 
+      // Flush all timers and promises to ensure state transitions complete
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
       // Verify error state
       expect(capturedCtx!.chatPhase).toBe('done');
       expect(capturedCtx!.turnStatus).toBe('failed');
@@ -608,6 +618,11 @@ describe('EF-38 Production Path Tests', () => {
 
       await act(async () => {
         await sendPromise;
+      });
+
+      // Flush all timers and promises to ensure state transitions complete
+      await act(async () => {
+        jest.runAllTimers();
       });
 
       // Verify error state
@@ -856,6 +871,11 @@ describe('EF-38 Production Path Tests', () => {
         await streamCtrl2!.promise;
       });
 
+      // Flush all timers and promises to ensure state transitions complete
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
       // Verify completed state
       await waitFor(() => {
         expect(capturedCtx!.chatPhase).toBe('done');
@@ -907,6 +927,11 @@ describe('EF-38 Production Path Tests', () => {
         sendPromiseA = capturedCtx!.sendMessage('Hello');
       });
 
+      // Flush all timers and promises to ensure generating state is persisted
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
       await waitFor(() => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
       });
@@ -914,6 +939,9 @@ describe('EF-38 Production Path Tests', () => {
       // Capture original user message ID
       const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
       originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
+      
+      // If pendingTurn is not set, this is a production defect
+      expect(generatingSession?.pendingTurn).toBeDefined();
       expect(originalUserMessageId).toBeTruthy();
 
       await act(async () => {
@@ -1173,7 +1201,10 @@ describe('EF-38 Production Path Tests', () => {
   });
 
   // ─── Test 11: Empty Deep follows the documented fallback ───
-  describe('Test 11: Empty Deep follows the documented fallback', () => {
+  // SPECIFICATION-BLOCKED: No approved empty-Deep fallback contract exists.
+  // This test documents the expected behavior but cannot be validated until
+  // the fallback contract is approved by the architecture team.
+  describe('Test 11: Empty Deep follows the documented fallback (SPECIFICATION-BLOCKED)', () => {
     it('should handle empty Deep content according to fallback logic', async () => {
       let streamCtrl: StreamController | null = null;
 
@@ -1267,6 +1298,11 @@ describe('EF-38 Production Path Tests', () => {
         sendPromiseA = capturedCtx!.sendMessage('Hello');
       });
 
+      // Flush all timers and promises to ensure generating state is persisted
+      await act(async () => {
+        jest.runAllTimers();
+      });
+
       // Verify generating persisted
       await waitFor(() => {
         expect(storedSessions.some((s: any) => s.turnStatus === 'generating')).toBe(true);
@@ -1275,6 +1311,10 @@ describe('EF-38 Production Path Tests', () => {
       // Capture original user message ID
       const generatingSession = storedSessions.find((s: any) => s.turnStatus === 'generating');
       originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
+      
+      // If pendingTurn is not set, this is a production defect
+      expect(generatingSession?.pendingTurn).toBeDefined();
+      expect(originalUserMessageId).toBeTruthy();
 
       // Unmount Provider A
       await act(async () => {
