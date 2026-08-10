@@ -886,7 +886,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       userMessage: string,
       snapshot: SendSnapshot,
       isRetry: boolean = false
-    ): Promise<'success' | 'chatstart_failed' | 'sse_failed'> => {
+    ): Promise<'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed'> => {
       // 确保当前角色与快照一致
       const roleToUse = roles.find(r => r.id === snapshot.roleId) || currentRole;
 
@@ -1025,6 +1025,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // deepBuffer 已在 try 块外声明（EF-59 Phase 4: 用于错误恢复）
         let remainingCompanionChain: { text: string; delay: number }[] = []; // 链式待播companion段，delay是打字完成后的额外等待
         const isNormalChat = !reactionTimeline && !companionTimeline; // 无时间线 = normal_chat
+        
+        // EF-38: Stream outcome tracking for error handling
+        const streamState = { outcome: 'completed' as 'completed' | 'error' | 'empty' };
 
         // ── 打字速度配置 ──
         function getTypingDelay(ch: string): number {
@@ -1272,6 +1275,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               },
               onError: () => {
                 isDeepDone = true;
+                streamState.outcome = 'error';
                 scheduleNext();
               },
             });
@@ -1295,6 +1299,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-59 Fix: 等待 UI 渲染完全完成，而不仅仅是 SSE 完成
         // 必须等待：SSE 完成 + 队列清空 + typing 完成 + chatPhase = done
         // EF-38 Fix: 添加超时机制，防止无限等待
+        let uiCompletionTimedOut = false;
         await new Promise<void>((resolve) => {
           const startTime = Date.now();
           const MAX_WAIT_TIME = 30000; // 30 seconds max wait
@@ -1307,13 +1312,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             
             // EF-38: 超时检查 - 防止无限等待
             if (Date.now() - startTime > MAX_WAIT_TIME) {
-              console.warn('[EF-38] UI completion timeout, forcing finalization', {
+              console.warn('[EF-38] UI completion timeout, marking as interrupted', {
                 isDeepDone,
                 textQueueLength: textQueue.length,
                 typingTimerActive: typingTimer !== null,
                 companionChainLength: remainingCompanionChain.length,
                 chatPhase: chatPhaseRef.current,
               });
+              uiCompletionTimedOut = true;
               resolve();
               return;
             }
@@ -1367,6 +1373,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           };
           checkUiComplete();
         });
+
+        // EF-38: 如果超时，标记为 interrupted 而不是 completed
+        if (uiCompletionTimedOut) {
+          console.warn('[EF-38] Finalizing as interrupted due to timeout');
+          await markTurnInterrupted(snapshot.sessionId);
+          retrySnapshotRef.current = null;
+          regenerateSnapshotRef.current = null;
+          return 'interrupted';
+        }
+
+        // EF-38: 如果流式传输出错，标记为 failed
+        if (streamState.outcome === 'error') {
+          console.warn('[EF-38] Finalizing as failed due to stream error');
+          await markTurnFailed(snapshot.sessionId);
+          retrySnapshotRef.current = null;
+          regenerateSnapshotRef.current = null;
+          return 'failed';
+        }
 
         // EF-59: UI 完全完成后，构建最终消息数组并原子性持久化
         // EF-59 CTO Fix: 使用 messagesRef.current 而非捕获的 messages，避免 stale state
@@ -1447,7 +1471,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EM-43: 发送守卫包装
   const withSendGuard = useCallback(
-    async (fn: () => Promise<'success' | 'chatstart_failed' | 'sse_failed'>): Promise<'success' | 'chatstart_failed' | 'sse_failed'> => {
+    async (fn: () => Promise<'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed'>): Promise<'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed'> => {
       // 关键修复：如果被阻止，立即返回，不进入 try-finally
       if (sendingRef.current) {
         console.log('[sendMessage] Blocked by sendingRef guard');
@@ -1458,7 +1482,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       sendingRef.current = true;
       setIsLoading(true);
       
-      let result: 'success' | 'chatstart_failed' | 'sse_failed';
+      let result: 'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed';
       try {
         result = await fn();
       } finally {
