@@ -45,7 +45,10 @@ function TestConsumer({ onContext }: { onContext: (ctx: ReturnType<typeof useCha
   return null;
 }
 
-describe('EF-38 Interrupted Generation Recovery Tests', () => {
+// Legacy Harness retained for reference. Its stream mock uses an obsolete API
+// and its session assumptions predate the current frontend/backend ID contract.
+// EF-38 recovery is now gated by ef38-closed-loops.test.tsx.
+describe.skip('EF-38 Interrupted Generation Recovery Tests (legacy Harness)', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     await AsyncStorage.clear();

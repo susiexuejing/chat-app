@@ -1,28 +1,30 @@
-/**
- * EF-38 Minimum Closed-Loop Tests
- * 
- * This test file contains three minimum closed-loop tests that demonstrate
- * the production defects and verify the fixes:
- * 
- * Loop A: Completed refresh
- * Loop B: Generating refresh
- * Loop C: Retry after refresh
- */
-
 import React from 'react';
-import { render, waitFor, act } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { MessageList } from '../components/MessageList';
 import { chatStart, chatStream } from '../api/cozeApi';
 import * as sessionStore from '../stores/sessionStore';
-import type { ChatSession, ChatMessage, PendingTurn, TurnStatus } from '../types';
+import type { ChatStartResponse } from '../api/cozeApi';
+import type { ChatMessage, ChatSession, PendingTurn, TurnStatus } from '../types';
 
-// Mock dependencies
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn(),
   setItem: jest.fn(),
   removeItem: jest.fn(),
   clear: jest.fn(),
+}));
+
+jest.mock('@expo/vector-icons', () => ({
+  FontAwesome6: () => null,
+}));
+
+jest.mock('../components/MessageBubble', () => ({
+  MessageBubble: () => null,
+}));
+
+jest.mock('../components/DeepAnalysisCard', () => ({
+  DeepAnalysisCard: () => null,
 }));
 
 jest.mock('../api/cozeApi', () => ({
@@ -38,332 +40,225 @@ jest.mock('../stores/sessionStore', () => ({
   fetchConversation: jest.fn(),
 }));
 
-jest.mock('../constants/roles', () => ({
-  DEFAULT_ROLE_ID: 'role-1',
-  DEFAULT_CONVERSATION_ID: 'conv_1',
-  roles: [{ id: 'role-1', name: 'Test Role' }],
-}));
-
-// Stateful in-memory storage
 const storage: Record<string, string> = {};
-(AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => storage[key] || null);
-(AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
-  storage[key] = value;
-});
-(AsyncStorage.removeItem as jest.Mock).mockImplementation(async (key: string) => {
-  delete storage[key];
-});
-(AsyncStorage.clear as jest.Mock).mockImplementation(async () => {
-  Object.keys(storage).forEach(key => delete storage[key]);
-});
-
-// Stateful session store
 let storedSessions: ChatSession[] = [];
-(sessionStore.getChatSessions as jest.Mock).mockImplementation(async () => storedSessions);
-(sessionStore.saveChatSessions as jest.Mock).mockImplementation(async (sessions: ChatSession[]) => {
-  storedSessions = [...sessions];
-});
-(sessionStore.persistMessage as jest.Mock).mockResolvedValue(undefined);
-(sessionStore.createConversation as jest.Mock).mockResolvedValue({ id: 'conv_1' });
-(sessionStore.fetchConversation as jest.Mock).mockResolvedValue({ id: 'conv_1' });
 
 const mockedChatStart = chatStart as jest.MockedFunction<typeof chatStart>;
 const mockedChatStream = chatStream as jest.MockedFunction<typeof chatStream>;
+const mockedGetChatSessions = sessionStore.getChatSessions as jest.MockedFunction<typeof sessionStore.getChatSessions>;
+const mockedSaveChatSessions = sessionStore.saveChatSessions as jest.MockedFunction<typeof sessionStore.saveChatSessions>;
+const mockedPersistMessage = sessionStore.persistMessage as jest.MockedFunction<typeof sessionStore.persistMessage>;
+const mockedCreateConversation = sessionStore.createConversation as jest.MockedFunction<typeof sessionStore.createConversation>;
+const mockedFetchConversation = sessionStore.fetchConversation as jest.MockedFunction<typeof sessionStore.fetchConversation>;
 
-// Stream controller for deterministic testing
+type StreamCallbacks = Parameters<typeof chatStream>[1];
+
 interface StreamController {
   promise: Promise<void>;
   resolve: () => void;
-  reject: (error: Error) => void;
-  onChunk?: (text: string) => void;
-  onDone?: () => void;
-  onError?: (error: Error) => void;
+  callbacks: StreamCallbacks;
 }
 
-const createStreamController = (): StreamController => {
-  let resolve: () => void;
-  let reject: (error: Error) => void;
-  const promise = new Promise<void>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-  return { promise, resolve: resolve!, reject: reject! };
-};
-
-// Test consumer to capture context
 interface CapturedContext {
   isHydrated: boolean;
   chatPhase: string;
-  turnStatus: TurnStatus | null;
-  pendingTurn: PendingTurn | undefined;
+  turnStatus: TurnStatus;
+  pendingTurn?: PendingTurn;
   messages: ChatMessage[];
   sendMessage: (text: string) => Promise<boolean>;
-  retryLastMessage: () => Promise<void>;
 }
 
-let capturedCtx: CapturedContext | null = null;
-
-const TestConsumer: React.FC<{ onContext: (ctx: CapturedContext) => void }> = ({ onContext }) => {
-  const ctx = useChat();
-  
-  React.useEffect(() => {
-    onContext({
-      isHydrated: ctx.isHydrated,
-      chatPhase: ctx.chatPhase,
-      turnStatus: ctx.turnStatus,
-      pendingTurn: ctx.pendingTurn,
-      messages: ctx.messages,
-      sendMessage: ctx.sendMessage,
-      retryLastMessage: ctx.retryLastMessage,
-    });
-  }, [ctx, onContext]);
-
-  return null;
+const chatStartResponse: ChatStartResponse = {
+  sessionId: 'backend-session-1',
+  emotionTag: 'neutral',
+  eventKeyword: '',
+  frontFlowText: '',
+  flowContext: {
+    flowType: null,
+    flowStage: null,
+    flowStrength: null,
+    flowConfidence: null,
+    flowRisk: null,
+  },
 };
 
-describe('EF-38 Minimum Closed-Loop Tests', () => {
+let capturedContext: CapturedContext | null = null;
+
+function Harness() {
+  const context = useChat();
+  React.useEffect(() => {
+    capturedContext = {
+      isHydrated: context.isHydrated,
+      chatPhase: context.chatPhase,
+      turnStatus: context.turnStatus,
+      pendingTurn: context.pendingTurn,
+      messages: context.messages,
+      sendMessage: context.sendMessage,
+    };
+  }, [context]);
+
+  return <MessageList onShowIntro={() => undefined} />;
+}
+
+function createStreamMock() {
+  const controllers: StreamController[] = [];
+
+  mockedChatStream.mockImplementation((_sessionId, callbacks) => {
+    let resolvePromise: () => void = () => undefined;
+    const promise = new Promise<void>((resolve) => {
+      resolvePromise = resolve;
+    });
+    controllers.push({ promise, resolve: resolvePromise, callbacks });
+    return promise;
+  });
+
+  return controllers;
+}
+
+async function waitForHydration() {
+  await waitFor(() => expect(capturedContext?.isHydrated).toBe(true));
+}
+
+async function beginTurn(text = 'Hello') {
+  let sendPromise: Promise<boolean> | undefined;
+  await act(async () => {
+    sendPromise = capturedContext?.sendMessage(text);
+    await Promise.resolve();
+  });
+  await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(1));
+  if (!sendPromise) {
+    throw new Error('sendMessage did not return a Promise');
+  }
+  return { sendPromise };
+}
+
+async function completeStream(controller: StreamController, content: string) {
+  await act(async () => {
+    controller.callbacks.onChunk?.(JSON.stringify({ content }));
+    controller.callbacks.onDone?.();
+    controller.resolve();
+    await controller.promise;
+  });
+}
+
+describe('EF-38 minimum closed loops', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    capturedContext = null;
     storedSessions = [];
     Object.keys(storage).forEach(key => delete storage[key]);
-    capturedCtx = null;
+
+    (AsyncStorage.getItem as jest.MockedFunction<typeof AsyncStorage.getItem>)
+      .mockImplementation(async key => storage[key] ?? null);
+    (AsyncStorage.setItem as jest.MockedFunction<typeof AsyncStorage.setItem>)
+      .mockImplementation(async (key, value) => { storage[key] = value; });
+    (AsyncStorage.removeItem as jest.MockedFunction<typeof AsyncStorage.removeItem>)
+      .mockImplementation(async key => { delete storage[key]; });
+
+    mockedGetChatSessions.mockImplementation(async () => storedSessions);
+    mockedSaveChatSessions.mockImplementation(async sessions => {
+      storedSessions = sessions.map(session => ({
+        ...session,
+        messages: [...session.messages],
+      }));
+    });
+    mockedPersistMessage.mockResolvedValue(null);
+    mockedCreateConversation.mockResolvedValue({ id: 'conversation-1' });
+    mockedFetchConversation.mockResolvedValue(null);
+    mockedChatStart.mockResolvedValue(chatStartResponse);
   });
 
-  // ─── Loop A: Completed refresh ───
-  describe('Loop A: Completed refresh', () => {
-    it('should restore completed state after unmount/remount', async () => {
-      let streamCtrl: StreamController | null = null;
+  it('Loop A: restores one completed turn after remount', async () => {
+    const streams = createStreamMock();
+    const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: {} as any });
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
+    const { sendPromise } = await beginTurn();
+    await completeStream(streams[0], '完整回复');
+    await act(async () => { await sendPromise; });
 
-      // Provider A: send message
-      const renderResultA = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
+    await waitFor(() => {
+      expect(capturedContext?.chatPhase).toBe('done');
+      expect(capturedContext?.turnStatus).toBe('completed');
+      expect(capturedContext?.messages).toHaveLength(2);
+    });
 
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-      });
+    await firstProvider.unmount();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
 
-      const sendPromise = capturedCtx!.sendMessage('Hello');
-      
-      await waitFor(() => {
-        expect(mockedChatStream).toHaveBeenCalled();
-      });
-
-      // Complete the stream
-      streamCtrl!.onChunk!('{"content":"Response"}');
-      streamCtrl!.onDone!();
-      streamCtrl!.resolve();
-      
-      await sendPromise;
-
-      // Wait for completion
-      await waitFor(() => {
-        expect(capturedCtx?.chatPhase).toBe('done');
-      });
-
-      // Verify completed state
-      const messagesBeforeUnmount = capturedCtx!.messages;
-      expect(messagesBeforeUnmount.length).toBe(2); // user + assistant
-
-      // Unmount Provider A
-      await act(async () => {
-        renderResultA.unmount();
-      });
-
-      // Provider B: remount and verify restoration
-      await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-      });
-
-      // Verify same messages restored
-      expect(capturedCtx!.messages.length).toBe(2);
-      expect(capturedCtx!.messages[0].content).toBe('Hello');
-      expect(capturedCtx!.messages[1].content).toBe('Response');
-      expect(capturedCtx!.chatPhase).toBe('done');
+    await waitFor(() => {
+      expect(capturedContext?.chatPhase).toBe('done');
+      expect(capturedContext?.turnStatus).toBe('completed');
+      expect(capturedContext?.messages.map(message => message.content))
+        .toEqual(['Hello', '完整回复']);
     });
   });
 
-  // ─── Loop B: Generating refresh ───
-  describe('Loop B: Generating refresh', () => {
-    it('should restore interrupted state after unmount/remount', async () => {
-      let streamCtrl: StreamController | null = null;
+  it('Loop B: restores the original pending turn as interrupted', async () => {
+    const streams = createStreamMock();
+    const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: {} as any });
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCtrl = createStreamController();
-        streamCtrl.onChunk = callbacks.onChunk;
-        streamCtrl.onDone = callbacks.onDone;
-        streamCtrl.onError = callbacks.onError;
-        return streamCtrl.promise;
-      });
+    const { sendPromise: abandonedSend } = await beginTurn();
+    await waitFor(() => {
+      const generating = storedSessions.find(session => session.turnStatus === 'generating');
+      expect(generating?.pendingTurn?.userMessageId).toBeDefined();
+    });
+    const originalPendingTurn = storedSessions[0].pendingTurn!;
 
-      // Provider A: send message
-      const renderResultA = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
+    await firstProvider.unmount();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
 
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-      });
+    await waitFor(() => {
+      expect(capturedContext?.turnStatus).toBe('interrupted');
+      expect(capturedContext?.pendingTurn).toEqual(originalPendingTurn);
+      expect(capturedContext?.messages).toHaveLength(1);
+    });
 
-      const sendPromise = capturedCtx!.sendMessage('Hello');
-      
-      // Wait for generating state
-      await waitFor(() => {
-        expect(storedSessions.some(s => s.turnStatus === 'generating')).toBe(true);
-      });
-
-      // Verify generating state has pendingTurn
-      const generatingSession = storedSessions.find(s => s.turnStatus === 'generating');
-      expect(generatingSession?.pendingTurn).toBeDefined();
-      expect(generatingSession?.pendingTurn?.userMessageId).toBeDefined();
-
-      // Unmount Provider A (simulating refresh)
-      await act(async () => {
-        renderResultA.unmount();
-      });
-
-      // Abandoned callback should be ignored
-      // (In production, this would happen when the old Provider's stream completes)
-      // We don't call onDone here to simulate the abandoned request
-
-      // Provider B: remount and verify interrupted state
-      await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-      });
-
-      // Verify interrupted state restored
-      expect(capturedCtx?.turnStatus).toBe('interrupted');
-      expect(capturedCtx?.pendingTurn).toBeDefined();
-      expect(capturedCtx?.pendingTurn?.userMessageId).toBe(generatingSession?.pendingTurn?.userMessageId);
-
-      // Clean up: resolve the abandoned stream
-      streamCtrl!.resolve();
-      await sendPromise.catch(() => {}); // Ignore errors from abandoned request
+    await act(async () => {
+      streams[0].resolve();
+      await abandonedSend;
     });
   });
 
-  // ─── Loop C: Retry after refresh ───
-  describe('Loop C: Retry after refresh', () => {
-    it('should retry with original identity after refresh', async () => {
-      let streamCtrl1: StreamController | null = null;
-      let streamCtrl2: StreamController | null = null;
-      let streamCallCount = 0;
+  it('Loop C: real Retry UI preserves identity and completes without duplication', async () => {
+    const streams = createStreamMock();
+    const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
 
-      mockedChatStart.mockResolvedValue({ sessionId: 'session_1', emotionTag: 'neutral', eventKeyword: '', frontFlowText: '', flowContext: {} as any });
-      mockedChatStream.mockImplementation((_sessionId: string, callbacks: any) => {
-        streamCallCount++;
-        const ctrl = createStreamController();
-        
-        if (streamCallCount === 1) {
-          streamCtrl1 = ctrl;
-        } else {
-          streamCtrl2 = ctrl;
-        }
-        
-        ctrl.onChunk = callbacks.onChunk;
-        ctrl.onDone = callbacks.onDone;
-        ctrl.onError = callbacks.onError;
-        return ctrl.promise;
-      });
+    const { sendPromise: abandonedSend } = await beginTurn();
+    await waitFor(() => expect(storedSessions[0]?.pendingTurn).toBeDefined());
+    const originalUserMessageId = storedSessions[0].pendingTurn!.userMessageId;
 
-      // Provider A: send message
-      const renderResultA = await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
+    await firstProvider.unmount();
+    const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+    await waitFor(() => expect(recoveredProvider.getByText('重新生成')).toBeTruthy());
 
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-      });
+    await act(async () => {
+      fireEvent.press(recoveredProvider.getByText('重新生成'));
+      await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(2));
 
-      const sendPromise1 = capturedCtx!.sendMessage('Hello');
-      
-      // Wait for generating state
-      await waitFor(() => {
-        expect(storedSessions.some(s => s.turnStatus === 'generating')).toBe(true);
-      });
+      streams[1].callbacks.onChunk?.(JSON.stringify({ content: '重试回复' }));
+      streams[1].callbacks.onDone?.();
+      streams[1].resolve();
+      await streams[1].promise;
+    });
 
-      // Capture original user message ID
-      const generatingSession = storedSessions.find(s => s.turnStatus === 'generating');
-      const originalUserMessageId = generatingSession?.pendingTurn?.userMessageId;
-      expect(originalUserMessageId).toBeDefined();
+    await waitFor(() => {
+      expect(capturedContext?.chatPhase).toBe('done');
+      expect(capturedContext?.turnStatus).toBe('completed');
+      expect(capturedContext?.messages).toHaveLength(2);
+      expect(capturedContext?.messages[0].id).toBe(originalUserMessageId);
+      expect(capturedContext?.messages.map(message => message.content))
+        .toEqual(['Hello', '重试回复']);
+    });
 
-      // Unmount Provider A (simulating refresh)
-      await act(async () => {
-        renderResultA.unmount();
-      });
-
-      // Provider B: remount and verify interrupted state
-      await render(
-        <ChatProvider>
-          <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-        </ChatProvider>
-      );
-
-      await waitFor(() => {
-        expect(capturedCtx?.isHydrated).toBe(true);
-        expect(capturedCtx?.turnStatus).toBe('interrupted');
-      });
-
-      // Retry
-      const retryPromise = capturedCtx!.retryLastMessage();
-
-      // Wait for second request
-      await waitFor(() => {
-        expect(streamCallCount).toBe(2);
-      });
-
-      // Complete the retry stream
-      streamCtrl2!.onChunk!('{"content":"Retry Response"}');
-      streamCtrl2!.onDone!();
-      streamCtrl2!.resolve();
-
-      await retryPromise;
-
-      // Wait for completion
-      await waitFor(() => {
-        expect(capturedCtx?.chatPhase).toBe('done');
-      });
-
-      // Verify exactly one user message and one assistant response
-      const userMessages = capturedCtx!.messages.filter(m => m.role === 'user');
-      const assistantMessages = capturedCtx!.messages.filter(m => m.role === 'assistant');
-      
-      expect(userMessages.length).toBe(1);
-      expect(assistantMessages.length).toBe(1);
-      expect(userMessages[0].id).toBe(originalUserMessageId);
-      expect(assistantMessages[0].content).toBe('Retry Response');
-
-      // Clean up: resolve the abandoned stream
-      streamCtrl1!.resolve();
-      await sendPromise1.catch(() => {}); // Ignore errors from abandoned request
+    await act(async () => {
+      streams[0].resolve();
+      await abandonedSend;
     });
   });
 });
