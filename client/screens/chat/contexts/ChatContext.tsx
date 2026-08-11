@@ -781,7 +781,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       
       // Build updated messages: include user message
       const updatedMessages = existingIdx >= 0
-        ? [...existingSession.messages, userMessage]
+        ? existingSession.messages.some(message => message.id === userMessage.id)
+          ? existingSession.messages
+          : [...existingSession.messages, userMessage]
         : [userMessage];
       
       // Create or update session with generating state
@@ -913,13 +915,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // EF-38 CTO Fix: Create ONE user message with consistent ID
       // This ID will be used for: visible messages, session.messages, pendingTurn.userMessageId
       // For retry, we use the existing pendingTurn.userMessageId to maintain identity
-      const userMsgId = `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const existingSession = sessionsRef.current.find(session => session.id === snapshot.sessionId);
+      const retryPendingTurn = isRetry ? existingSession?.pendingTurn : undefined;
+      const userMsgId = retryPendingTurn?.userMessageId
+        ?? `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
+      const existingUserMessage = existingSession?.messages.find(message => message.id === userMsgId);
       
       const userMsg: ChatMessage = {
         id: userMsgId,
         role: 'user',
         content: userMessage,
-        timestamp: Date.now(),
+        timestamp: existingUserMessage?.timestamp ?? Date.now(),
       };
 
       // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state (仅首次，retry 不重复创建)
@@ -940,7 +946,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         requestId: snapshot.requestId,
         userMessageId: userMsgId,  // EF-38: Use same ID as userMsg
         userMessage,
-        startedAt: Date.now(),
+        startedAt: retryPendingTurn?.startedAt ?? Date.now(),
         roleId: snapshot.roleId,
         conversationId: snapshot.conversationId,
       };
@@ -977,6 +983,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       let chatStartSucceeded = false;
       let deepBuffer = '';  // EF-59 Phase 4: 用于错误恢复时持久化已接收内容
+      let receivedDeepContent = ''; // EF-38: authoritative record of accepted Deep chunks
 
       try {
         // ====== 第一阶段：调用 /chat/start 获取 EmotionFlow 三层内容 ======
@@ -1237,6 +1244,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     return;
                   }
 
+                  receivedDeepContent += content;
+
                   // ── 首次 Deep chunk 到达：触发接管 ──
                   if (!isDeepStarted) {
                     isDeepStarted = true;
@@ -1281,7 +1290,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 // EF-59 Phase 4: 持久化助手消息到后端（deep 完成后）
-                const finalDeepContent = deepBuffer || '';
+                const finalDeepContent = receivedDeepContent;
                 if (finalDeepContent) {
                   persistMessage(conversationIdRef.current, {
                     role: 'assistant',
@@ -1306,6 +1315,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 scheduleNext();
               },
             });
+            // Some transports resolve during teardown without invoking a terminal
+            // callback. Settle the request so an abandoned Provider cannot leave
+            // its send Promise and timeout alive.
+            if (!streamSettled) {
+              settleStream(mountedRef.current ? 'empty' : 'unmounted');
+            }
           } catch (error) {
             // EF-38 CTO Fix: chatStream rejection must settle stream as error
             console.error('[EF-38] chatStream rejection:', error);
@@ -1345,11 +1360,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         let streamOutcome: CompletionOutcome = 'completed';
         
         // Wait for stream to settle (max 30 seconds)
+        let streamTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
         const streamTimeout = new Promise<CompletionOutcome>((resolve) => {
-          setTimeout(() => resolve('timed_out'), 30000);
+          streamTimeoutHandle = setTimeout(() => resolve('timed_out'), 30000);
         });
         
         streamOutcome = await Promise.race([streamCompletionPromise, streamTimeout]);
+        if (streamTimeoutHandle) {
+          clearTimeout(streamTimeoutHandle);
+        }
         
         // EF-38 CTO Fix: Check unmount before any finalization
         if (!mountedRef.current) {
@@ -1483,7 +1502,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // EF-59 Phase 4: 持久化失败的助手消息
         if (chatStartSucceeded) {
-          const failedContent = deepBuffer || '';
+          const failedContent = receivedDeepContent;
           persistMessage(conversationIdRef.current, {
             role: 'assistant',
             content: failedContent,
@@ -1823,6 +1842,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38: Turn lifecycle for interrupted generation recovery
         turnStatus: currentSession?.turnStatus || 'idle',
         isInterrupted: currentSession?.turnStatus === 'interrupted' ? true : false,
+        pendingTurn: currentSession?.pendingTurn,
         setInputText,
         setCurrentRole,
         setShowRoleIntro,
