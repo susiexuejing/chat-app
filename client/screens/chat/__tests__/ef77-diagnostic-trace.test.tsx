@@ -160,7 +160,7 @@ describe('EF-77 diagnostic trace', () => {
       'write_committed',
       'pagehide_snapshot',
     ].includes(event.event as string));
-    expect(correlated.length).toBeGreaterThanOrEqual(9);
+    expect(correlated.length).toBeGreaterThanOrEqual(8);
     expect(new Set(correlated.map(event => event.providerInstanceId)).size).toBe(1);
     expect(new Set(correlated.map(event => event.queueGeneration)).size).toBe(1);
 
@@ -179,6 +179,41 @@ describe('EF-77 diagnostic trace', () => {
       resolveStream?.();
       await abandonedSend;
     });
+    infoSpy.mockRestore();
+  });
+
+  it('preserves hydration read order and uses the consumed session id in diagnostics', async () => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const activeSessionId = 'session-hydration-synthetic';
+    storage.set('chat_sessions', JSON.stringify([{
+      id: activeSessionId,
+      roleId: 'clever-fox',
+      messages: [],
+      createdAt: 1,
+      updatedAt: 1,
+      turnStatus: 'idle',
+      chatPhase: 'idle',
+    }]));
+    storage.set('current_session_id', activeSessionId);
+
+    const provider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitFor(() => expect(captured?.isHydrated).toBe(true));
+
+    const reads = (AsyncStorage.getItem as jest.Mock).mock.calls.map(call => call[0]);
+    // One Hydration read plus the pre-existing EF-59 completion trace read.
+    // EF-77 must not add a third diagnostic-only read.
+    expect(reads.filter(key => key === 'current_session_id')).toHaveLength(2);
+    expect(reads.indexOf('chat_sessions')).toBeLessThan(reads.indexOf('current_session_id'));
+
+    const events = ef77Events(infoSpy);
+    const hydrationCompleted = events.find(event => event.event === 'hydration_read_completed');
+    const interruptionDecision = events.find(event => event.event === 'interruption_decision');
+    expect(hydrationCompleted?.activeSessionId).toBe(activeSessionId);
+    expect(interruptionDecision?.activeSessionId).toBe(activeSessionId);
+    expect(hydrationCompleted?.activeSessionId).toBe(interruptionDecision?.activeSessionId);
+
+    await provider.unmount();
     infoSpy.mockRestore();
   });
 

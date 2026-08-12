@@ -503,9 +503,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const loadPersistedState = async () => {
       try {
         const diagnosticEnabled = isEf77DiagnosticEnabled();
-        const diagnosticPersistedSessionId = diagnosticEnabled
-          ? await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID)
-          : null;
         if (diagnosticEnabled) {
           emitEf77Trace('hydration_read_started', {
             providerInstanceId: providerInstanceId.current,
@@ -513,7 +510,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             timestamp: Date.now(),
             storageKey: STORAGE_KEY_CHAT_SESSIONS,
             adapterName: 'AsyncStorage.web/localStorage',
-            activeSessionId: diagnosticPersistedSessionId,
             ...getEf77LocationMetadata(),
           });
         }
@@ -522,19 +518,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const persistedSessions = await getChatSessions(rawSnapshot => {
           diagnosticRawSnapshot = rawSnapshot;
         });
-        if (diagnosticEnabled) {
-          emitEf77Trace('hydration_read_completed', {
-            providerInstanceId: providerInstanceId.current,
-            queueGeneration: queueGeneration.current,
-            timestamp: Date.now(),
-            storageKey: STORAGE_KEY_CHAT_SESSIONS,
-            adapterName: 'sessionStore.getChatSessions',
-            rawSnapshotHash: hashEf77Snapshot(diagnosticRawSnapshot),
-            ...getEf77LocationMetadata(),
-            ...summarizeEf77Snapshot(diagnosticRawSnapshot, diagnosticPersistedSessionId),
-          });
-        }
-        
+
         // EF-59 STATE TRACE: getChatSessions 返回后
         console.log('[EF59_STATE_TRACE] persisted sessions loaded', {
           count: persistedSessions.length,
@@ -556,6 +540,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           
           // 加载当前会话 ID
           const persistedSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
+          if (diagnosticEnabled) {
+            emitEf77Trace('hydration_read_completed', {
+              providerInstanceId: providerInstanceId.current,
+              queueGeneration: queueGeneration.current,
+              timestamp: Date.now(),
+              storageKey: STORAGE_KEY_CHAT_SESSIONS,
+              adapterName: 'sessionStore.getChatSessions',
+              rawSnapshotHash: hashEf77Snapshot(diagnosticRawSnapshot),
+              ...getEf77LocationMetadata(),
+              ...summarizeEf77Snapshot(diagnosticRawSnapshot, persistedSessionId),
+            });
+          }
           
           // EF-59 SESSION TRACE: 恢复前详细状态（显式原始值）
           console.log('[EF59_SESSION_TRACE] restoring current session', {
