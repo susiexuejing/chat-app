@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ChatSession } from '../types';
+import { attributedRemoveItem, attributedSetItem } from './ef77Diagnostics';
 
 const STORAGE_KEY = 'chat_sessions';
 
@@ -17,7 +18,11 @@ export async function loadSessionsFromStorage(): Promise<ChatSession[]> {
 
 export async function saveSessionsToStorage(sessions: ChatSession[]): Promise<void> {
   try {
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    await attributedSetItem(AsyncStorage, STORAGE_KEY, JSON.stringify(sessions), {
+      writerSource: 'storage.saveSessionsToStorage',
+      transitionReason: 'bypass_storage_write',
+      queueKind: 'bypass',
+    });
   } catch (e) {
     // silent
   }
@@ -25,7 +30,11 @@ export async function saveSessionsToStorage(sessions: ChatSession[]): Promise<vo
 
 export async function clearSessionsFromStorage(): Promise<void> {
   try {
-    await AsyncStorage.removeItem(STORAGE_KEY);
+    await attributedRemoveItem(AsyncStorage, STORAGE_KEY, {
+      writerSource: 'storage.clearSessionsFromStorage',
+      transitionReason: 'legacy_storage_cleared',
+      queueKind: 'bypass',
+    });
   } catch (e) {
     // silent
   }
