@@ -50,6 +50,26 @@ jobs:
       - name: Record deployed commit
         run: printf '%s\n' "$GITHUB_SHA" > client/dist/deployment-sha.txt
 
+      - name: Create deployment version HTML page
+        run: |
+          cat > client/dist/deployment-version.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Deployment Version</title>
+          </head>
+          <body>
+            <main>
+              <h1>Deployment Version</h1>
+              <p>Environment: DEV</p>
+              <p>Commit SHA: ${GITHUB_SHA}</p>
+            </main>
+          </body>
+          </html>
+          EOF
+
       - name: Prepare SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
@@ -94,12 +114,27 @@ jobs:
       - name: Verify dev deployment
         run: |
           for attempt in 1 2 3 4 5; do
-            deployed_sha="$(curl --fail --silent --show-error https://dev.douhaoyu.cn/deployment-sha.txt || true)"
-            if [ "$deployed_sha" = "$GITHUB_SHA" ]; then
-              echo "Dev deployment verified at $GITHUB_SHA"
+            deployed_sha="$(
+              curl --fail --silent --show-error \
+                https://dev.douhaoyu.cn/deployment-sha.txt || true
+            )"
+
+            html_sha="$(
+              curl --fail --silent --show-error \
+                https://dev.douhaoyu.cn/deployment-version.html \
+                | grep -oE '[0-9a-f]{40}' \
+                | head -1 || true
+            )"
+
+            if [ "$deployed_sha" = "$GITHUB_SHA" ] &&
+               [ "$html_sha" = "$GITHUB_SHA" ]; then
+              echo "DEV deployment verified at $GITHUB_SHA"
               exit 0
             fi
+
+            echo "Waiting for deployment evidence ($attempt/5)"
             sleep 5
           done
-          echo "Dev deployment verification failed."
+
+          echo "DEV deployment verification failed."
           exit 1
