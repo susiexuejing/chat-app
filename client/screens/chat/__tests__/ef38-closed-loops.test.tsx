@@ -61,6 +61,8 @@ interface StreamController {
 
 interface CapturedContext {
   isHydrated: boolean;
+  isLoading: boolean;
+  isThinking: boolean;
   chatPhase: string;
   turnStatus: TurnStatus;
   pendingTurn?: PendingTurn;
@@ -89,6 +91,8 @@ function Harness() {
   React.useEffect(() => {
     capturedContext = {
       isHydrated: context.isHydrated,
+      isLoading: context.isLoading,
+      isThinking: context.isThinking,
       chatPhase: context.chatPhase,
       turnStatus: context.turnStatus,
       pendingTurn: context.pendingTurn,
@@ -126,6 +130,12 @@ async function beginTurn(text = 'Hello') {
     await Promise.resolve();
   });
   await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(1));
+  await waitFor(() => {
+    expect(capturedContext?.turnStatus).toBe('generating');
+    expect(capturedContext?.chatPhase).toBe('responding');
+    expect(capturedContext?.isLoading).toBe(true);
+    expect(capturedContext?.isThinking).toBe(true);
+  });
   if (!sendPromise) {
     throw new Error('sendMessage did not return a Promise');
   }
@@ -208,19 +218,55 @@ describe('EF-38 minimum closed loops', () => {
     const originalPendingTurn = storedSessions[0].pendingTurn!;
 
     await firstProvider.unmount();
-    await render(<ChatProvider><Harness /></ChatProvider>);
+    const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
     await waitForHydration();
 
     await waitFor(() => {
       expect(capturedContext?.turnStatus).toBe('interrupted');
       expect(capturedContext?.pendingTurn).toEqual(originalPendingTurn);
       expect(capturedContext?.messages).toHaveLength(1);
+      expect(capturedContext?.isLoading).toBe(false);
+      expect(capturedContext?.isThinking).toBe(false);
     });
+    expect(recoveredProvider.queryByText(/正在思考中/)).toBeNull();
+    expect(recoveredProvider.getByText('重新生成')).toBeTruthy();
 
     await act(async () => {
       streams[0].resolve();
       await abandonedSend;
     });
+  });
+
+  it('does not render loading or Retry for an idle turn whose last message is from the user', async () => {
+    const sessionId = 'session-idle-last-user';
+    storedSessions = [{
+      id: sessionId,
+      roleId: 'clever-fox',
+      messages: [{
+        id: 'user-idle-1',
+        role: 'user',
+        content: 'Synthetic idle turn',
+        timestamp: 1,
+      }],
+      createdAt: 1,
+      updatedAt: 1,
+      conversationId: 'conversation-idle-1',
+      chatPhase: 'idle',
+      turnStatus: 'idle',
+    }];
+    storage.current_session_id = sessionId;
+
+    const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    await waitFor(() => {
+      expect(capturedContext?.chatPhase).toBe('idle');
+      expect(capturedContext?.turnStatus).toBe('idle');
+      expect(capturedContext?.isLoading).toBe(false);
+      expect(capturedContext?.isThinking).toBe(false);
+    });
+    expect(recoveredProvider.queryByText(/正在思考中/)).toBeNull();
+    expect(recoveredProvider.queryByText('重新生成')).toBeNull();
   });
 
   it('Loop B2: transport resolve before cleanup persists one interrupted turn', async () => {
@@ -269,8 +315,15 @@ describe('EF-38 minimum closed loops', () => {
 
     await act(async () => {
       fireEvent.press(recoveredProvider.getByText('重新生成'));
-      await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(2));
+    });
+    await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(2));
+    await waitFor(() => {
+      expect(capturedContext?.turnStatus).toBe('generating');
+      expect(capturedContext?.chatPhase).toBe('responding');
+      expect(capturedContext?.isLoading).toBe(true);
+    });
 
+    await act(async () => {
       streams[1].callbacks.onChunk?.(JSON.stringify({ content: '重试回复' }));
       streams[1].callbacks.onDone?.();
       streams[1].resolve();
