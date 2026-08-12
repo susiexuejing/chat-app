@@ -14,6 +14,7 @@ import { ChatSession, ChatMessage, TurnStatus, PendingTurn } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
   EF77_STORAGE_KEY,
+  attributedSetItem,
   emitEf77Trace,
   getEf77ErrorType,
   getEf77LocationMetadata,
@@ -184,8 +185,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const persistSessions = useCallback(
     async (
       nextSessions: ChatSession[],
-      transition: string,
-      activeSessionId = diagnosticActiveSessionIdRef.current
+      writerSource: string,
+      transitionReason: string,
+      activeSessionId = diagnosticActiveSessionIdRef.current,
+      failurePath: string | null = null
     ): Promise<void> => {
       const revision = ++sessionWriteRevisionRef.current;
       const snapshot = JSON.parse(JSON.stringify(nextSessions)) as ChatSession[];
@@ -198,7 +201,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         providerInstanceId: providerInstanceId.current,
         queueGeneration: queueGeneration.current,
         revision,
-        transition,
+        transition: transitionReason,
+        writerSource,
+        transitionReason,
+        failurePath,
         startedAt,
         storageKey: STORAGE_KEY_CHAT_SESSIONS,
         adapterName: 'AsyncStorage.web/localStorage',
@@ -219,7 +225,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
           console.info('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
             event: 'write_started',
-            transition,
+            transition: transitionReason,
             revision,
             sessionCount: snapshot.length,
             timestamp: Date.now(),
@@ -229,25 +235,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // adapter write below so swallowed helper failures cannot be treated
           // as a successful turn transition.
           try {
-            await saveChatSessions(snapshot);
-            const legacyStoredSnapshot = diagnosticBase
-              ? await AsyncStorage.getItem(STORAGE_KEY_CHAT_SESSIONS)
-              : expected;
-            const legacyHash = hashEf77Snapshot(legacyStoredSnapshot);
-            const legacyMatches = legacyStoredSnapshot === expected;
+            await saveChatSessions(snapshot, {
+              writerSource: 'sessionStore.saveChatSessions',
+              transitionReason,
+              queueKind: 'managed',
+              activeSessionId,
+              failurePath,
+            });
             if (diagnosticBase) {
-              emitEf77Trace(
-                legacyMatches ? 'legacy_write_completed' : 'legacy_write_failed',
-                {
+              emitEf77Trace('legacy_write_completed', {
                 ...diagnosticBase,
                 completedAt: Date.now(),
                 writeSource: 'sessionStore.saveChatSessions',
-                snapshotHash: legacyHash,
-                expectedSnapshotHash: hashEf77Snapshot(expected),
-                errorType: legacyMatches ? null : 'SnapshotMismatchOrSwallowedWriteFailure',
+                snapshotHash: hashEf77Snapshot(expected),
                 promiseCompleted: true,
-                }
-              );
+              });
             }
           } catch (error) {
             if (diagnosticBase) {
@@ -262,7 +264,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             throw error;
           }
           try {
-            await AsyncStorage.setItem(STORAGE_KEY_CHAT_SESSIONS, expected);
+            await attributedSetItem(AsyncStorage, STORAGE_KEY_CHAT_SESSIONS, expected, {
+              writerSource: 'ChatContext.authoritativeAdapter',
+              transitionReason,
+              queueKind: 'managed',
+              activeSessionId,
+              failurePath,
+            });
             if (diagnosticBase) {
               emitEf77Trace('authoritative_write_completed', {
                 ...diagnosticBase,
@@ -284,7 +292,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             }
             console.error('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
               event: 'write_failed',
-              transition,
+              transition: transitionReason,
               revision,
               sessionCount: snapshot.length,
               timestamp: Date.now(),
@@ -293,7 +301,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
           console.info('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
             event: 'write_committed',
-            transition,
+            transition: transitionReason,
             revision,
             sessionCount: snapshot.length,
             timestamp: Date.now(),
@@ -399,6 +407,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       timestamp: Date.now()
     }));
     return () => {
+      emitEf77Trace('unmount_without_failed_write', {
+        providerInstanceId: providerInstanceId.current,
+        queueGeneration: queueGeneration.current,
+        failurePath: 'unmount_without_failed_write',
+        timestamp: Date.now(),
+        ...getEf77LocationMetadata(),
+      });
       emitEf77Trace('provider_unmounted', {
         providerInstanceId: providerInstanceId.current,
         queueGeneration: queueGeneration.current,
@@ -633,7 +648,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setChatPhase('idle');
               // Persist the interrupted state
               try {
-                await persistSessions(updatedSessions, 'hydration_interrupted', restoredSession.id);
+                await persistSessions(
+                  updatedSessions,
+                  'ChatContext.hydration',
+                  'hydration_interrupted',
+                  restoredSession.id
+                );
               } catch (error) {
                 emitEf77Trace('interruption_branch_failed', {
                   providerInstanceId: providerInstanceId.current,
@@ -722,7 +742,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setMessages(recoveredMessages);
               setChatPhase('idle');
               try {
-                await persistSessions(updatedSessions, 'hydration_interrupted_fallback', mostRecentSession.id);
+                await persistSessions(
+                  updatedSessions,
+                  'ChatContext.hydrationFallback',
+                  'hydration_interrupted_fallback',
+                  mostRecentSession.id
+                );
               } catch (error) {
                 emitEf77Trace('interruption_branch_failed', {
                   providerInstanceId: providerInstanceId.current,
@@ -951,6 +976,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EM-43: 取消请求（abort + 清理资源）
   const cancelRequest = useCallback(() => {
+    emitEf77Trace('cancellation_without_failed_write', {
+      providerInstanceId: providerInstanceId.current,
+      queueGeneration: queueGeneration.current,
+      failurePath: 'cancellation_without_failed_write',
+      timestamp: Date.now(),
+      ...getEf77LocationMetadata(),
+    });
     abortControllerRef.current?.abort();
     cleanupResources();
   }, [cleanupResources]);
@@ -1029,6 +1061,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updated);
       await persistSessions(
         updated,
+        'ChatContext.deleteSession',
         'session_deleted',
         currentSessionId === sessionId ? null : currentSessionId
       );
@@ -1091,7 +1124,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       
       // Await persistence
-      await persistSessions(updatedSessions, 'turn_generating', sessionId);
+      await persistSessions(
+        updatedSessions,
+        'ChatContext.markTurnGenerating',
+        'turn_generating',
+        sessionId
+      );
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_generating', {
         sessionId,
@@ -1128,7 +1166,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       setMessages(recoveredMessages);
       setChatPhase('idle');
-      await persistSessions(updatedSessions, 'turn_interrupted', sessionId);
+      await persistSessions(
+        updatedSessions,
+        'ChatContext.markTurnInterrupted',
+        'turn_interrupted',
+        sessionId
+      );
       traceTurnLifecycle('turn_interrupted', {
         sessionId,
         previousTurnStatus,
@@ -1161,7 +1204,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       );
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await persistSessions(updatedSessions, 'turn_completed', sessionId);
+      await persistSessions(
+        updatedSessions,
+        'ChatContext.finalizeTurnCompleted',
+        'turn_completed',
+        sessionId
+      );
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_completed', {
         sessionId,
@@ -1177,7 +1225,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EF-38: Mark turn as failed (on error)
   const markTurnFailed = useCallback(
-    async (sessionId: string, keepMessages?: ChatMessage[]) => {
+    async (
+      sessionId: string,
+      failurePath: 'stream_error_mark_failed' | 'outer_catch_mark_failed',
+      keepMessages?: ChatMessage[]
+    ) => {
       const previousSession = sessionsRef.current.find(session => session.id === sessionId);
       const updatedSessions = sessionsRef.current.map(session => {
         if (session.id !== sessionId) return session;
@@ -1191,7 +1243,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       });
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await persistSessions(updatedSessions, 'turn_failed', sessionId);
+      await persistSessions(
+        updatedSessions,
+        'ChatContext.markTurnFailed',
+        'turn_failed',
+        sessionId,
+        failurePath
+      );
       traceTurnLifecycle('turn_failed', {
         sessionId,
         previousTurnStatus: previousSession?.turnStatus,
@@ -1628,6 +1686,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 scheduleNext();
               },
               onError: () => {
+                emitEf77Trace('failure_source_observed', {
+                  providerInstanceId: providerInstanceId.current,
+                  queueGeneration: queueGeneration.current,
+                  failurePath: 'stream_error_mark_failed',
+                  source: 'chatStream.onError',
+                  mounted: mountedRef.current,
+                  timestamp: Date.now(),
+                });
                 isDeepDone = true;
                 // EF-38 CTO Fix: Settle stream as error immediately
                 settleStream('stream_error');
@@ -1641,6 +1707,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               settleStream(mountedRef.current ? 'empty' : 'unmounted');
             }
           } catch (error) {
+            emitEf77Trace('failure_source_observed', {
+              providerInstanceId: providerInstanceId.current,
+              queueGeneration: queueGeneration.current,
+              failurePath: 'stream_error_mark_failed',
+              source: 'chatStream.rejection',
+              mounted: mountedRef.current,
+              errorType: getEf77ErrorType(error),
+              timestamp: Date.now(),
+            });
             // EF-38 CTO Fix: chatStream rejection must settle stream as error
             console.error('[EF-38] chatStream rejection:', error);
             settleStream('stream_error');
@@ -1687,7 +1762,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38 CTO Fix: Handle stream error immediately, don't wait for UI completion
         if (streamOutcome === 'stream_error') {
           console.log('[EF-38] Stream error detected, calling markTurnFailed');
-          await markTurnFailed(snapshot.sessionId);
+          await markTurnFailed(snapshot.sessionId, 'stream_error_mark_failed');
           return 'failed';
         }
         
@@ -1796,13 +1871,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         return 'success';
       } catch (err) {
+        emitEf77Trace('failure_source_observed', {
+          providerInstanceId: providerInstanceId.current,
+          queueGeneration: queueGeneration.current,
+          failurePath: 'outer_catch_mark_failed',
+          source: 'sendMessageCore.outerCatch',
+          mounted: mountedRef.current,
+          errorType: getEf77ErrorType(err),
+          timestamp: Date.now(),
+        });
         console.error('[sendMessage] Error:', err);
         if (mountedRef.current) {
           setError(err instanceof Error ? err.message : '请求失败');
         }
 
         // EF-38: Persist failed/interrupted state
-        await markTurnFailed(snapshot.sessionId);
+        await markTurnFailed(snapshot.sessionId, 'outer_catch_mark_failed');
 
         // EF-59 Phase 4: 持久化失败的助手消息
         if (chatStartSucceeded) {

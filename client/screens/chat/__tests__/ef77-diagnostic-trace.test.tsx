@@ -6,6 +6,7 @@ import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { chatStart, chatStream } from '../api/cozeApi';
 import {
   EF77_TRACE_PREFIX,
+  getEf77ErrorType,
   hashEf77Snapshot,
   summarizeEf77Snapshot,
 } from '../utils/ef77Diagnostics';
@@ -97,6 +98,13 @@ describe('EF-77 diagnostic trace', () => {
     const changed = '[{"id":"synthetic","turnStatus":"idle"}]';
     expect(hashEf77Snapshot(first)).toBe(hashEf77Snapshot(same));
     expect(hashEf77Snapshot(first)).not.toBe(hashEf77Snapshot(changed));
+  });
+
+  it('sanitizes failures to their type without exposing error text', () => {
+    const secret = 'PRIVATE_ERROR_TEXT_DO_NOT_LOG';
+    const output = getEf77ErrorType(new TypeError(secret));
+    expect(output).toBe('TypeError');
+    expect(output).not.toContain(secret);
   });
 
   it('summarizes presence metadata without returning message or identity values', () => {

@@ -6,6 +6,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatSession, ChatMessage } from '../types';
 import { PsychologistRole } from '../constants/roles';
+import {
+  attributedRemoveItem,
+  attributedSetItem,
+  Ef77WriteAttribution,
+} from '../utils/ef77Diagnostics';
 
 const STORAGE_KEY = 'chat_sessions';
 
@@ -43,7 +48,11 @@ export async function getChatSessions(
     if (!data || data === 'undefined' || data === 'null') {
       if (data) {
         console.warn('[EF59_STORE] corrupted chat_sessions detected, cleaning up');
-        await AsyncStorage.removeItem(STORAGE_KEY);
+        await attributedRemoveItem(AsyncStorage, STORAGE_KEY, {
+          writerSource: 'sessionStore.getChatSessions',
+          transitionReason: 'corrupt_marker_cleanup',
+          queueKind: 'bypass',
+        });
       }
       return [];
     }
@@ -55,7 +64,11 @@ export async function getChatSessions(
       // 验证是数组
       if (!Array.isArray(sessions)) {
         console.warn('[EF59_STORE] chat_sessions is not an array, cleaning up');
-        await AsyncStorage.removeItem(STORAGE_KEY);
+        await attributedRemoveItem(AsyncStorage, STORAGE_KEY, {
+          writerSource: 'sessionStore.getChatSessions',
+          transitionReason: 'non_array_cleanup',
+          queueKind: 'bypass',
+        });
         return [];
       }
       
@@ -67,7 +80,11 @@ export async function getChatSessions(
     } catch (parseError) {
       // JSON 解析失败，清理损坏数据
       console.warn('[EF59_STORE] chat_sessions JSON parse failed, cleaning up');
-      await AsyncStorage.removeItem(STORAGE_KEY);
+      await attributedRemoveItem(AsyncStorage, STORAGE_KEY, {
+        writerSource: 'sessionStore.getChatSessions',
+        transitionReason: 'json_parse_cleanup',
+        queueKind: 'bypass',
+      });
       return [];
     }
   } catch (error) {
@@ -77,7 +94,14 @@ export async function getChatSessions(
 }
 
 // 保存所有对话历史
-export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
+export async function saveChatSessions(
+  sessions: ChatSession[],
+  attribution: Ef77WriteAttribution = {
+    writerSource: 'sessionStore.saveChatSessions',
+    transitionReason: 'bypass_storage_write',
+    queueKind: 'bypass',
+  }
+): Promise<void> {
   // EF-59: 写入保护 - 防止非法数据写入
   if (!Array.isArray(sessions)) {
     console.error('[EF59_STORE] invalid sessions payload: not an array', { type: typeof sessions });
@@ -91,7 +115,7 @@ export async function saveChatSessions(sessions: ChatSession[]): Promise<void> {
       dataSize: data.length,
       firstSessionId: sessions[0]?.id ?? null,
     });
-    await AsyncStorage.setItem(STORAGE_KEY, data);
+    await attributedSetItem(AsyncStorage, STORAGE_KEY, data, attribution);
     console.log('[EF59_STORE_SUCCESS] saveChatSessions completed', {
       key: STORAGE_KEY,
     });
@@ -113,7 +137,12 @@ export async function createNewSession(role: PsychologistRole): Promise<ChatSess
   };
   
   sessions.unshift(newSession); // 新对话置顶
-  await saveChatSessions(sessions);
+  await saveChatSessions(sessions, {
+    writerSource: 'sessionStore.createNewSession',
+    transitionReason: 'create_new_session',
+    queueKind: 'bypass',
+    activeSessionId: newSession.id,
+  });
   
   return newSession;
 }
@@ -136,7 +165,12 @@ export async function updateSessionMessages(
       sessions.unshift(session);
     }
     
-    await saveChatSessions(sessions);
+    await saveChatSessions(sessions, {
+      writerSource: 'sessionStore.updateSessionMessages',
+      transitionReason: 'update_session_messages',
+      queueKind: 'bypass',
+      activeSessionId: sessionId,
+    });
   }
 }
 
@@ -144,12 +178,21 @@ export async function updateSessionMessages(
 export async function deleteSession(sessionId: string): Promise<void> {
   const sessions = await getChatSessions();
   const filtered = sessions.filter(s => s.id !== sessionId);
-  await saveChatSessions(filtered);
+  await saveChatSessions(filtered, {
+    writerSource: 'sessionStore.deleteSession',
+    transitionReason: 'delete_session',
+    queueKind: 'bypass',
+    activeSessionId: sessionId,
+  });
 }
 
 // 清空所有对话
 export async function clearAllSessions(): Promise<void> {
-  await saveChatSessions([]);
+  await saveChatSessions([], {
+    writerSource: 'sessionStore.clearAllSessions',
+    transitionReason: 'clear_all_sessions',
+    queueKind: 'bypass',
+  });
 }
 
 // 获取单个对话

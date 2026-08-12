@@ -3,6 +3,21 @@ import type { ChatSession } from '../types';
 export const EF77_TRACE_PREFIX = '[EF77_TRACE]';
 export const EF77_STORAGE_KEY = 'chat_sessions';
 
+export type Ef77QueueKind = 'managed' | 'bypass';
+
+export interface Ef77WriteAttribution {
+  writerSource: string;
+  transitionReason: string;
+  queueKind: Ef77QueueKind;
+  activeSessionId?: string | null;
+  failurePath?: string | null;
+}
+
+interface Ef77StorageAdapter {
+  setItem(key: string, value: string): Promise<void>;
+  removeItem(key: string): Promise<void>;
+}
+
 export interface Ef77SnapshotMetadata {
   snapshotHash: string | null;
   sessionCount: number;
@@ -76,4 +91,55 @@ export function emitEf77Trace(event: string, details: Record<string, unknown>): 
 
 export function getEf77ErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
+}
+
+function observeStoragePromise(
+  operation: Promise<void>,
+  operationName: 'setItem' | 'removeItem',
+  attribution: Ef77WriteAttribution,
+  snapshotMetadata: Ef77SnapshotMetadata | null
+): Promise<void> {
+  const base = {
+    operation: operationName,
+    storageKey: EF77_STORAGE_KEY,
+    writerSource: attribution.writerSource,
+    transitionReason: attribution.transitionReason,
+    queueKind: attribution.queueKind,
+    failurePath: attribution.failurePath ?? null,
+    ...getEf77LocationMetadata(),
+    ...(snapshotMetadata ?? {}),
+  };
+  emitEf77Trace('storage_operation_started', base);
+  void operation.then(
+    () => emitEf77Trace('storage_operation_completed', base),
+    error => emitEf77Trace('storage_operation_failed', {
+      ...base,
+      errorType: getEf77ErrorType(error),
+    })
+  );
+  return operation;
+}
+
+export function attributedSetItem(
+  adapter: Ef77StorageAdapter,
+  key: string,
+  value: string,
+  attribution: Ef77WriteAttribution
+): Promise<void> {
+  // The disabled path is deliberately the underlying call itself: no parsing,
+  // hashing, metadata allocation, extra read, or replacement Promise.
+  if (!isEf77DiagnosticEnabled()) return adapter.setItem(key, value);
+  const metadata = summarizeEf77Snapshot(value, attribution.activeSessionId ?? null);
+  const operation = adapter.setItem(key, value);
+  return observeStoragePromise(operation, 'setItem', attribution, metadata);
+}
+
+export function attributedRemoveItem(
+  adapter: Ef77StorageAdapter,
+  key: string,
+  attribution: Ef77WriteAttribution
+): Promise<void> {
+  if (!isEf77DiagnosticEnabled()) return adapter.removeItem(key);
+  const operation = adapter.removeItem(key);
+  return observeStoragePromise(operation, 'removeItem', attribution, null);
 }
