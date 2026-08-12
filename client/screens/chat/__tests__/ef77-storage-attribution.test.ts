@@ -17,7 +17,7 @@ const attribution = {
   writerSource: 'test.writer',
   transitionReason: 'test_transition',
   queueKind: 'managed' as const,
-  activeSessionId: 'session-safe',
+  activeSessionId: 'PRIVATE_SESSION_ID_DO_NOT_LOG',
 };
 
 describe('EF-77 storage attribution boundary', () => {
@@ -133,13 +133,16 @@ describe('EF-77 storage attribution boundary', () => {
     };
     const info = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     const payload = JSON.stringify([{
-      id: 'session-safe',
+      id: attribution.activeSessionId,
       messages: [{ content: secret }],
       pendingTurn: { requestId: secret, userMessageId: secret },
     }]);
 
     await expect(attributedSetItem(adapter, 'chat_sessions', payload, attribution)).rejects.toThrow();
-    expect(JSON.stringify(info.mock.calls)).not.toContain(secret);
-    expect(JSON.stringify(info.mock.calls)).toContain('Error');
+    const output = info.mock.calls.map(call => String(call[1])).join('\n');
+    expect(output).not.toContain(secret);
+    expect(output).not.toContain(attribution.activeSessionId);
+    expect(output).toContain('"activeSessionIdPresent":true');
+    expect(output).toContain('Error');
   });
 });

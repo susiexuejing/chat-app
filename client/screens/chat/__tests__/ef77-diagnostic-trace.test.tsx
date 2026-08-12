@@ -108,11 +108,12 @@ describe('EF-77 diagnostic trace', () => {
   });
 
   it('summarizes presence metadata without returning message or identity values', () => {
+    const secretSessionId = 'PRIVATE_SESSION_ID_DO_NOT_LOG';
     const secretMessage = 'PRIVATE_MESSAGE_DO_NOT_LOG';
     const secretRequestId = 'SECRET_REQUEST_ID';
     const secretUserMessageId = 'SECRET_USER_MESSAGE_ID';
     const raw = JSON.stringify([{
-      id: 'session-synthetic',
+      id: secretSessionId,
       roleId: 'clever-fox',
       messages: [{ id: 'message-1', role: 'user', content: secretMessage, timestamp: 1 }],
       createdAt: 1,
@@ -127,10 +128,12 @@ describe('EF-77 diagnostic trace', () => {
         roleId: 'clever-fox',
       },
     }]);
-    const output = JSON.stringify(summarizeEf77Snapshot(raw, 'session-synthetic'));
+    const output = JSON.stringify(summarizeEf77Snapshot(raw, secretSessionId));
+    expect(output).not.toContain(secretSessionId);
     expect(output).not.toContain(secretMessage);
     expect(output).not.toContain(secretRequestId);
     expect(output).not.toContain(secretUserMessageId);
+    expect(output).toContain('"activeSessionIdPresent":true');
     expect(output).toContain('"requestIdPresent":true');
     expect(output).toContain('"userMessageIdPresent":true');
   });
@@ -217,9 +220,9 @@ describe('EF-77 diagnostic trace', () => {
     const events = ef77Events(infoSpy);
     const hydrationCompleted = events.find(event => event.event === 'hydration_read_completed');
     const interruptionDecision = events.find(event => event.event === 'interruption_decision');
-    expect(hydrationCompleted?.activeSessionId).toBe(activeSessionId);
+    expect(hydrationCompleted?.activeSessionIdPresent).toBe(true);
+    expect(hydrationCompleted?.activeSessionId).toBeUndefined();
     expect(interruptionDecision?.activeSessionId).toBe(activeSessionId);
-    expect(hydrationCompleted?.activeSessionId).toBe(interruptionDecision?.activeSessionId);
 
     await provider.unmount();
     infoSpy.mockRestore();

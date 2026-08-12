@@ -21,7 +21,7 @@ interface Ef77StorageAdapter {
 export interface Ef77SnapshotMetadata {
   snapshotHash: string | null;
   sessionCount: number;
-  activeSessionId: string | null;
+  activeSessionIdPresent: boolean;
   activeTurnStatus: string | null;
   activeChatPhase: string | null;
   hasPendingTurn: boolean;
@@ -68,7 +68,7 @@ export function summarizeEf77Snapshot(
   return {
     snapshotHash: hashEf77Snapshot(serialized),
     sessionCount: sessions.length,
-    activeSessionId: activeSession?.id ?? activeSessionId,
+    activeSessionIdPresent: !!(activeSession?.id ?? activeSessionId),
     activeTurnStatus: activeSession?.turnStatus ?? null,
     activeChatPhase: activeSession?.chatPhase ?? null,
     hasPendingTurn: !!activeSession?.pendingTurn,
