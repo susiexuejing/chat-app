@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { usePathname } from 'expo-router';
 import { Screen } from '@/components/Screen';
 import { useSafeRouter } from '@/hooks/useSafeRouter';
+import { getFlowTypeLabel, getFlowStageLabel } from '@/screens/chat/utils/flowTypeMapping';
 import {
   RoleIntroModal,
   RoleDetailModal,
@@ -72,30 +73,9 @@ function ChatContent() {
         flowConfidence: flowContext?.flowConfidence ?? null,
       };
     }
-    const flowTypeMap: Record<string, string> = {
-      body_tension: '身体紧绷',
-      attachment_anxiety: '关系焦虑',
-      anger: '愤怒',
-      anger_to_hurt: '愤怒背后是受伤',
-      helplessness: '无助感',
-      self_blame: '自我责备',
-      self_doubt: '自我怀疑',
-      anxiety: '焦虑',
-      sadness: '悲伤',
-      numbness: '麻木',
-      control_to_helplessness: '控制失败→无力',
-      mixed_pattern: '混合情绪',
-      general: '一般状态',
-    };
-    const flowStageMap: Record<string, string> = {
-      beginning: '刚开始',
-      stuck: '卡住',
-      loosening: '松动',
-      deepening: '深入',
-      cresting: '到顶',
-    };
-    const flowTypeLabel = flowTypeMap[flowContext.flowType] || flowContext.flowType;
-    const flowStageLabel = flowStageMap[flowContext.flowStage || ''] || flowContext.flowStage || '观察中';
+    // EF-24: 使用安全回退，不直接回显内部枚举值
+    const flowTypeLabel = getFlowTypeLabel(flowContext.flowType);
+    const flowStageLabel = getFlowStageLabel(flowContext.flowStage);
     const confidenceLabel = flowContext.flowConfidence !== null
       ? Math.round(flowContext.flowConfidence * 100) + '%'
       : '--';
