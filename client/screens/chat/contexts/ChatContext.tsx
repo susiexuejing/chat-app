@@ -12,6 +12,15 @@ import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
 import { ChatSession, ChatMessage, TurnStatus, PendingTurn } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
+import {
+  EF77_STORAGE_KEY,
+  emitEf77Trace,
+  getEf77ErrorType,
+  getEf77LocationMetadata,
+  hashEf77Snapshot,
+  isEf77DiagnosticEnabled,
+  summarizeEf77Snapshot,
+} from '../utils/ef77Diagnostics';
 
 
 interface ChatContextValue {
@@ -162,6 +171,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const sessionsRef = useRef<ChatSession[]>([]);
   const sessionWriteChainRef = useRef<Promise<void>>(Promise.resolve());
   const sessionWriteRevisionRef = useRef(0);
+  const diagnosticActiveSessionIdRef = useRef<string | null>(null);
+  const queueGeneration = useRef(
+    `queue-${Date.now()}-${Math.random().toString(36).slice(2)}`
+  );
 
   // EF-38: ChatContext is the single writer for chat_sessions. Writes are
   // serialized in submission order so an older whole-array snapshot cannot
@@ -169,14 +182,41 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // AsyncStorage adapter directly so durability failures propagate to the
   // transition caller instead of being absorbed by the legacy store helper.
   const persistSessions = useCallback(
-    async (nextSessions: ChatSession[], transition: string): Promise<void> => {
+    async (
+      nextSessions: ChatSession[],
+      transition: string,
+      activeSessionId = diagnosticActiveSessionIdRef.current
+    ): Promise<void> => {
       const revision = ++sessionWriteRevisionRef.current;
       const snapshot = JSON.parse(JSON.stringify(nextSessions)) as ChatSession[];
       const expected = JSON.stringify(snapshot);
+      const snapshotMetadata = isEf77DiagnosticEnabled()
+        ? summarizeEf77Snapshot(expected, activeSessionId)
+        : null;
+      const startedAt = Date.now();
+      const diagnosticBase = snapshotMetadata ? {
+        providerInstanceId: providerInstanceId.current,
+        queueGeneration: queueGeneration.current,
+        revision,
+        transition,
+        startedAt,
+        storageKey: STORAGE_KEY_CHAT_SESSIONS,
+        adapterName: 'AsyncStorage.web/localStorage',
+        ...getEf77LocationMetadata(),
+        ...snapshotMetadata,
+      } : null;
 
       const write = sessionWriteChainRef.current
         .catch(() => undefined)
         .then(async () => {
+          if (diagnosticBase) {
+            emitEf77Trace('write_started', {
+              ...diagnosticBase,
+              completedAt: null,
+              writeSource: 'persistSessions',
+              promiseCompleted: false,
+            });
+          }
           console.info('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
             event: 'write_started',
             transition,
@@ -188,10 +228,60 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // current session-store consumers, then perform the authoritative
           // adapter write below so swallowed helper failures cannot be treated
           // as a successful turn transition.
-          await saveChatSessions(snapshot);
+          try {
+            await saveChatSessions(snapshot);
+            const legacyStoredSnapshot = diagnosticBase
+              ? await AsyncStorage.getItem(STORAGE_KEY_CHAT_SESSIONS)
+              : expected;
+            const legacyHash = hashEf77Snapshot(legacyStoredSnapshot);
+            const legacyMatches = legacyStoredSnapshot === expected;
+            if (diagnosticBase) {
+              emitEf77Trace(
+                legacyMatches ? 'legacy_write_completed' : 'legacy_write_failed',
+                {
+                ...diagnosticBase,
+                completedAt: Date.now(),
+                writeSource: 'sessionStore.saveChatSessions',
+                snapshotHash: legacyHash,
+                expectedSnapshotHash: hashEf77Snapshot(expected),
+                errorType: legacyMatches ? null : 'SnapshotMismatchOrSwallowedWriteFailure',
+                promiseCompleted: true,
+                }
+              );
+            }
+          } catch (error) {
+            if (diagnosticBase) {
+              emitEf77Trace('legacy_write_failed', {
+                ...diagnosticBase,
+                completedAt: Date.now(),
+                writeSource: 'sessionStore.saveChatSessions',
+                errorType: getEf77ErrorType(error),
+                promiseCompleted: true,
+              });
+            }
+            throw error;
+          }
           try {
             await AsyncStorage.setItem(STORAGE_KEY_CHAT_SESSIONS, expected);
+            if (diagnosticBase) {
+              emitEf77Trace('authoritative_write_completed', {
+                ...diagnosticBase,
+                completedAt: Date.now(),
+                writeSource: 'ChatContext.authoritativeAdapter',
+                snapshotHash: hashEf77Snapshot(expected),
+                promiseCompleted: true,
+              });
+            }
           } catch (error) {
+            if (diagnosticBase) {
+              emitEf77Trace('authoritative_write_failed', {
+                ...diagnosticBase,
+                completedAt: Date.now(),
+                writeSource: 'ChatContext.authoritativeAdapter',
+                errorType: getEf77ErrorType(error),
+                promiseCompleted: true,
+              });
+            }
             console.error('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
               event: 'write_failed',
               transition,
@@ -208,6 +298,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             sessionCount: snapshot.length,
             timestamp: Date.now(),
           }));
+          if (diagnosticBase) {
+            emitEf77Trace('write_committed', {
+              ...diagnosticBase,
+              completedAt: Date.now(),
+              writeSource: 'persistSessions',
+              promiseCompleted: true,
+            });
+          }
         });
 
       sessionWriteChainRef.current = write.catch(() => undefined);
@@ -282,16 +380,55 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EF-59 CONTEXT LIFECYCLE TRACE
   useEffect(() => {
+    const location = getEf77LocationMetadata();
+    emitEf77Trace('provider_mounted', {
+      providerInstanceId: providerInstanceId.current,
+      queueGeneration: queueGeneration.current,
+      timestamp: Date.now(),
+      ...location,
+    });
+    emitEf77Trace('persistence_queue_initialized', {
+      providerInstanceId: providerInstanceId.current,
+      queueGeneration: queueGeneration.current,
+      initialRevision: sessionWriteRevisionRef.current,
+      timestamp: Date.now(),
+      ...location,
+    });
     console.log('[EF59_CONTEXT_TRACE] ChatProvider mounted ' + JSON.stringify({
       instanceId: providerInstanceId.current,
       timestamp: Date.now()
     }));
     return () => {
+      emitEf77Trace('provider_unmounted', {
+        providerInstanceId: providerInstanceId.current,
+        queueGeneration: queueGeneration.current,
+        timestamp: Date.now(),
+        ...getEf77LocationMetadata(),
+      });
       console.log('[EF59_CONTEXT_TRACE] ChatProvider unmounted ' + JSON.stringify({
         instanceId: providerInstanceId.current,
         timestamp: Date.now()
       }));
     };
+  }, []);
+
+  useEffect(() => {
+    if (!isEf77DiagnosticEnabled() || typeof window === 'undefined') return;
+    const handlePageHide = (event: PageTransitionEvent) => {
+      const rawSnapshot = window.localStorage.getItem(EF77_STORAGE_KEY);
+      emitEf77Trace('pagehide_snapshot', {
+        eventType: event.type,
+        providerInstanceId: providerInstanceId.current,
+        queueGeneration: queueGeneration.current,
+        timestamp: Date.now(),
+        storageKey: EF77_STORAGE_KEY,
+        adapterName: 'window.localStorage.read-only',
+        ...getEf77LocationMetadata(),
+        ...summarizeEf77Snapshot(rawSnapshot, diagnosticActiveSessionIdRef.current),
+      });
+    };
+    window.addEventListener('pagehide', handlePageHide);
+    return () => window.removeEventListener('pagehide', handlePageHide);
   }, []);
 
   // EF-58 Code Review Fix: 统一队列持久化 helper
@@ -365,8 +502,38 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const loadPersistedState = async () => {
       try {
+        const diagnosticEnabled = isEf77DiagnosticEnabled();
+        const diagnosticPersistedSessionId = diagnosticEnabled
+          ? await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID)
+          : null;
+        if (diagnosticEnabled) {
+          emitEf77Trace('hydration_read_started', {
+            providerInstanceId: providerInstanceId.current,
+            queueGeneration: queueGeneration.current,
+            timestamp: Date.now(),
+            storageKey: STORAGE_KEY_CHAT_SESSIONS,
+            adapterName: 'AsyncStorage.web/localStorage',
+            activeSessionId: diagnosticPersistedSessionId,
+            ...getEf77LocationMetadata(),
+          });
+        }
         // 加载会话列表
-        const persistedSessions = await getChatSessions();
+        let diagnosticRawSnapshot: string | null = null;
+        const persistedSessions = await getChatSessions(rawSnapshot => {
+          diagnosticRawSnapshot = rawSnapshot;
+        });
+        if (diagnosticEnabled) {
+          emitEf77Trace('hydration_read_completed', {
+            providerInstanceId: providerInstanceId.current,
+            queueGeneration: queueGeneration.current,
+            timestamp: Date.now(),
+            storageKey: STORAGE_KEY_CHAT_SESSIONS,
+            adapterName: 'sessionStore.getChatSessions',
+            rawSnapshotHash: hashEf77Snapshot(diagnosticRawSnapshot),
+            ...getEf77LocationMetadata(),
+            ...summarizeEf77Snapshot(diagnosticRawSnapshot, diagnosticPersistedSessionId),
+          });
+        }
         
         // EF-59 STATE TRACE: getChatSessions 返回后
         console.log('[EF59_STATE_TRACE] persisted sessions loaded', {
@@ -412,6 +579,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             });
             // EF-59 ACTIVE SESSION TRACE
             const restoredSession = persistedSessions.find(s => s.id === persistedSessionId);
+            diagnosticActiveSessionIdRef.current = persistedSessionId;
             console.log('[EF59_ACTIVE_SESSION_TRACE] ' + JSON.stringify({
               persistedSessionId,
               persistedSessionExists: !!restoredSession,
@@ -438,7 +606,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // EF-38: Hydration recovery for interrupted generation
             // If turnStatus is 'generating', the previous request was abandoned during refresh
             // Convert to 'interrupted' state and show recovery UI
-            if (restoredSession?.turnStatus === 'generating') {
+            const interruptionBranchEntered = restoredSession?.turnStatus === 'generating';
+            emitEf77Trace('interruption_decision', {
+              providerInstanceId: providerInstanceId.current,
+              queueGeneration: queueGeneration.current,
+              timestamp: Date.now(),
+              activeSessionId: restoredSession?.id ?? persistedSessionId,
+              previousTurnStatus: restoredSession?.turnStatus ?? null,
+              hasPendingTurn: !!restoredSession?.pendingTurn,
+              branchEntered: interruptionBranchEntered,
+              skipReason: interruptionBranchEntered ? null : 'turn_status_not_generating',
+            });
+            if (interruptionBranchEntered && restoredSession) {
               console.warn('[EF-38] Detected interrupted generation, converting to interrupted state');
               // Remove any partial assistant message (incomplete bubble)
               const recoveredMessages = messagesBeforeInterruptedAssistant(restoredSession);
@@ -457,7 +636,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setMessages(recoveredMessages);
               setChatPhase('idle');
               // Persist the interrupted state
-              await persistSessions(updatedSessions, 'hydration_interrupted');
+              try {
+                await persistSessions(updatedSessions, 'hydration_interrupted', restoredSession.id);
+              } catch (error) {
+                emitEf77Trace('interruption_branch_failed', {
+                  providerInstanceId: providerInstanceId.current,
+                  queueGeneration: queueGeneration.current,
+                  timestamp: Date.now(),
+                  activeSessionId: restoredSession.id,
+                  executionStage: 'persist_interrupted',
+                  errorType: getEf77ErrorType(error),
+                });
+                throw error;
+              }
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: restoredSession.id,
                 previousTurnStatus: 'generating',
@@ -483,6 +674,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const mostRecentSession = persistedSessions.reduce((latest, session) => 
               session.updatedAt > latest.updatedAt ? session : latest
             );
+            diagnosticActiveSessionIdRef.current = mostRecentSession.id;
             setCurrentSessionId(mostRecentSession.id);
             // 立即修正 AsyncStorage 中的 current_session_id
             AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, mostRecentSession.id).catch(err => {
@@ -507,7 +699,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setChatPhase(mostRecentSession.chatPhase);
             }
             // EF-38: Hydration recovery for interrupted generation (fallback case)
-            if (mostRecentSession.turnStatus === 'generating') {
+            const fallbackBranchEntered = mostRecentSession.turnStatus === 'generating';
+            emitEf77Trace('interruption_decision', {
+              providerInstanceId: providerInstanceId.current,
+              queueGeneration: queueGeneration.current,
+              timestamp: Date.now(),
+              activeSessionId: mostRecentSession.id,
+              previousTurnStatus: mostRecentSession.turnStatus ?? null,
+              hasPendingTurn: !!mostRecentSession.pendingTurn,
+              branchEntered: fallbackBranchEntered,
+              skipReason: fallbackBranchEntered ? null : 'turn_status_not_generating',
+            });
+            if (fallbackBranchEntered) {
               console.warn('[EF-38] Detected interrupted generation in fallback, converting to interrupted state');
               const recoveredMessages = messagesBeforeInterruptedAssistant(mostRecentSession);
               const updatedSession = {
@@ -522,7 +725,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setSessions(updatedSessions);
               setMessages(recoveredMessages);
               setChatPhase('idle');
-              await persistSessions(updatedSessions, 'hydration_interrupted_fallback');
+              try {
+                await persistSessions(updatedSessions, 'hydration_interrupted_fallback', mostRecentSession.id);
+              } catch (error) {
+                emitEf77Trace('interruption_branch_failed', {
+                  providerInstanceId: providerInstanceId.current,
+                  queueGeneration: queueGeneration.current,
+                  timestamp: Date.now(),
+                  activeSessionId: mostRecentSession.id,
+                  executionStage: 'persist_interrupted_fallback',
+                  errorType: getEf77ErrorType(error),
+                });
+                throw error;
+              }
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: mostRecentSession.id,
                 previousTurnStatus: 'generating',
@@ -586,6 +801,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         
         // EF-59 Fix: 水合完成，允许依赖 currentSessionId 的逻辑执行
         setIsHydrated(true);
+        const completedSessionId = diagnosticActiveSessionIdRef.current;
+        const completedSession = sessionsRef.current.find(session => session.id === completedSessionId);
+        emitEf77Trace('hydration_completed', {
+          providerInstanceId: providerInstanceId.current,
+          queueGeneration: queueGeneration.current,
+          timestamp: Date.now(),
+          activeSessionId: completedSessionId,
+          activeTurnStatus: completedSession?.turnStatus ?? null,
+          resultingChatPhase: chatPhaseRef.current,
+          hasPendingTurn: !!completedSession?.pendingTurn,
+        });
         console.log('[EF59_HYDRATION] Hydration completed', {
           sessionsCount: persistedSessions?.length ?? 0,
         });
@@ -707,6 +933,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EM-54: 当前会话 ID 变化时保存到 AsyncStorage
   useEffect(() => {
+    diagnosticActiveSessionIdRef.current = currentSessionId;
     if (currentSessionId) {
       AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, currentSessionId);
     }
@@ -804,7 +1031,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       const updated = sessionsRef.current.filter((s) => s.id !== sessionId);
       sessionsRef.current = updated;
       setSessions(updated);
-      await persistSessions(updated, 'session_deleted');
+      await persistSessions(
+        updated,
+        'session_deleted',
+        currentSessionId === sessionId ? null : currentSessionId
+      );
       if (currentSessionId === sessionId) {
         createNewChat();
       }
@@ -864,7 +1095,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       
       // Await persistence
-      await persistSessions(updatedSessions, 'turn_generating');
+      await persistSessions(updatedSessions, 'turn_generating', sessionId);
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_generating', {
         sessionId,
@@ -901,7 +1132,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       setMessages(recoveredMessages);
       setChatPhase('idle');
-      await persistSessions(updatedSessions, 'turn_interrupted');
+      await persistSessions(updatedSessions, 'turn_interrupted', sessionId);
       traceTurnLifecycle('turn_interrupted', {
         sessionId,
         previousTurnStatus,
@@ -934,7 +1165,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       );
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await persistSessions(updatedSessions, 'turn_completed');
+      await persistSessions(updatedSessions, 'turn_completed', sessionId);
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_completed', {
         sessionId,
@@ -964,7 +1195,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       });
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await persistSessions(updatedSessions, 'turn_failed');
+      await persistSessions(updatedSessions, 'turn_failed', sessionId);
       traceTurnLifecycle('turn_failed', {
         sessionId,
         previousTurnStatus: previousSession?.turnStatus,
