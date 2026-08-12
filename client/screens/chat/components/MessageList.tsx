@@ -16,9 +16,8 @@ interface MessageListProps {
 }
 
 export function MessageList({ onShowIntro }: MessageListProps) {
-  const { messages, currentRole, lightAnalysis, isLoading, setInputText, turnStatus, retryLastMessage } = useChat();
+  const { messages, currentRole, setInputText, turnStatus, retryLastMessage } = useChat();
   const scrollViewRef = useRef<ScrollView>(null);
-  const [isAITyping, setIsAITyping] = React.useState(false);
   
 
   // 自动滚动到底部
@@ -143,8 +142,8 @@ export function MessageList({ onShowIntro }: MessageListProps) {
         );
       })}
       
-      {/* AI 正在输入指示器（当最后一条是用户消息时显示，且不在中断状态） */}
-      {messages.length > 0 && messages[messages.length - 1].role === 'user' && turnStatus !== 'interrupted' && (
+      {/* EF-38: Loading is rendered only from authoritative generating state. */}
+      {messages.length > 0 && messages[messages.length - 1].role === 'user' && turnStatus === 'generating' && (
         <View className="flex-row items-center mb-4 px-4">
           <Image
             source={{ uri: currentRole?.avatar }}
