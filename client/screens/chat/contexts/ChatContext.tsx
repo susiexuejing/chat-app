@@ -110,6 +110,7 @@ interface QueuedMessage {
 // EM-54: 持久化存储键
 const STORAGE_KEY_CURRENT_SESSION_ID = 'current_session_id';
 const STORAGE_KEY_CURRENT_ROLE_ID = 'current_role_id';
+const STORAGE_KEY_CHAT_SESSIONS = 'chat_sessions';
 // EF-58: 消息队列持久化存储键
 const STORAGE_KEY_MESSAGE_QUEUE = 'message_queue';
 // EF-58: 队列大小限制
@@ -159,6 +160,61 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // These refs always contain the latest state, avoiding stale closure issues
   const messagesRef = useRef<ChatMessage[]>([]);
   const sessionsRef = useRef<ChatSession[]>([]);
+  const sessionWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const sessionWriteRevisionRef = useRef(0);
+
+  // EF-38: ChatContext is the single writer for chat_sessions. Writes are
+  // serialized in submission order so an older whole-array snapshot cannot
+  // finish after and overwrite a newer turn transition. Write through the
+  // AsyncStorage adapter directly so durability failures propagate to the
+  // transition caller instead of being absorbed by the legacy store helper.
+  const persistSessions = useCallback(
+    async (nextSessions: ChatSession[], transition: string): Promise<void> => {
+      const revision = ++sessionWriteRevisionRef.current;
+      const snapshot = JSON.parse(JSON.stringify(nextSessions)) as ChatSession[];
+      const expected = JSON.stringify(snapshot);
+
+      const write = sessionWriteChainRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          console.info('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
+            event: 'write_started',
+            transition,
+            revision,
+            sessionCount: snapshot.length,
+            timestamp: Date.now(),
+          }));
+          // Keep the existing storage adapter path for compatibility with
+          // current session-store consumers, then perform the authoritative
+          // adapter write below so swallowed helper failures cannot be treated
+          // as a successful turn transition.
+          await saveChatSessions(snapshot);
+          try {
+            await AsyncStorage.setItem(STORAGE_KEY_CHAT_SESSIONS, expected);
+          } catch (error) {
+            console.error('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
+              event: 'write_failed',
+              transition,
+              revision,
+              sessionCount: snapshot.length,
+              timestamp: Date.now(),
+            }));
+            throw new Error(`chat_sessions durable write failed at revision ${revision}`);
+          }
+          console.info('[EF38_PERSISTENCE_TRACE]', JSON.stringify({
+            event: 'write_committed',
+            transition,
+            revision,
+            sessionCount: snapshot.length,
+            timestamp: Date.now(),
+          }));
+        });
+
+      sessionWriteChainRef.current = write.catch(() => undefined);
+      return write;
+    },
+    []
+  );
   
   // EF-59: Centralized helpers to update both ref and state atomically
   const replaceMessages = (updater: (previous: ChatMessage[]) => ChatMessage[]): ChatMessage[] => {
@@ -328,6 +384,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             count: persistedSessions.length
           });
           
+          sessionsRef.current = persistedSessions;
           setSessions(persistedSessions);
           
           // 加载当前会话 ID
@@ -400,7 +457,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setMessages(recoveredMessages);
               setChatPhase('idle');
               // Persist the interrupted state
-              await saveChatSessions(updatedSessions);
+              await persistSessions(updatedSessions, 'hydration_interrupted');
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: restoredSession.id,
                 previousTurnStatus: 'generating',
@@ -465,7 +522,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               setSessions(updatedSessions);
               setMessages(recoveredMessages);
               setChatPhase('idle');
-              await saveChatSessions(updatedSessions);
+              await persistSessions(updatedSessions, 'hydration_interrupted_fallback');
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: mostRecentSession.id,
                 previousTurnStatus: 'generating',
@@ -540,7 +597,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
     
     loadPersistedState();
-  }, []);
+  }, [persistSessions]);
 
   // EF-59 Phase 5: 刷新恢复 - 初始化后从后端同步对话和消息
   const hasSyncedRef = useRef(false);
@@ -648,30 +705,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     syncFromBackend();
   }, [currentSessionId, sessions, isHydrated]);
 
-  // EM-54: 会话列表变化时保存到 AsyncStorage
-  useEffect(() => {
-    if (sessions.length > 0) {
-      // EF-59 WRITE TRACE: 写入前状态
-      const currentSession = sessions.find(s => s.id === currentSessionId);
-      console.log('[EF59_WRITE_TRACE] Before AsyncStorage write', {
-        sessionsCount: sessions.length,
-        sessionId: currentSessionId,
-        conversationId: currentSession?.conversationId ?? null,
-        messagesCount: currentSession?.messages?.length ?? 0,
-      });
-      
-      saveChatSessions(sessions).then(() => {
-        // EF-59 WRITE TRACE: 写入成功
-        console.log('[EF59_WRITE_SUCCESS] AsyncStorage write completed', {
-          key: 'chat_sessions',
-          sessionsCount: sessions.length,
-        });
-      }).catch(err => {
-        console.error('[EF59_WRITE_ERROR] AsyncStorage write failed', err);
-      });
-    }
-  }, [sessions, currentSessionId]);
-
   // EM-54: 当前会话 ID 变化时保存到 AsyncStorage
   useEffect(() => {
     if (currentSessionId) {
@@ -768,13 +801,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const deleteSession = useCallback(
     async (sessionId: string) => {
-      const updated = sessions.filter((s) => s.id !== sessionId);
+      const updated = sessionsRef.current.filter((s) => s.id !== sessionId);
+      sessionsRef.current = updated;
       setSessions(updated);
+      await persistSessions(updated, 'session_deleted');
       if (currentSessionId === sessionId) {
         createNewChat();
       }
     },
-    [sessions, currentSessionId, createNewChat]
+    [currentSessionId, createNewChat, persistSessions]
   );
 
   // EF-38: Centralized turn transition functions
@@ -829,7 +864,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       
       // Await persistence
-      await saveChatSessions(updatedSessions);
+      await persistSessions(updatedSessions, 'turn_generating');
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_generating', {
         sessionId,
@@ -840,7 +875,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messageCount: updatedMessages.length,
       });
     },
-    []
+    [persistSessions]
   );
 
   // EF-38: Mark turn as interrupted (during hydration recovery)
@@ -866,7 +901,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       setSessions(updatedSessions);
       setMessages(recoveredMessages);
       setChatPhase('idle');
-      await saveChatSessions(updatedSessions);
+      await persistSessions(updatedSessions, 'turn_interrupted');
       traceTurnLifecycle('turn_interrupted', {
         sessionId,
         previousTurnStatus,
@@ -876,7 +911,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messageCount: recoveredMessages.length,
       });
     },
-    []
+    [persistSessions]
   );
 
   // EF-38: Finalize turn as completed (after UI completion)
@@ -899,7 +934,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       );
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await saveChatSessions(updatedSessions);
+      await persistSessions(updatedSessions, 'turn_completed');
       await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
       traceTurnLifecycle('turn_completed', {
         sessionId,
@@ -910,7 +945,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messageCount: finalMessages.length,
       });
     },
-    []
+    [persistSessions]
   );
 
   // EF-38: Mark turn as failed (on error)
@@ -929,7 +964,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       });
       sessionsRef.current = updatedSessions;
       setSessions(updatedSessions);
-      await saveChatSessions(updatedSessions);
+      await persistSessions(updatedSessions, 'turn_failed');
       traceTurnLifecycle('turn_failed', {
         sessionId,
         previousTurnStatus: previousSession?.turnStatus,
@@ -939,7 +974,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messageCount: keepMessages?.length ?? previousSession?.messages.length ?? 0,
       });
     },
-    []
+    [persistSessions]
   );
 
   // EM-43: 发送核心函数（内部使用，不直接暴露）
@@ -1566,7 +1601,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         cleanupResources();
       }
     },
-    [currentRole, roles, cleanupResources]
+    [currentRole, cleanupResources, finalizeTurnCompleted, markTurnFailed, markTurnGenerating, markTurnInterrupted]
   );
 
   // EM-43: 发送守卫包装
