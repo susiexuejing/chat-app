@@ -86,6 +86,7 @@ function ChatContent() {
       control_to_helplessness: '控制失败→无力',
       mixed_pattern: '混合情绪',
       general: '一般状态',
+      general_flow: '一般状态',
     };
     const flowStageMap: Record<string, string> = {
       beginning: '刚开始',
@@ -94,8 +95,9 @@ function ChatContent() {
       deepening: '深入',
       cresting: '到顶',
     };
-    const flowTypeLabel = flowTypeMap[flowContext.flowType] || flowContext.flowType;
-    const flowStageLabel = flowStageMap[flowContext.flowStage || ''] || flowContext.flowStage || '观察中';
+    // EF-24: 使用安全回退，不直接回显内部枚举值
+    const flowTypeLabel = flowTypeMap[flowContext.flowType] || '未识别状态';
+    const flowStageLabel = flowStageMap[flowContext.flowStage || ''] || '观察中';
     const confidenceLabel = flowContext.flowConfidence !== null
       ? Math.round(flowContext.flowConfidence * 100) + '%'
       : '--';
