@@ -11,6 +11,7 @@ logs/
 *.tsbuildinfo
 node-compile-cache/
 .cozeproj/reduction
+.codegraph
 
 # Environment files - never commit secrets
 .env
@@ -21,19 +22,15 @@ node-compile-cache/
 
 # Deployment files with potential secrets
 deployment/server-env.tar.gz
-<<<<<<< HEAD
-=======
 deployment/startup.sh
->>>>>>> 0b86ac5 (fix: remove tracked environment secrets and update .gitignore (EM-8))
 deployment/*.tar.gz
 
-# Environment files - never commit secrets
-.env
-.env.local
-.env.*.local
-*.env
-!*.env.example
-
-# Deployment files with potential secrets
-deployment/server-env.tar.gz
-.codegraph
+# Runtime and user-derived data must never be committed.
+# Keep only empty directory markers so runtime can initialize these paths.
+server/data/ltu/*
+!server/data/ltu/.gitkeep
+server/data/evolution/*
+!server/data/evolution/.gitkeep
+server/data/neural_profiles.json
+server/auto/data/*
+!server/auto/data/.gitkeep

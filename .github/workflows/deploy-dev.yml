@@ -39,6 +39,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify runtime data is not tracked or bundled
+        run: pnpm run check:runtime-data
+
       - name: Run client tests
         run: pnpm --dir client exec jest --runInBand
 
@@ -69,6 +72,9 @@ jobs:
           </body>
           </html>
           EOF
+
+      - name: Verify release artifact excludes runtime data
+        run: pnpm run check:runtime-data
 
       - name: Prepare SSH
         env:
