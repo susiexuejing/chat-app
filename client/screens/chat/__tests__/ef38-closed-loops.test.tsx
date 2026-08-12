@@ -223,6 +223,36 @@ describe('EF-38 minimum closed loops', () => {
     });
   });
 
+  it('Loop B2: transport resolve before cleanup persists one interrupted turn', async () => {
+    const streams = createStreamMock();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const { sendPromise } = await beginTurn();
+    const originalPendingTurn = storedSessions[0].pendingTurn!;
+
+    await act(async () => {
+      streams[0].resolve();
+      await streams[0].promise;
+      await sendPromise;
+    });
+
+    await waitFor(() => {
+      expect(capturedContext?.chatPhase).toBe('idle');
+      expect(capturedContext?.turnStatus).toBe('interrupted');
+      expect(capturedContext?.pendingTurn).toEqual(originalPendingTurn);
+      expect(capturedContext?.messages).toHaveLength(1);
+      expect(capturedContext?.messages[0].role).toBe('user');
+    });
+
+    expect(storedSessions[0]).toMatchObject({
+      chatPhase: 'idle',
+      turnStatus: 'interrupted',
+      pendingTurn: originalPendingTurn,
+    });
+    expect(storedSessions[0].messages).toHaveLength(1);
+  });
+
   it('Loop C: real Retry UI preserves identity and completes without duplication', async () => {
     const streams = createStreamMock();
     const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
