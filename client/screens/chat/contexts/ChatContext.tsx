@@ -74,6 +74,20 @@ interface SendSnapshot {
   message: string;
 }
 
+// Keep every completed message through the pending user message, but never
+// restore the assistant bubble created for the interrupted turn.
+function messagesBeforeInterruptedAssistant(session: ChatSession): ChatMessage[] {
+  const pendingUserMessageId = session.pendingTurn?.userMessageId;
+  if (!pendingUserMessageId) return session.messages;
+
+  const pendingUserIndex = session.messages.findIndex(
+    message => message.id === pendingUserMessageId
+  );
+  return pendingUserIndex >= 0
+    ? session.messages.slice(0, pendingUserIndex + 1)
+    : session.messages;
+}
+
 // EF-58: 消息队列状态
 export type QueuedMessageStatus = 'queued' | 'processing' | 'completed' | 'failed';
 
@@ -345,9 +359,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             if (restoredSession?.turnStatus === 'generating') {
               console.warn('[EF-38] Detected interrupted generation, converting to interrupted state');
               // Remove any partial assistant message (incomplete bubble)
-              const recoveredMessages = restoredSession.messages.filter(m => 
-                m.role === 'user' || (m.role === 'assistant' && m.content && m.content.length > 0 && !m.isThinking)
-              );
+              const recoveredMessages = messagesBeforeInterruptedAssistant(restoredSession);
               // Update session with interrupted state
               const updatedSession = {
                 ...restoredSession,
@@ -407,9 +419,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // EF-38: Hydration recovery for interrupted generation (fallback case)
             if (mostRecentSession.turnStatus === 'generating') {
               console.warn('[EF-38] Detected interrupted generation in fallback, converting to interrupted state');
-              const recoveredMessages = mostRecentSession.messages.filter(m => 
-                m.role === 'user' || (m.role === 'assistant' && m.content && m.content.length > 0 && !m.isThinking)
-              );
+              const recoveredMessages = messagesBeforeInterruptedAssistant(mostRecentSession);
               const updatedSession = {
                 ...mostRecentSession,
                 messages: recoveredMessages,
@@ -728,39 +738,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     [sessions, currentSessionId, createNewChat]
   );
 
-  // EF-59: 更新会话的完成状态（消息 + chatPhase）
-  // 当助手回复完成时调用，确保 sessions[].messages 与 UI messages 同步
-  // EF-59 CTO Fix: 使用 sessionsRef 而非 state updater，确保持久化真正被 await
-  const updateSessionWithCompletedResponse = useCallback(
-    async (sessionId: string, finalMessages: ChatMessage[], finalChatPhase: 'done' | 'idle') => {
-      // EF-59 CTO Fix: 使用 ref 计算最终 sessions，不依赖 state updater
-      const updatedSessions = sessionsRef.current.map(session =>
-        session.id === sessionId
-          ? {
-              ...session,
-              messages: finalMessages,
-              chatPhase: finalChatPhase,
-              updatedAt: Date.now(),
-            }
-          : session
-      );
-      
-      // 更新 ref 和 state
-      sessionsRef.current = updatedSessions;
-      setSessions(updatedSessions);
-      
-      // EF-59 CTO Fix: 真正 await 持久化，不在 state updater 中调用
-      try {
-        await saveChatSessions(updatedSessions);
-        await AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, sessionId);
-      } catch (err) {
-        console.error('[EF-59] Failed to persist session after completion:', err);
-        throw err;
-      }
-    },
-    []
-  );
-
   // EF-38: Centralized turn transition functions
   // These functions atomically update session state and persist to storage
 
@@ -822,19 +799,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   // EF-38: Mark turn as interrupted (during hydration recovery)
   const markTurnInterrupted = useCallback(
     async (sessionId: string) => {
-      const updatedSessions = sessionsRef.current.map(session =>
-        session.id === sessionId
-          ? {
-              ...session,
-              turnStatus: 'interrupted' as TurnStatus,
-              chatPhase: 'idle' as const,
-              updatedAt: Date.now(),
-            }
-          : session
+      const currentSession = sessionsRef.current.find(session => session.id === sessionId);
+      const previousTurnStatus = currentSession?.turnStatus ?? 'idle';
+      const recoveredMessages = currentSession
+        ? messagesBeforeInterruptedAssistant(currentSession)
+        : messagesRef.current;
+      const updatedSessions = sessionsRef.current.map(session => session.id === sessionId
+        ? {
+            ...session,
+            messages: recoveredMessages,
+            turnStatus: 'interrupted' as TurnStatus,
+            chatPhase: 'idle' as const,
+            updatedAt: Date.now(),
+          }
+        : session
       );
       sessionsRef.current = updatedSessions;
+      messagesRef.current = recoveredMessages;
       setSessions(updatedSessions);
+      setMessages(recoveredMessages);
+      setChatPhase('idle');
+      setIsThinking(false);
+      setIsLoading(false);
       await saveChatSessions(updatedSessions);
+      console.log('[EF-38] mark interrupted', {
+        sessionId,
+        previousTurnStatus,
+        nextTurnStatus: 'interrupted',
+        chatPhase: 'idle',
+        hasPendingTurn: !!currentSession?.pendingTurn,
+      });
     },
     []
   );
@@ -1343,18 +1337,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         setIsLoading(false);
 
-        // EF-38 CTO Fix: Define fallbackFinalize for timeout/empty cases
-        const fallbackFinalize = async (phase: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done') => {
-          console.log('[EF-38] Fallback finalize with phase:', phase);
-          setChatPhase(phase);
-          setIsThinking(false);
-          setIsLoading(false);
-          
-          // Persist current state without marking as completed
-          const currentMessages = messagesRef.current;
-          await updateSessionWithCompletedResponse(snapshot.sessionId, currentMessages, phase === 'done' ? 'done' : 'idle');
-        };
-
         // EF-38 CTO Fix: Await stream completion independently from UI completion
         // This ensures we don't wait 30 seconds for stream errors
         let streamOutcome: CompletionOutcome = 'completed';
@@ -1387,15 +1369,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         
         // EF-38 CTO Fix: Handle timed_out
         if (streamOutcome === 'timed_out') {
-          console.warn('[EF-38] Stream timed out, calling markTurnFailed');
-          await markTurnFailed(snapshot.sessionId);
+          console.warn('[EF-38] Stream timed out, marking turn interrupted');
+          await markTurnInterrupted(snapshot.sessionId);
           return 'interrupted';
         }
         
         // EF-38 CTO Fix: Handle empty stream
         if (streamOutcome === 'empty') {
-          console.log('[EF-38] Empty stream, finalizing with idle phase');
-          await fallbackFinalize('idle');
+          console.log('[EF-38] Empty stream, marking turn interrupted');
+          await markTurnInterrupted(snapshot.sessionId);
           return 'interrupted';
         }
         
