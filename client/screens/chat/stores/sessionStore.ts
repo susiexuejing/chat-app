@@ -28,9 +28,12 @@ function createMessage(
 }
 
 // 获取所有对话历史
-export async function getChatSessions(): Promise<ChatSession[]> {
+export async function getChatSessions(
+  onRawRead?: (raw: string | null) => void
+): Promise<ChatSession[]> {
   try {
     const data = await AsyncStorage.getItem(STORAGE_KEY);
+    onRawRead?.(data);
     console.log('[EF59_STORE_TRACE] getChatSessions called', {
       hasData: !!data,
       dataSize: data?.length ?? 0,
