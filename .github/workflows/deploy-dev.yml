@@ -1,4 +1,4 @@
-name: Deploy Frontend to Dev
+name: Deploy Application to Dev
 
 on:
   push:
@@ -45,10 +45,16 @@ jobs:
       - name: Run client tests
         run: pnpm --dir client exec jest --runInBand
 
+      - name: Run server release tests
+        run: pnpm --dir server exec jest --runInBand --runTestsByPath src/__tests__/em43.test.ts
+
       - name: Build dev frontend
         env:
           EXPO_PUBLIC_APP_ENV: DEV
         run: pnpm --dir client exec expo export --platform web --output-dir dist
+
+      - name: Build dev backend
+        run: pnpm --dir server run build
 
       - name: Record deployed commit
         run: printf '%s\n' "$GITHUB_SHA" > client/dist/deployment-sha.txt
@@ -93,33 +99,100 @@ jobs:
           SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
           SSH_USER: ${{ secrets.DEV_SSH_USER }}
         run: |
-          RELEASE_DIR="/tmp/emotionflow-dev-$GITHUB_SHA"
-          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "mkdir -p '$RELEASE_DIR'"
-          rsync -az --delete -e "ssh -i ~/.ssh/dev_deploy_key -p $SSH_PORT" client/dist/ "$SSH_USER@$SSH_HOST:$RELEASE_DIR/"
+          RELEASE_ROOT="/tmp/emotionflow-dev-$GITHUB_SHA"
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "mkdir -p '$RELEASE_ROOT/frontend' '$RELEASE_ROOT/backend-dist'"
+          rsync -az --delete -e "ssh -i ~/.ssh/dev_deploy_key -p $SSH_PORT" \
+            client/dist/ "$SSH_USER@$SSH_HOST:$RELEASE_ROOT/frontend/"
+          rsync -az --delete -e "ssh -i ~/.ssh/dev_deploy_key -p $SSH_PORT" \
+            server/dist/ "$SSH_USER@$SSH_HOST:$RELEASE_ROOT/backend-dist/"
 
-      - name: Activate dev release
+      - name: Preflight dev backend
         env:
           SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
           SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
           SSH_USER: ${{ secrets.DEV_SSH_USER }}
         run: |
-          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" "DEPLOY_SHA=$GITHUB_SHA bash -s" <<'REMOTE'
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          DEPLOY_DIR=/var/www/chat-app/dev
-          RELEASE_DIR="/tmp/emotionflow-dev-$DEPLOY_SHA"
-          BACKUP_DIR=/var/www/chat-app/dev-backups
-          mkdir -p "$DEPLOY_DIR" "$BACKUP_DIR"
-          if [ -n "$(ls -A "$DEPLOY_DIR" 2>/dev/null)" ]; then
-            tar -czf "$BACKUP_DIR/dev-$(date +%Y%m%d-%H%M%S).tar.gz" -C "$DEPLOY_DIR" .
-          fi
-          rsync -a --delete "$RELEASE_DIR/" "$DEPLOY_DIR/"
-          rm -rf "$RELEASE_DIR"
-          find "$BACKUP_DIR" -type f -name 'dev-*.tar.gz' -mtime +14 -delete
+          test -d /var/www/chat-app/server
+          test -f /var/www/chat-app/server/.env
+          command -v pm2 >/dev/null
+          pm2 describe chat-server >/dev/null
+          test -d /var/www/chat-app/server/node_modules
+          REMOTE
+
+      - name: Activate dev release
+        id: activate
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA=$GITHUB_SHA BUILD_TIME=$BUILD_TIME bash -s" <<'REMOTE'
+          set -euo pipefail
+          FRONTEND_DIR=/var/www/chat-app/dev
+          BACKEND_DIR=/var/www/chat-app/server
+          RELEASE_ROOT="/tmp/emotionflow-dev-$DEPLOY_SHA"
+          BACKUP_ROOT=/var/www/chat-app/dev-backups
+          FRONTEND_BACKUP="$BACKUP_ROOT/frontend-$DEPLOY_SHA.tar.gz"
+          BACKEND_BACKUP="$BACKUP_ROOT/backend-$DEPLOY_SHA.tar.gz"
+          VERSION_BACKUP="$BACKUP_ROOT/version-$DEPLOY_SHA.env"
+          ROLLBACK_ROOT="/tmp/emotionflow-dev-rollback-$DEPLOY_SHA"
+
+          case "$RELEASE_ROOT" in /tmp/emotionflow-dev-*) ;; *) exit 1 ;; esac
+          case "$ROLLBACK_ROOT" in /tmp/emotionflow-dev-rollback-*) ;; *) exit 1 ;; esac
+
+          mkdir -p "$FRONTEND_DIR" "$BACKEND_DIR" "$BACKUP_ROOT" "$ROLLBACK_ROOT"
+          PREVIOUS_VERSION="$(curl --fail --silent http://127.0.0.1:9091/api/v1/version)"
+          PREVIOUS_GIT_COMMIT="$(printf '%s' "$PREVIOUS_VERSION" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).gitCommit))")"
+          PREVIOUS_BUILD_TIME="$(printf '%s' "$PREVIOUS_VERSION" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).buildTime))")"
+          printf 'PREVIOUS_GIT_COMMIT=%s\nPREVIOUS_BUILD_TIME=%s\n' \
+            "$PREVIOUS_GIT_COMMIT" "$PREVIOUS_BUILD_TIME" > "$VERSION_BACKUP"
+          tar -czf "$FRONTEND_BACKUP" -C "$FRONTEND_DIR" .
+          tar -czf "$BACKEND_BACKUP" -C "$BACKEND_DIR" dist
+
+          rollback() {
+            echo "Activation failed; restoring previous DEV release."
+            mkdir -p "$ROLLBACK_ROOT/frontend" "$ROLLBACK_ROOT/backend"
+            tar -xzf "$FRONTEND_BACKUP" -C "$ROLLBACK_ROOT/frontend"
+            tar -xzf "$BACKEND_BACKUP" -C "$ROLLBACK_ROOT/backend"
+            rsync -a --delete "$ROLLBACK_ROOT/frontend/" "$FRONTEND_DIR/"
+            rsync -a --delete "$ROLLBACK_ROOT/backend/dist/" "$BACKEND_DIR/dist/"
+            cd "$BACKEND_DIR"
+            NODE_ENV=development GIT_COMMIT="$PREVIOUS_GIT_COMMIT" \
+              BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart chat-server --update-env
+          }
+          trap rollback ERR
+
+          rsync -a --delete "$RELEASE_ROOT/frontend/" "$FRONTEND_DIR/"
+          rsync -a --delete "$RELEASE_ROOT/backend-dist/" "$BACKEND_DIR/dist/"
+          cd "$BACKEND_DIR"
+          NODE_ENV=development GIT_COMMIT="$DEPLOY_SHA" BUILD_TIME="$BUILD_TIME" \
+            pm2 restart chat-server --update-env
+
+          for attempt in 1 2 3 4 5 6; do
+            current_sha="$(curl --fail --silent http://127.0.0.1:9091/api/v1/version \
+              | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write(JSON.parse(d).gitCommit||'')}catch{}})" \
+              || true)"
+            [ "$current_sha" = "$DEPLOY_SHA" ] && break
+            [ "$attempt" -eq 6 ] && exit 1
+            sleep 5
+          done
+
+          trap - ERR
+          rm -rf -- "$RELEASE_ROOT" "$ROLLBACK_ROOT"
+          find "$BACKUP_ROOT" -type f \
+            \( -name 'frontend-*.tar.gz' -o -name 'backend-*.tar.gz' \
+               -o -name 'version-*.env' \) \
+            -mtime +14 -delete
           REMOTE
 
       - name: Verify dev deployment
         run: |
-          for attempt in 1 2 3 4 5; do
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
             deployed_sha="$(
               curl --fail --silent --show-error \
                 https://dev.douhaoyu.cn/deployment-sha.txt || true
@@ -132,15 +205,63 @@ jobs:
                 | head -1 || true
             )"
 
+            backend_sha="$(
+              curl --fail --silent --show-error \
+                https://dev.douhaoyu.cn/api/v1/version \
+                | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write(JSON.parse(d).gitCommit||'')}catch{}})" \
+                || true
+            )"
+
+            backend_health="$(
+              curl --fail --silent --show-error \
+                https://dev.douhaoyu.cn/api/v1/health \
+                | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{process.stdout.write(JSON.parse(d).status||'')}catch{}})" \
+                || true
+            )"
+
             if [ "$deployed_sha" = "$GITHUB_SHA" ] &&
-               [ "$html_sha" = "$GITHUB_SHA" ]; then
+               [ "$html_sha" = "$GITHUB_SHA" ] &&
+               [ "$backend_sha" = "$GITHUB_SHA" ] &&
+               [ "$backend_health" = "ok" ]; then
               echo "DEV deployment verified at $GITHUB_SHA"
               exit 0
             fi
 
-            echo "Waiting for deployment evidence ($attempt/5)"
+            echo "Waiting for deployment evidence ($attempt/10)"
             sleep 5
           done
 
           echo "DEV deployment verification failed."
           exit 1
+
+      - name: Roll back failed activation
+        if: ${{ failure() && steps.activate.outcome == 'success' }}
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "DEPLOY_SHA=$GITHUB_SHA bash -s" <<'REMOTE'
+          set -euo pipefail
+          FRONTEND_DIR=/var/www/chat-app/dev
+          BACKEND_DIR=/var/www/chat-app/server
+          BACKUP_ROOT=/var/www/chat-app/dev-backups
+          FRONTEND_BACKUP="$BACKUP_ROOT/frontend-$DEPLOY_SHA.tar.gz"
+          BACKEND_BACKUP="$BACKUP_ROOT/backend-$DEPLOY_SHA.tar.gz"
+          VERSION_BACKUP="$BACKUP_ROOT/version-$DEPLOY_SHA.env"
+          ROLLBACK_ROOT="/tmp/emotionflow-dev-rollback-$DEPLOY_SHA"
+          test -f "$FRONTEND_BACKUP"
+          test -f "$BACKEND_BACKUP"
+          test -f "$VERSION_BACKUP"
+          . "$VERSION_BACKUP"
+          mkdir -p "$ROLLBACK_ROOT/frontend" "$ROLLBACK_ROOT/backend"
+          tar -xzf "$FRONTEND_BACKUP" -C "$ROLLBACK_ROOT/frontend"
+          tar -xzf "$BACKEND_BACKUP" -C "$ROLLBACK_ROOT/backend"
+          rsync -a --delete "$ROLLBACK_ROOT/frontend/" "$FRONTEND_DIR/"
+          rsync -a --delete "$ROLLBACK_ROOT/backend/dist/" "$BACKEND_DIR/dist/"
+          cd "$BACKEND_DIR"
+          NODE_ENV=development GIT_COMMIT="$PREVIOUS_GIT_COMMIT" \
+            BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart chat-server --update-env
+          rm -rf -- "$ROLLBACK_ROOT"
+          REMOTE
