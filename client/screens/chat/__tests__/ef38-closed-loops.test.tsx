@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { MessageList } from '../components/MessageList';
@@ -7,6 +7,7 @@ import { chatStart, chatStream } from '../api/cozeApi';
 import * as sessionStore from '../stores/sessionStore';
 import type { ChatStartResponse } from '../api/cozeApi';
 import type { ChatMessage, ChatSession, PendingTurn, TurnStatus } from '../types';
+import { EF77_TRACE_PREFIX } from '../utils/ef77Diagnostics';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: jest.fn(),
@@ -56,6 +57,7 @@ type StreamCallbacks = Parameters<typeof chatStream>[1];
 interface StreamController {
   promise: Promise<void>;
   resolve: () => void;
+  reject: (error: Error) => void;
   callbacks: StreamCallbacks;
 }
 
@@ -85,6 +87,33 @@ const chatStartResponse: ChatStartResponse = {
 };
 
 let capturedContext: CapturedContext | null = null;
+let pagehideListener: ((event: { type: string }) => void) | null = null;
+
+function installDiagnosticWindow() {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      location: { search: '?ef77trace=true', origin: 'https://runtime.invalid', pathname: '/chat' },
+      localStorage: {
+        getItem: jest.fn((key: string) => storage[key] ?? null),
+        setItem: jest.fn((key: string, value: string) => { storage[key] = value; }),
+        removeItem: jest.fn((key: string) => { delete storage[key]; }),
+      },
+      addEventListener: jest.fn((name: string, listener: (event: { type: string }) => void) => {
+        if (name === 'pagehide') pagehideListener = listener;
+      }),
+      removeEventListener: jest.fn((name: string) => {
+        if (name === 'pagehide') pagehideListener = null;
+      }),
+    },
+  });
+}
+
+function ef77Events(infoSpy: jest.SpyInstance) {
+  return infoSpy.mock.calls
+    .filter(call => call[0] === EF77_TRACE_PREFIX)
+    .map(call => JSON.parse(call[1] as string) as Record<string, unknown>);
+}
 
 function Harness() {
   const context = useChat();
@@ -109,10 +138,12 @@ function createStreamMock() {
 
   mockedChatStream.mockImplementation((_sessionId, callbacks) => {
     let resolvePromise: () => void = () => undefined;
-    const promise = new Promise<void>((resolve) => {
+    let rejectPromise: (error: Error) => void = () => undefined;
+    const promise = new Promise<void>((resolve, reject) => {
       resolvePromise = resolve;
+      rejectPromise = reject;
     });
-    controllers.push({ promise, resolve: resolvePromise, callbacks });
+    controllers.push({ promise, resolve: resolvePromise, reject: rejectPromise, callbacks });
     return promise;
   });
 
@@ -155,6 +186,7 @@ describe('EF-38 minimum closed loops', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     capturedContext = null;
+    pagehideListener = null;
     storedSessions = [];
     Object.keys(storage).forEach(key => delete storage[key]);
 
@@ -176,6 +208,11 @@ describe('EF-38 minimum closed loops', () => {
     mockedCreateConversation.mockResolvedValue({ id: 'conversation-1' });
     mockedFetchConversation.mockResolvedValue(null);
     mockedChatStart.mockResolvedValue(chatStartResponse);
+  });
+
+  afterEach(() => {
+    cleanup();
+    delete (globalThis as { window?: unknown }).window;
   });
 
   it('Loop A: restores one completed turn after remount', async () => {
@@ -235,6 +272,150 @@ describe('EF-38 minimum closed loops', () => {
       streams[0].resolve();
       await abandonedSend;
     });
+  });
+
+  it.each([
+    ['current-session recovery', false],
+    ['most-recent fallback recovery', true],
+  ])('preserves generating through teardown termination and completes Retry via %s', async (_label, forceFallback) => {
+    installDiagnosticWindow();
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const streams = createStreamMock();
+    const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const { sendPromise } = await beginTurn('Refresh race message');
+    await waitFor(() => expect(storedSessions[0]?.turnStatus).toBe('generating'));
+    const durablePendingTurn = storedSessions[0].pendingTurn!;
+    const writesBeforeTermination = mockedSaveChatSessions.mock.calls.length;
+    const transportError = new TypeError('transport terminated by document teardown');
+
+    await act(async () => {
+      pagehideListener?.({ type: 'pagehide' });
+      streams[0].callbacks.onError?.(transportError);
+      streams[0].reject(transportError);
+      await sendPromise;
+    });
+
+    expect(mockedSaveChatSessions.mock.calls).toHaveLength(writesBeforeTermination);
+    expect(storedSessions[0]).toMatchObject({
+      turnStatus: 'generating',
+      chatPhase: 'responding',
+      pendingTurn: durablePendingTurn,
+    });
+    const terminationEvents = ef77Events(infoSpy).filter(event =>
+      event.event === 'failure_source_observed'
+      && event.failurePath === 'transport_termination_without_failed_write'
+    );
+    expect(terminationEvents).toHaveLength(2);
+    expect(terminationEvents.map(event => event.source)).toEqual([
+      'chatStream.onError',
+      'chatStream.rejection',
+    ]);
+    expect(terminationEvents.every(event => event.mounted === true)).toBe(true);
+    expect(terminationEvents.every(event => event.transportTerminated === true)).toBe(true);
+    expect(terminationEvents.every(event => event.terminationReason === 'pagehide')).toBe(true);
+
+    await firstProvider.unmount();
+    if (forceFallback) storage.current_session_id = 'missing-session-pointer';
+    const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    await waitFor(() => {
+      expect(capturedContext?.turnStatus).toBe('interrupted');
+      expect(capturedContext?.pendingTurn).toEqual(durablePendingTurn);
+      expect(capturedContext?.messages).toHaveLength(1);
+    });
+    expect(recoveredProvider.getByText('重新生成')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(recoveredProvider.getByText('重新生成'));
+    });
+    await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(2));
+    expect(mockedChatStart.mock.calls[1][3]).toBe(durablePendingTurn.requestId);
+
+    await completeStream(streams[1], 'Recovered assistant reply');
+    await waitFor(() => {
+      expect(capturedContext?.turnStatus).toBe('completed');
+      expect(capturedContext?.messages.map(message => message.content)).toEqual([
+        'Refresh race message',
+        'Recovered assistant reply',
+      ]);
+      expect(capturedContext?.messages.filter(message => message.role === 'user')).toHaveLength(1);
+      expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(1);
+    });
+    infoSpy.mockRestore();
+  });
+
+  it('keeps an active-page stream error on the failed path', async () => {
+    installDiagnosticWindow();
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const streams = createStreamMock();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const { sendPromise } = await beginTurn('Real stream failure');
+    const streamError = new TypeError('active network failure');
+    await act(async () => {
+      streams[0].callbacks.onError?.(streamError);
+      streams[0].reject(streamError);
+      await sendPromise;
+    });
+
+    await waitFor(() => expect(storedSessions[0]?.turnStatus).toBe('failed'));
+    expect(storedSessions[0]).toMatchObject({
+      turnStatus: 'failed',
+      chatPhase: 'idle',
+    });
+    expect(storedSessions[0].pendingTurn).toBeDefined();
+    const observed = ef77Events(infoSpy).find(event =>
+      event.event === 'failure_source_observed'
+      && event.source === 'chatStream.onError'
+    );
+    expect(observed).toMatchObject({
+      failurePath: 'stream_error_mark_failed',
+      mounted: true,
+      transportTerminated: false,
+      terminationReason: null,
+    });
+    expect(ef77Events(infoSpy).some(event =>
+      event.event === 'write_started'
+      && event.writerSource === 'ChatContext.markTurnFailed'
+      && event.transitionReason === 'turn_failed'
+    )).toBe(true);
+    infoSpy.mockRestore();
+  });
+
+  it('keeps chatStart failure on the existing failed semantics', async () => {
+    installDiagnosticWindow();
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    mockedChatStart.mockRejectedValueOnce(new TypeError('chatStart active failure'));
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    let sendResult: boolean | undefined;
+    await act(async () => {
+      sendResult = await capturedContext?.sendMessage('chatStart failure message');
+    });
+
+    expect(sendResult).toBe(true);
+    expect(mockedChatStream).not.toHaveBeenCalled();
+    expect(storedSessions[0]).toMatchObject({
+      turnStatus: 'failed',
+      chatPhase: 'idle',
+    });
+    expect(storedSessions[0].pendingTurn).toBeDefined();
+    const observed = ef77Events(infoSpy).find(event =>
+      event.event === 'failure_source_observed'
+      && event.source === 'sendMessageCore.outerCatch'
+    );
+    expect(observed).toMatchObject({
+      failurePath: 'outer_catch_mark_failed',
+      mounted: true,
+      transportTerminated: false,
+      terminationReason: null,
+    });
+    infoSpy.mockRestore();
   });
 
   it('does not render loading or Retry for an idle turn whose last message is from the user', async () => {
