@@ -23,6 +23,9 @@ import {
   summarizeEf77Snapshot,
 } from '../utils/ef77Diagnostics';
 
+// Server SSE deadline is 150 seconds; retain a bounded client-side guard with
+// enough transport grace to observe the server's terminal event.
+export const EF38_STREAM_TIMEOUT_MS = 165000;
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -1452,6 +1455,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38 CTO Fix: Use locally scoped settle function, not global window
         type CompletionOutcome = 'completed' | 'stream_error' | 'empty' | 'timed_out' | 'unmounted';
         let streamSettled = false;
+        let transportHasAuthority = true;
         let settleStreamLocal: ((outcome: CompletionOutcome) => void) | null = null;
         
         // Create an awaited stream completion Promise with locally scoped settle function
@@ -1624,6 +1628,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           try {
             await chatStream(backendSessionId, {
               onChunk: (chunk: string) => {
+                if (!transportHasAuthority) return;
                 try {
                   const parsed = JSON.parse(chunk);
                   if (!parsed.content) {
@@ -1694,6 +1699,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 } catch { /* ignore */ }
               },
               onDone: () => {
+                if (!transportHasAuthority) return;
                 isDeepDone = true;
                 // 安全网：如果 deepBuffer 中累积的内容中文占比过低（<20%），丢弃
                 if (deepBuffer && deepBuffer.length > 10) {
@@ -1724,6 +1730,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 scheduleNext();
               },
               onError: () => {
+                if (!transportHasAuthority) return;
                 const terminationReason = transportLifecycle.terminationReason;
                 emitEf77Trace('failure_source_observed', {
                   providerInstanceId: providerInstanceId.current,
@@ -1741,14 +1748,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
-            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined);
+            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal);
             // Some transports resolve during teardown without invoking a terminal
             // callback. Settle the request so an abandoned Provider cannot leave
             // its send Promise and timeout alive.
-            if (!streamSettled) {
+            if (transportHasAuthority && !streamSettled) {
               settleStream(mountedRef.current ? 'empty' : 'unmounted');
             }
           } catch (error) {
+            if (!transportHasAuthority) return;
             const terminationReason = transportLifecycle.terminationReason;
             emitEf77Trace('failure_source_observed', {
               providerInstanceId: providerInstanceId.current,
@@ -1783,13 +1791,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
 
         // EF-38 CTO Fix: Await stream completion independently from UI completion
-        // This ensures we don't wait 30 seconds for stream errors
+        // so terminal errors still settle immediately.
         let streamOutcome: CompletionOutcome = 'completed';
         
-        // Wait for stream to settle (max 30 seconds)
+        // The server owns a 150-second SSE deadline. Keep a small transport
+        // grace period, then revoke this run's callback authority and abort it.
         let streamTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
         const streamTimeout = new Promise<CompletionOutcome>((resolve) => {
-          streamTimeoutHandle = setTimeout(() => resolve('timed_out'), 30000);
+          streamTimeoutHandle = setTimeout(() => {
+            transportHasAuthority = false;
+            resolve('timed_out');
+            controller.abort();
+          }, EF38_STREAM_TIMEOUT_MS);
         });
         
         streamOutcome = await Promise.race([streamCompletionPromise, streamTimeout]);

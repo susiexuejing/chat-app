@@ -2,7 +2,7 @@ import React from 'react';
 import { Text } from 'react-native';
 import { act, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { ChatProvider, EF38_STREAM_TIMEOUT_MS, useChat } from '../contexts/ChatContext';
 import { chatStart, chatStream } from '../api/cozeApi';
 import {
   EF77_TRACE_PREFIX,
@@ -420,7 +420,7 @@ describe('EF-77 diagnostic trace', () => {
     infoSpy.mockRestore();
   });
 
-  it('records the existing 30-second Retry timeout decision and interrupted transition', async () => {
+  it('records the bounded Retry timeout decision and interrupted transition', async () => {
     installWindow('?ef77trace=true');
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     const session = {
@@ -442,7 +442,7 @@ describe('EF-77 diagnostic trace', () => {
       await Promise.resolve();
     });
     await act(async () => {
-      jest.advanceTimersByTime(30000);
+      jest.advanceTimersByTime(EF38_STREAM_TIMEOUT_MS);
       await retryPromise;
     });
 

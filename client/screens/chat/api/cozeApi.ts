@@ -339,6 +339,7 @@ export function chatStream(
     onError?: (err: Error) => void;
   },
   diagnostics?: RetryTransportDiagnostics,
+  signal?: AbortSignal,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const BASE = getBackendUrl();
@@ -412,7 +413,7 @@ export function chatStream(
 
     // Web 端和 RN 端统一使用 fetch SSE
     if (Platform.OS === 'web') {
-      fetch(url)
+      fetch(url, { signal })
         .then(async (response) => {
           emitEf77Trace('stream_response_observed', {
             timestamp: Date.now(),
@@ -471,6 +472,7 @@ export function chatStream(
         const sse = new RNSSE(url, {
           headers: { 'Accept': 'text/event-stream' },
         });
+        signal?.addEventListener('abort', () => sse.close(), { once: true });
         sse.addEventListener('message', (event: any) => {
           if (event.data === '[DONE]') {
             if (diagnostics) diagnostics.doneObserved = true;
