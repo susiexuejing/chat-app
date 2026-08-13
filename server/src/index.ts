@@ -19,6 +19,7 @@ import { analyzeFlow, recordChange, getChangeBlock, getChangeTrends } from './fl
 import type { FlowResult, FlowContext, FlowContextType, FlowContextStage, FlowContextRisk } from './flows/flowTypes';
 import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTermUnderstanding';
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
+import type { ResponseWeights } from './flows/evolutionTypes';
 import { getFirstTwoRoundsRulesWithTurn } from './flows/firstTwoRoundsRules';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations.js';
@@ -178,7 +179,7 @@ export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlo
 
 ${getRoleStyle(roleId)}
 
-${neuralProfile ? neuralProfile.deepPromptBlock : ''}
+${neuralProfile ? neuralManager.formatNeuralStateBlock(neuralProfile) : ''}
 
 用户当前心理状态（结构化分析，供参考）：
 ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
@@ -1229,7 +1230,7 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
             totalInteractions: freshLtu?.totalInteractions ?? 0,
             recurringFlowPatterns: freshLtu?.recurringFlowPatterns ?? [],
             emotionalTriggers: freshLtu?.emotionalTriggers ?? [],
-            roleSpecific: freshLtu?.roleSpecific ?? null,
+            roleSpecific: (freshLtu?.roleSpecific as unknown as { roleId: string; data: Record<string, string[]> } | undefined) ?? undefined,
           },
           trendData,
           currentWeights,
@@ -1555,8 +1556,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
     // 0. 检测 normal_chat（纯问候/问身份，不走情感支持）
     const normalChat = isNormalChat(message);
 
-    let emotionTag: string;
-    let eventTag: string;
+    let emotionTag: EmotionTag;
+    let eventTag: EventTag;
     let state: any;
     let keywords: string[];
     let frontFlowText: string;

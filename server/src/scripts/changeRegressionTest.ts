@@ -228,7 +228,7 @@ function runTests(): void {
     for (let i = 0; i < test.messages.length; i++) {
       const msg = test.messages[i];
       const flowResult = analyzeFlow(test.userId, test.roleId, msg);
-      const snap = recordChange(test.userId, test.roleId, flowResult, previousFlow);
+      const snap = recordChange(test.userId, test.roleId, flowResult);
       previousFlow = flowResult;
 
       const snapInfo = snap

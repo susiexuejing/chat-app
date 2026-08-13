@@ -380,9 +380,9 @@ describe('EM-43 Provider Integration', () => {
 
     it('cleanupResources clears all timers and refs', () => {
       const timers = {
-        reactionTimer: setTimeout(() => {}, 1000),
-        companionTimer: setTimeout(() => {}, 1000),
-        deepTimer: setTimeout(() => {}, 1000),
+        reactionTimer: setTimeout(() => { /* no-op */ }, 1000),
+        companionTimer: setTimeout(() => { /* no-op */ }, 1000),
+        deepTimer: setTimeout(() => { /* no-op */ }, 1000),
       };
       
       const refs = {

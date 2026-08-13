@@ -88,7 +88,7 @@ class NeuralProfileManager {
     }
   }
 
-  private saveProfiles(): void {
+  saveProfiles(): void {
     try {
       this.ensureDataDir();
       const data: Record<string, NeuralProfile> = {};

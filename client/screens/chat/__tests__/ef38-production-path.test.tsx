@@ -231,9 +231,9 @@ function createStreamController(): StreamController {
   return {
     resolve: () => resolveFn!(),
     reject: (err: Error) => rejectFn!(err),
-    onChunk: () => {},
-    onDone: () => {},
-    onError: () => {},
+    onChunk: () => { /* no-op */ },
+    onDone: () => { /* no-op */ },
+    onError: () => { /* no-op */ },
     promise,
   };
 }
@@ -757,7 +757,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 
@@ -842,7 +842,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 
@@ -963,7 +963,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 
@@ -1069,7 +1069,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 
@@ -1168,7 +1168,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 
@@ -1289,7 +1289,7 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const renderResultB = await render(
         <ChatProvider>
           <TestConsumer onContext={(ctx) => { capturedCtx = ctx; }} />
-          <MessageList onShowIntro={() => {}} />
+          <MessageList onShowIntro={() => { /* no-op */ }} />
         </ChatProvider>
       );
 

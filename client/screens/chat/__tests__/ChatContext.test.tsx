@@ -64,7 +64,7 @@ describe('ChatContext Logic Tests', () => {
       expect(result1).toBe('success');
 
       // After completion, should allow again
-      const result2 = await withSendGuard(async () => {});
+      const result2 = await withSendGuard(async () => { /* no-op */ });
       expect(result2).toBe('success');
     });
 
