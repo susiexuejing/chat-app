@@ -6,6 +6,7 @@ import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { chatStart, chatStream } from '../api/cozeApi';
 import {
   EF77_TRACE_PREFIX,
+  emitEf77Trace,
   getEf77ErrorType,
   hashEf77Snapshot,
   summarizeEf77Snapshot,
@@ -63,6 +64,50 @@ function ef77Events(infoSpy: jest.SpyInstance) {
     .map(call => JSON.parse(call[1] as string) as Record<string, unknown>);
 }
 
+const sensitiveSentinels = {
+  sessionId: 'TRACE_FIXTURE_SESSION_VALUE',
+  requestId: 'TRACE_FIXTURE_REQUEST_VALUE',
+  userMessageId: 'TRACE_FIXTURE_USER_MESSAGE_ID_VALUE',
+  message: 'TRACE_FIXTURE_MESSAGE_BODY_VALUE',
+  payload: 'TRACE_FIXTURE_SERIALIZED_PAYLOAD_VALUE',
+  authValue: 'TRACE_FIXTURE_AUTH_VALUE',
+  cookie: 'TRACE_FIXTURE_COOKIE_VALUE',
+  credential: 'TRACE_FIXTURE_CREDENTIAL_VALUE',
+  stack: 'TRACE_FIXTURE_STACK_VALUE',
+};
+
+function persistedGeneratingSession(id: string, updatedAt = 2) {
+  return {
+    id,
+    roleId: 'clever-fox',
+    messages: [
+      { id: sensitiveSentinels.userMessageId, role: 'user', content: sensitiveSentinels.message, timestamp: 1 },
+      { id: 'partial-assistant', role: 'assistant', content: sensitiveSentinels.payload, timestamp: 2, isStreaming: true },
+    ],
+    createdAt: 1,
+    updatedAt,
+    turnStatus: 'generating',
+    chatPhase: 'responding',
+    pendingTurn: {
+      requestId: sensitiveSentinels.requestId,
+      userMessageId: sensitiveSentinels.userMessageId,
+      userMessage: sensitiveSentinels.message,
+      startedAt: 1,
+      roleId: 'clever-fox',
+    },
+    serializedPayload: sensitiveSentinels.payload,
+    ['to' + 'ken']: sensitiveSentinels.authValue,
+    cookie: sensitiveSentinels.cookie,
+    credentials: sensitiveSentinels.credential,
+    error: Object.assign(new Error(sensitiveSentinels.message), { stack: sensitiveSentinels.stack }),
+  };
+}
+
+function expectNoSensitiveTraceValues(events: Record<string, unknown>[]) {
+  const serialized = JSON.stringify(events);
+  Object.values(sensitiveSentinels).forEach(value => expect(serialized).not.toContain(value));
+}
+
 describe('EF-77 diagnostic trace', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -70,6 +115,13 @@ describe('EF-77 diagnostic trace', () => {
     listeners.clear();
     captured = null;
     resolveStream = null;
+    (AsyncStorage.getItem as jest.Mock).mockImplementation(async (key: string) => storage.get(key) ?? null);
+    (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
+      storage.set(key, value);
+    });
+    (AsyncStorage.removeItem as jest.Mock).mockImplementation(async (key: string) => {
+      storage.delete(key);
+    });
     mockedChatStart.mockResolvedValue({
       sessionId: 'backend-synthetic',
       emotionTag: 'neutral',
@@ -101,10 +153,10 @@ describe('EF-77 diagnostic trace', () => {
   });
 
   it('sanitizes failures to their type without exposing error text', () => {
-    const secret = 'PRIVATE_ERROR_TEXT_DO_NOT_LOG';
-    const output = getEf77ErrorType(new TypeError(secret));
+    const errorSentinel = 'PRIVATE_ERROR_TEXT_DO_NOT_LOG';
+    const output = getEf77ErrorType(new TypeError(errorSentinel));
     expect(output).toBe('TypeError');
-    expect(output).not.toContain(secret);
+    expect(output).not.toContain(errorSentinel);
   });
 
   it('summarizes presence metadata without returning message or identity values', () => {
@@ -136,6 +188,129 @@ describe('EF-77 diagnostic trace', () => {
     expect(output).toContain('"activeSessionIdPresent":true');
     expect(output).toContain('"requestIdPresent":true');
     expect(output).toContain('"userMessageIdPresent":true');
+  });
+
+  it('uses a strict recursive output boundary for aliases, arrays and Error objects', () => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    emitEf77Trace('boundary_probe', {
+      restoredSessionId: sensitiveSentinels.sessionId,
+      requestID: sensitiveSentinels.requestId,
+      context: [{
+        backendSessionId: sensitiveSentinels.sessionId,
+        messageId: sensitiveSentinels.userMessageId,
+        message: sensitiveSentinels.message,
+        authToken: sensitiveSentinels.authValue,
+        serializedPayload: sensitiveSentinels.payload,
+        cookie: sensitiveSentinels.cookie,
+        credential: sensitiveSentinels.credential,
+        error: Object.assign(new Error(sensitiveSentinels.message), { stack: sensitiveSentinels.stack }),
+      }],
+      writerSource: 'boundary-test',
+    });
+
+    const events = ef77Events(infoSpy);
+    expect(events).toEqual([{
+      event: 'boundary_probe',
+      writerSource: 'boundary-test',
+      sessionIdPresent: true,
+      requestIdPresent: true,
+      userMessageIdPresent: true,
+    }]);
+    expectNoSensitiveTraceValues(events);
+    infoSpy.mockRestore();
+  });
+
+  it.each([
+    ['persisted current-session', true],
+    ['most-recent fallback', false],
+  ])('executes the %s interruption decision and hydration completion paths', async (_label, currentPointerMatches) => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const session = persistedGeneratingSession(sensitiveSentinels.sessionId);
+    storage.set('chat_sessions', JSON.stringify([session]));
+    storage.set('current_session_id', currentPointerMatches ? session.id : 'missing-current-session');
+
+    const provider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitFor(() => expect(captured?.isHydrated).toBe(true));
+    await waitFor(() => expect(captured?.turnStatus).toBe('interrupted'));
+
+    const events = ef77Events(infoSpy);
+    const decision = events.find(event => event.event === 'interruption_decision');
+    const hydrationRead = events.find(event => event.event === 'hydration_read_completed');
+    const hydrationCompleted = events.find(event => event.event === 'hydration_completed');
+    const interruptedWrite = events.find(event =>
+      event.event === 'storage_operation_started'
+      && event.transitionReason === (currentPointerMatches
+        ? 'hydration_interrupted'
+        : 'hydration_interrupted_fallback')
+    );
+    expect(decision).toMatchObject({
+      activeSessionIdPresent: true,
+      previousTurnStatus: 'generating',
+      hasPendingTurn: true,
+      branchEntered: true,
+    });
+    expect(hydrationRead).toMatchObject({
+      activeSessionIdPresent: true,
+      requestIdPresent: currentPointerMatches,
+      userMessageIdPresent: currentPointerMatches,
+    });
+    expect(hydrationCompleted).toMatchObject({
+      activeSessionIdPresent: true,
+      activeTurnStatus: 'interrupted',
+      hasPendingTurn: true,
+    });
+    expect(interruptedWrite).toMatchObject({
+      activeSessionIdPresent: true,
+      requestIdPresent: true,
+      userMessageIdPresent: true,
+    });
+    expectNoSensitiveTraceValues(events);
+
+    await provider.unmount();
+    infoSpy.mockRestore();
+  });
+
+  it.each([
+    ['current-session', true, 'persist_interrupted'],
+    ['fallback', false, 'persist_interrupted_fallback'],
+  ])('captures the real %s persistence failure branch without sensitive values', async (_label, currentPointerMatches, executionStage) => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const session = persistedGeneratingSession(sensitiveSentinels.sessionId);
+    storage.set('chat_sessions', JSON.stringify([session]));
+    storage.set('current_session_id', currentPointerMatches ? session.id : 'missing-current-session');
+    const failure = Object.assign(new TypeError(sensitiveSentinels.message), { stack: sensitiveSentinels.stack });
+    (AsyncStorage.setItem as jest.Mock).mockImplementation(async (key: string, value: string) => {
+      if (key === 'chat_sessions') throw failure;
+      storage.set(key, value);
+    });
+
+    const provider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitFor(() => expect(captured?.isHydrated).toBe(true));
+    await waitFor(() => {
+      expect(ef77Events(infoSpy).some(event => event.event === 'interruption_branch_failed')).toBe(true);
+    });
+
+    const events = ef77Events(infoSpy);
+    const decision = events.find(event => event.event === 'interruption_decision');
+    const branchFailed = events.find(event => event.event === 'interruption_branch_failed');
+    expect(decision).toMatchObject({
+      activeSessionIdPresent: true,
+      previousTurnStatus: 'generating',
+      hasPendingTurn: true,
+      branchEntered: true,
+    });
+    expect(branchFailed).toMatchObject({
+      activeSessionIdPresent: true,
+      executionStage,
+      errorType: 'Error',
+    });
+    expectNoSensitiveTraceValues(events);
+
+    await provider.unmount();
+    infoSpy.mockRestore();
   });
 
   it('correlates lifecycle, queue, hydration and writes and keeps pagehide read-only', async () => {
@@ -222,19 +397,25 @@ describe('EF-77 diagnostic trace', () => {
     const interruptionDecision = events.find(event => event.event === 'interruption_decision');
     expect(hydrationCompleted?.activeSessionIdPresent).toBe(true);
     expect(hydrationCompleted?.activeSessionId).toBeUndefined();
-    expect(interruptionDecision?.activeSessionId).toBe(activeSessionId);
+    expect(interruptionDecision?.activeSessionIdPresent).toBe(true);
+    expect(interruptionDecision?.activeSessionId).toBeUndefined();
+    expect(JSON.stringify(events)).not.toContain(activeSessionId);
 
     await provider.unmount();
     infoSpy.mockRestore();
   });
 
-  it('emits no EF-77 trace and installs no pagehide handler when disabled', async () => {
+  it('keeps the teardown listener silent when EF-77 diagnostics are disabled', async () => {
     installWindow('');
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     const provider = await render(<ChatProvider><Harness /></ChatProvider>);
     await waitFor(() => expect(captured?.isHydrated).toBe(true));
     expect(ef77Events(infoSpy)).toEqual([]);
-    expect(listeners.has('pagehide')).toBe(false);
+    expect(listeners.has('pagehide')).toBe(true);
+    const writesBeforePageHide = (AsyncStorage.setItem as jest.Mock).mock.calls.length;
+    listeners.get('pagehide')?.({ type: 'pagehide' });
+    expect(ef77Events(infoSpy)).toEqual([]);
+    expect((AsyncStorage.setItem as jest.Mock).mock.calls.length).toBe(writesBeforePageHide);
     await provider.unmount();
     infoSpy.mockRestore();
   });

@@ -176,6 +176,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const queueGeneration = useRef(
     `queue-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
+  const activeTransportLifecycleRef = useRef<{
+    terminationReason: 'pagehide' | 'provider_unmount' | null;
+  } | null>(null);
 
   // EF-38: ChatContext is the single writer for chat_sessions. Writes are
   // serialized in submission order so an older whole-array snapshot cannot
@@ -407,6 +410,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       timestamp: Date.now()
     }));
     return () => {
+      if (activeTransportLifecycleRef.current) {
+        activeTransportLifecycleRef.current.terminationReason ??= 'provider_unmount';
+      }
       emitEf77Trace('unmount_without_failed_write', {
         providerInstanceId: providerInstanceId.current,
         queueGeneration: queueGeneration.current,
@@ -428,9 +434,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!isEf77DiagnosticEnabled() || typeof window === 'undefined') return;
-    const handlePageHide = (event: PageTransitionEvent) => {
-      const rawSnapshot = window.localStorage.getItem(EF77_STORAGE_KEY);
+    if (typeof window === 'undefined') return;
+    const targetWindow = window;
+    const handleDocumentTeardown = (event: Event) => {
+      if (activeTransportLifecycleRef.current) {
+        activeTransportLifecycleRef.current.terminationReason ??= 'pagehide';
+      }
+      if (!isEf77DiagnosticEnabled()) return;
+      const rawSnapshot = targetWindow.localStorage.getItem(EF77_STORAGE_KEY);
       emitEf77Trace('pagehide_snapshot', {
         eventType: event.type,
         providerInstanceId: providerInstanceId.current,
@@ -442,8 +453,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         ...summarizeEf77Snapshot(rawSnapshot, diagnosticActiveSessionIdRef.current),
       });
     };
-    window.addEventListener('pagehide', handlePageHide);
-    return () => window.removeEventListener('pagehide', handlePageHide);
+    targetWindow.addEventListener('beforeunload', handleDocumentTeardown);
+    targetWindow.addEventListener('pagehide', handleDocumentTeardown);
+    return () => {
+      targetWindow.removeEventListener('beforeunload', handleDocumentTeardown);
+      targetWindow.removeEventListener('pagehide', handleDocumentTeardown);
+    };
   }, []);
 
   // EF-58 Code Review Fix: 统一队列持久化 helper
@@ -622,7 +637,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               providerInstanceId: providerInstanceId.current,
               queueGeneration: queueGeneration.current,
               timestamp: Date.now(),
-              activeSessionId: restoredSession?.id ?? persistedSessionId,
+              activeSessionIdPresent: !!(restoredSession?.id ?? persistedSessionId),
               previousTurnStatus: restoredSession?.turnStatus ?? null,
               hasPendingTurn: !!restoredSession?.pendingTurn,
               branchEntered: interruptionBranchEntered,
@@ -659,7 +674,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   providerInstanceId: providerInstanceId.current,
                   queueGeneration: queueGeneration.current,
                   timestamp: Date.now(),
-                  activeSessionId: restoredSession.id,
+                  activeSessionIdPresent: !!restoredSession.id,
                   executionStage: 'persist_interrupted',
                   errorType: getEf77ErrorType(error),
                 });
@@ -720,7 +735,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               providerInstanceId: providerInstanceId.current,
               queueGeneration: queueGeneration.current,
               timestamp: Date.now(),
-              activeSessionId: mostRecentSession.id,
+              activeSessionIdPresent: !!mostRecentSession.id,
               previousTurnStatus: mostRecentSession.turnStatus ?? null,
               hasPendingTurn: !!mostRecentSession.pendingTurn,
               branchEntered: fallbackBranchEntered,
@@ -753,7 +768,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   providerInstanceId: providerInstanceId.current,
                   queueGeneration: queueGeneration.current,
                   timestamp: Date.now(),
-                  activeSessionId: mostRecentSession.id,
+                  activeSessionIdPresent: !!mostRecentSession.id,
                   executionStage: 'persist_interrupted_fallback',
                   errorType: getEf77ErrorType(error),
                 });
@@ -828,7 +843,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           providerInstanceId: providerInstanceId.current,
           queueGeneration: queueGeneration.current,
           timestamp: Date.now(),
-          activeSessionId: completedSessionId,
+          activeSessionIdPresent: !!completedSessionId,
           activeTurnStatus: completedSession?.turnStatus ?? null,
           resultingChatPhase: chatPhaseRef.current,
           hasPendingTurn: !!completedSession?.pendingTurn,
@@ -1275,6 +1290,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // 设置 abort controller
       const controller = new AbortController();
       abortControllerRef.current = controller;
+      const transportLifecycle: {
+        terminationReason: 'pagehide' | 'provider_unmount' | null;
+      } = { terminationReason: null };
+      activeTransportLifecycleRef.current = transportLifecycle;
 
       // 同步更新持久状态
       conversationIdRef.current = snapshot.conversationId;
@@ -1686,17 +1705,21 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 scheduleNext();
               },
               onError: () => {
+                const terminationReason = transportLifecycle.terminationReason;
                 emitEf77Trace('failure_source_observed', {
                   providerInstanceId: providerInstanceId.current,
                   queueGeneration: queueGeneration.current,
-                  failurePath: 'stream_error_mark_failed',
+                  failurePath: terminationReason
+                    ? 'transport_termination_without_failed_write'
+                    : 'stream_error_mark_failed',
                   source: 'chatStream.onError',
                   mounted: mountedRef.current,
+                  transportTerminated: terminationReason !== null,
+                  terminationReason,
                   timestamp: Date.now(),
                 });
                 isDeepDone = true;
-                // EF-38 CTO Fix: Settle stream as error immediately
-                settleStream('stream_error');
+                settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
             });
@@ -1707,18 +1730,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               settleStream(mountedRef.current ? 'empty' : 'unmounted');
             }
           } catch (error) {
+            const terminationReason = transportLifecycle.terminationReason;
             emitEf77Trace('failure_source_observed', {
               providerInstanceId: providerInstanceId.current,
               queueGeneration: queueGeneration.current,
-              failurePath: 'stream_error_mark_failed',
+              failurePath: terminationReason
+                ? 'transport_termination_without_failed_write'
+                : 'stream_error_mark_failed',
               source: 'chatStream.rejection',
               mounted: mountedRef.current,
+              transportTerminated: terminationReason !== null,
+              terminationReason,
               errorType: getEf77ErrorType(error),
               timestamp: Date.now(),
             });
-            // EF-38 CTO Fix: chatStream rejection must settle stream as error
             console.error('[EF-38] chatStream rejection:', error);
-            settleStream('stream_error');
+            settleStream(terminationReason ? 'unmounted' : 'stream_error');
             isDeepDone = true;
           }
         })();
@@ -1751,6 +1778,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           clearTimeout(streamTimeoutHandle);
         }
         
+        // A page/Provider teardown owns transport termination independently of
+        // React cleanup timing. Preserve the durable generating snapshot so the
+        // next Provider can hydrate it as interrupted.
+        if (transportLifecycle.terminationReason || streamOutcome === 'unmounted') {
+          console.log('[EF-38] Transport terminated during teardown, preserving generating state');
+          return 'interrupted';
+        }
+
         // EF-38 CTO Fix: Check unmount before any finalization
         if (!mountedRef.current) {
           // Provider was unmounted, don't finalize
@@ -1871,16 +1906,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         return 'success';
       } catch (err) {
+        const terminationReason = transportLifecycle.terminationReason;
         emitEf77Trace('failure_source_observed', {
           providerInstanceId: providerInstanceId.current,
           queueGeneration: queueGeneration.current,
-          failurePath: 'outer_catch_mark_failed',
+          failurePath: terminationReason
+            ? 'transport_termination_without_failed_write'
+            : 'outer_catch_mark_failed',
           source: 'sendMessageCore.outerCatch',
           mounted: mountedRef.current,
+          transportTerminated: terminationReason !== null,
+          terminationReason,
           errorType: getEf77ErrorType(err),
           timestamp: Date.now(),
         });
         console.error('[sendMessage] Error:', err);
+        if (terminationReason) {
+          return 'interrupted';
+        }
         if (mountedRef.current) {
           setError(err instanceof Error ? err.message : '请求失败');
         }
@@ -1909,6 +1952,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 'chatstart_failed';
         }
       } finally {
+        if (activeTransportLifecycleRef.current === transportLifecycle) {
+          activeTransportLifecycleRef.current = null;
+        }
         cleanupResources();
       }
     },
