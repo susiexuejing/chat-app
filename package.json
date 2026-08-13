@@ -3,6 +3,8 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "test:release": "node scripts/run-release-regression.mjs",
+    "test:release-runner": "node --test scripts/__tests__/run-release-regression.test.mjs",
     "dev": "bash .cozeproj/scripts/dev_run.sh",
     "build": "bash .cozeproj/scripts/prod_build.sh",
     "start": "bash .cozeproj/scripts/prod_run.sh",
