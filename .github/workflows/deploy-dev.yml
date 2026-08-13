@@ -46,6 +46,8 @@ jobs:
         run: pnpm --dir client exec jest --runInBand
 
       - name: Run server release tests
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
         run: pnpm --dir server exec jest --runInBand --runTestsByPath src/__tests__/em43.test.ts
 
       - name: Build dev frontend
