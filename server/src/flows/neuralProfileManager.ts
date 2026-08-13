@@ -29,9 +29,6 @@ export interface NeuralProfile {
   // 潜意识权重
   subconscious: SubconsciousWeights;
 
-  // 预格式化的 Deep Prompt 区块（用于 buildDeepSystemPrompt）
-  deepPromptBlock: string;
-
   createdAt: number;
   updatedAt: number;
 }
@@ -116,13 +113,6 @@ class NeuralProfileManager {
         influenceLog: [],
         longTermChangeLog: [],
         subconscious: { ...DEFAULT_WEIGHTS, lastUpdated: Date.now() },
-        deepPromptBlock: this.formatNeuralStateBlock({
-          attentionBias: 'default',
-          valueBias: 'default',
-          subconscious: { ...DEFAULT_WEIGHTS, lastUpdated: Date.now() },
-          influenceLog: [],
-          longTermChangeLog: [],
-        }),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -210,9 +200,6 @@ class NeuralProfileManager {
 
     weights.lastUpdated = Date.now();
     profile.updatedAt = Date.now();
-
-    // Update deepPromptBlock to reflect current profile state
-    profile.deepPromptBlock = this.formatNeuralStateBlock(profile);
 
     this.saveProfiles();
   }

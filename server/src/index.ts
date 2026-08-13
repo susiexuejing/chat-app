@@ -175,11 +175,17 @@ export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlo
     ? '- 先陪伴，不急于深入分析'
     : '- 从更深一层的分析开始';
 
+  // EF-92: deepPromptBlock is a legacy reference not enabled in baseline.
+  // Use empty string to preserve baseline Prompt behavior without enabling formatter.
+  const deepPromptBlock = neuralProfile && 'deepPromptBlock' in neuralProfile
+    ? (neuralProfile as { deepPromptBlock?: string }).deepPromptBlock ?? ''
+    : '';
+
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
 
-${neuralProfile ? neuralProfile.deepPromptBlock : ''}
+${deepPromptBlock}
 
 用户当前心理状态（结构化分析，供参考）：
 ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
