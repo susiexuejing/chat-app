@@ -84,9 +84,47 @@ export function getEf77LocationMetadata() {
   return { origin: window.location.origin, pathname: window.location.pathname };
 }
 
+const EF77_SENSITIVE_KEYS = new Set([
+  'activeSessionId',
+  'sessionId',
+  'requestId',
+  'userMessageId',
+  'message',
+  'messages',
+  'pendingTurn',
+  'payload',
+  'serializedPayload',
+  'rawSnapshot',
+  'chat_sessions',
+  'error',
+  'errorMessage',
+  'stack',
+  'token',
+  'cookie',
+  'credential',
+  'credentials',
+]);
+
+export function sanitizeEf77TraceDetails(
+  details: Record<string, unknown>
+): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(details)) {
+    if (EF77_SENSITIVE_KEYS.has(key)) {
+      if (key === 'activeSessionId') sanitized.activeSessionIdPresent = value != null && value !== '';
+      if (key === 'sessionId') sanitized.sessionIdPresent = value != null && value !== '';
+      if (key === 'requestId') sanitized.requestIdPresent = value != null && value !== '';
+      if (key === 'userMessageId') sanitized.userMessageIdPresent = value != null && value !== '';
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
 export function emitEf77Trace(event: string, details: Record<string, unknown>): void {
   if (!isEf77DiagnosticEnabled()) return;
-  console.info(EF77_TRACE_PREFIX, JSON.stringify({ event, ...details }));
+  console.info(EF77_TRACE_PREFIX, JSON.stringify({ event, ...sanitizeEf77TraceDetails(details) }));
 }
 
 export function getEf77ErrorType(error: unknown): string {

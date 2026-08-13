@@ -6,6 +6,7 @@ import { ChatProvider, useChat } from '../contexts/ChatContext';
 import { chatStart, chatStream } from '../api/cozeApi';
 import {
   EF77_TRACE_PREFIX,
+  emitEf77Trace,
   getEf77ErrorType,
   hashEf77Snapshot,
   summarizeEf77Snapshot,
@@ -138,6 +139,41 @@ describe('EF-77 diagnostic trace', () => {
     expect(output).toContain('"userMessageIdPresent":true');
   });
 
+  it('sanitizes all hydration and interruption trace branches at the output boundary', () => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const secrets = {
+      activeSessionId: 'PRIVATE_SESSION_ID_DO_NOT_LOG',
+      requestId: 'PRIVATE_REQUEST_ID_DO_NOT_LOG',
+      userMessageId: 'PRIVATE_USER_MESSAGE_ID_DO_NOT_LOG',
+      message: 'PRIVATE_MESSAGE_DO_NOT_LOG',
+      payload: 'PRIVATE_SERIALIZED_PAYLOAD_DO_NOT_LOG',
+      errorMessage: 'PRIVATE_ERROR_TEXT_DO_NOT_LOG',
+      stack: 'PRIVATE_STACK_DO_NOT_LOG',
+      token: 'PRIVATE_TOKEN_DO_NOT_LOG',
+      cookie: 'PRIVATE_COOKIE_DO_NOT_LOG',
+      credentials: 'PRIVATE_CREDENTIAL_DO_NOT_LOG',
+    };
+
+    [
+      'interruption_decision',
+      'interruption_decision',
+      'interruption_branch_failed',
+      'interruption_branch_failed',
+      'hydration_completed',
+    ].forEach(event => emitEf77Trace(event, secrets));
+
+    const events = ef77Events(infoSpy);
+    const output = JSON.stringify(events);
+    expect(events).toHaveLength(5);
+    expect(events.every(event => event.activeSessionIdPresent === true)).toBe(true);
+    expect(events.every(event => event.requestIdPresent === true)).toBe(true);
+    expect(events.every(event => event.userMessageIdPresent === true)).toBe(true);
+    expect(events.every(event => event.activeSessionId === undefined)).toBe(true);
+    Object.values(secrets).forEach(secret => expect(output).not.toContain(secret));
+    infoSpy.mockRestore();
+  });
+
   it('correlates lifecycle, queue, hydration and writes and keeps pagehide read-only', async () => {
     installWindow('?ef77trace=true');
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
@@ -222,7 +258,9 @@ describe('EF-77 diagnostic trace', () => {
     const interruptionDecision = events.find(event => event.event === 'interruption_decision');
     expect(hydrationCompleted?.activeSessionIdPresent).toBe(true);
     expect(hydrationCompleted?.activeSessionId).toBeUndefined();
-    expect(interruptionDecision?.activeSessionId).toBe(activeSessionId);
+    expect(interruptionDecision?.activeSessionIdPresent).toBe(true);
+    expect(interruptionDecision?.activeSessionId).toBeUndefined();
+    expect(JSON.stringify(events)).not.toContain(activeSessionId);
 
     await provider.unmount();
     infoSpy.mockRestore();
