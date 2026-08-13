@@ -120,8 +120,10 @@ jobs:
           test -d /var/www/chat-app/server
           test -f /var/www/chat-app/server/.env
           command -v pm2 >/dev/null
-          pm2 describe chat-server >/dev/null
           test -d /var/www/chat-app/server/node_modules
+          PROCESS_NAME="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const m=a.filter(p=>p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js');if(m.length!==1)process.exit(2);process.stdout.write(m[0].name)})")"
+          pm2 describe "$PROCESS_NAME" >/dev/null
+          echo "Validated one PM2 process for the DEV backend: $PROCESS_NAME"
           REMOTE
 
       - name: Activate dev release
@@ -147,6 +149,8 @@ jobs:
           case "$RELEASE_ROOT" in /tmp/emotionflow-dev-*) ;; *) exit 1 ;; esac
           case "$ROLLBACK_ROOT" in /tmp/emotionflow-dev-rollback-*) ;; *) exit 1 ;; esac
 
+          PROCESS_NAME="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const m=a.filter(p=>p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js');if(m.length!==1)process.exit(2);process.stdout.write(m[0].name)})")"
+
           mkdir -p "$FRONTEND_DIR" "$BACKEND_DIR" "$BACKUP_ROOT" "$ROLLBACK_ROOT"
           PREVIOUS_VERSION="$(curl --fail --silent http://127.0.0.1:9091/api/v1/version)"
           PREVIOUS_GIT_COMMIT="$(printf '%s' "$PREVIOUS_VERSION" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d).gitCommit))")"
@@ -165,7 +169,7 @@ jobs:
             rsync -a --delete "$ROLLBACK_ROOT/backend/dist/" "$BACKEND_DIR/dist/"
             cd "$BACKEND_DIR"
             NODE_ENV=development GIT_COMMIT="$PREVIOUS_GIT_COMMIT" \
-              BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart chat-server --update-env
+              BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart "$PROCESS_NAME" --update-env
           }
           trap rollback ERR
 
@@ -173,7 +177,7 @@ jobs:
           rsync -a --delete "$RELEASE_ROOT/backend-dist/" "$BACKEND_DIR/dist/"
           cd "$BACKEND_DIR"
           NODE_ENV=development GIT_COMMIT="$DEPLOY_SHA" BUILD_TIME="$BUILD_TIME" \
-            pm2 restart chat-server --update-env
+            pm2 restart "$PROCESS_NAME" --update-env
 
           for attempt in 1 2 3 4 5 6; do
             current_sha="$(curl --fail --silent http://127.0.0.1:9091/api/v1/version \
@@ -253,6 +257,7 @@ jobs:
           BACKEND_BACKUP="$BACKUP_ROOT/backend-$DEPLOY_SHA.tar.gz"
           VERSION_BACKUP="$BACKUP_ROOT/version-$DEPLOY_SHA.env"
           ROLLBACK_ROOT="/tmp/emotionflow-dev-rollback-$DEPLOY_SHA"
+          PROCESS_NAME="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const m=a.filter(p=>p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js');if(m.length!==1)process.exit(2);process.stdout.write(m[0].name)})")"
           test -f "$FRONTEND_BACKUP"
           test -f "$BACKEND_BACKUP"
           test -f "$VERSION_BACKUP"
@@ -264,6 +269,6 @@ jobs:
           rsync -a --delete "$ROLLBACK_ROOT/backend/dist/" "$BACKEND_DIR/dist/"
           cd "$BACKEND_DIR"
           NODE_ENV=development GIT_COMMIT="$PREVIOUS_GIT_COMMIT" \
-            BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart chat-server --update-env
+            BUILD_TIME="$PREVIOUS_BUILD_TIME" pm2 restart "$PROCESS_NAME" --update-env
           rm -rf -- "$ROLLBACK_ROOT"
           REMOTE
