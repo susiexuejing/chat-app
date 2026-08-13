@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "suiteId": "ef-95-isolated-release-regression",
+  "included": [
+    {
+      "id": "client-approved-jest",
+      "gate": "client-release-regression",
+      "cwd": "client",
+      "command": "pnpm",
+      "args": [
+        "exec", "jest", "--runInBand", "--silent",
+        "screens/chat/__tests__/ChatContext.test.tsx",
+        "screens/chat/__tests__/chatStart.test.ts",
+        "screens/chat/__tests__/debugMode.test.ts",
+        "screens/chat/__tests__/ef24-flow-type-display.test.ts",
+        "screens/chat/__tests__/ef38-closed-loops.test.tsx",
+        "screens/chat/__tests__/ef38-retry-transport-diagnostics.test.ts",
+        "screens/chat/__tests__/ef38-runtime-persistence.integration.test.tsx",
+        "screens/chat/__tests__/ef58-code-review-fix.test.tsx",
+        "screens/chat/__tests__/ef58-phase1-queue-foundation.test.tsx",
+        "screens/chat/__tests__/ef58-phase2-queue-ui.test.tsx",
+        "screens/chat/__tests__/ef58-runtime-queue.test.tsx",
+        "screens/chat/__tests__/ef59-integration.test.tsx",
+        "screens/chat/__tests__/ef59-runtime-fix.test.tsx",
+        "screens/chat/__tests__/ef59-session-id-invariant.test.ts",
+        "screens/chat/__tests__/ef59-storage-corruption.test.ts",
+        "screens/chat/__tests__/ef77-diagnostic-trace.test.tsx",
+        "screens/chat/__tests__/ef77-storage-attribution.test.ts",
+        "screens/chat/__tests__/em43-provider.test.tsx",
+        "screens/chat/__tests__/em49-env-label.test.ts",
+        "screens/chat/__tests__/em50-new-chat-clear-input.test.tsx",
+        "screens/chat/__tests__/em53-message-queue.test.tsx",
+        "screens/chat/__tests__/em54-persist-refresh.test.tsx"
+      ],
+      "coverage": "Client conversation, retry, persistence, queue, diagnostics and UI regression",
+      "safety": "All network, AsyncStorage and browser storage boundaries are mocked with synthetic in-memory fixtures.",
+      "fixtureIsolation": "Jest-local synthetic fixtures plus EF95_FIXTURE_DIR and EF95_OUTPUT_DIR under the run temp root."
+    },
+    {
+      "id": "runtime-data-static-guard",
+      "gate": "runtime-data-safety",
+      "cwd": ".",
+      "command": "pnpm",
+      "args": ["run", "check:runtime-data"],
+      "coverage": "Rejects tracked runtime or user-derived data paths",
+      "safety": "Read-only repository scan; no network or runtime storage access.",
+      "fixtureIsolation": "No fixtures or persistent output."
+    }
+  ],
+  "excluded": [
+    {
+      "id": "legacy-ef38-harnesses",
+      "paths": [
+        "client/screens/chat/__tests__/ef38-interrupted-recovery.test.tsx",
+        "client/screens/chat/__tests__/ef38-production-path.test.tsx"
+      ],
+      "risk": "unmaintained-skipped-suite",
+      "reason": "Both suites are intentionally describe.skip legacy Harnesses and provide no executable release evidence.",
+      "inclusionCondition": "Replace or safely re-enable the Harnesses with deterministic isolated fixtures."
+    },
+    {
+      "id": "server-database-and-api-tests",
+      "paths": ["server/src/__tests__/ef59-phase1-database.test.ts", "server/src/__tests__/ef59-phase3-api.test.ts"],
+      "risk": "external-database-state",
+      "reason": "These suites load database/Supabase boundaries that are not proven isolated from configured external state.",
+      "inclusionCondition": "Provide an ephemeral database and fail-closed test-only connection configuration."
+    },
+    {
+      "id": "server-unapproved-tests",
+      "paths": ["server/src/__tests__/em43-contract.test.ts", "server/src/__tests__/em43-legacy-scripts.test.ts", "server/src/__tests__/em43.test.ts"],
+      "risk": "incomplete-isolation-proof",
+      "reason": "Not required for the Client release gate and not yet dynamically proven under the EF-95 isolated runner.",
+      "inclusionCondition": "Complete static and dynamic isolation audit with synthetic-only dependencies."
+    },
+    {
+      "id": "mutating-smoke-scripts",
+      "paths": ["server/src/scripts/*.ts"],
+      "risk": "runtime-mutation",
+      "reason": "Scripts call localhost or Production chat endpoints and some write long-lived repository output.",
+      "inclusionCondition": "Replace external endpoints with owned ephemeral services and redirect all output to the run temp root."
+    },
+    {
+      "id": "manual-runtime-qa",
+      "paths": ["Production/DEV browser and deployment validation"],
+      "risk": "external-state-and-human-confirmation",
+      "reason": "May use real identity/session state or mutate external environments.",
+      "inclusionCondition": "Separate approved QA workflow with synthetic tenant and guaranteed cleanup."
+    }
+  ]
+}
