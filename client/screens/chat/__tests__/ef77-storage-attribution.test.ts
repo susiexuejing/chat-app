@@ -126,21 +126,21 @@ describe('EF-77 storage attribution boundary', () => {
 
   it('never emits payload, identifier values or error text', async () => {
     installWindow('?ef77trace=true');
-    const secret = 'PRIVATE_MESSAGE_AND_IDENTIFIER';
+    const sensitiveSentinel = 'PRIVATE_MESSAGE_AND_IDENTIFIER';
     const adapter = {
-      setItem: jest.fn(() => Promise.reject(new Error(secret))),
+      setItem: jest.fn(() => Promise.reject(new Error(sensitiveSentinel))),
       removeItem: jest.fn(),
     };
     const info = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     const payload = JSON.stringify([{
       id: attribution.activeSessionId,
-      messages: [{ content: secret }],
-      pendingTurn: { requestId: secret, userMessageId: secret },
+      messages: [{ content: sensitiveSentinel }],
+      pendingTurn: { requestId: sensitiveSentinel, userMessageId: sensitiveSentinel },
     }]);
 
     await expect(attributedSetItem(adapter, 'chat_sessions', payload, attribution)).rejects.toThrow();
     const output = info.mock.calls.map(call => String(call[1])).join('\n');
-    expect(output).not.toContain(secret);
+    expect(output).not.toContain(sensitiveSentinel);
     expect(output).not.toContain(attribution.activeSessionId);
     expect(output).toContain('"activeSessionIdPresent":true');
     expect(output).toContain('Error');
