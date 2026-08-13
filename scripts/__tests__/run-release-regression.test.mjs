@@ -172,6 +172,57 @@ test('cleanup failure is a safety failure', async () => {
   assert.deepEqual(await releaseResidues(), before);
 });
 
+test('SIGTERM immediately before cleanup completes cleanup and fails the invocation', async () => {
+  const file = await manifestFile(validManifest);
+  let ownedPath;
+  await assert.rejects(runReleaseRegression({
+    manifestPath: file,
+    spawnImpl: spawnWithExit(0),
+    removeImpl: async runRoot => {
+      ownedPath = runRoot;
+      process.emit('SIGTERM', 'SIGTERM');
+      await rm(runRoot, { recursive: true, force: true });
+    },
+  }), /release suite interrupted: SIGTERM/);
+  await assert.rejects(stat(ownedPath), error => error.code === 'ENOENT');
+});
+
+test('signal received while cleanup is awaited completes cleanup and fails the invocation', async () => {
+  const file = await manifestFile(validManifest);
+  let ownedPath;
+  await assert.rejects(runReleaseRegression({
+    manifestPath: file,
+    spawnImpl: spawnWithExit(0),
+    removeImpl: async runRoot => {
+      ownedPath = runRoot;
+      await new Promise(resolve => setImmediate(resolve));
+      process.emit('SIGINT', 'SIGINT');
+      await rm(runRoot, { recursive: true, force: true });
+    },
+  }), /release suite interrupted: SIGINT/);
+  await assert.rejects(stat(ownedPath), error => error.code === 'ENOENT');
+});
+
+test('signal and cleanup failure preserve both failure causes', async () => {
+  const file = await manifestFile(validManifest);
+  await assert.rejects(runReleaseRegression({
+    manifestPath: file,
+    spawnImpl: spawnWithExit(0),
+    removeImpl: async runRoot => {
+      process.emit('SIGTERM', 'SIGTERM');
+      await rm(runRoot, { recursive: true, force: true });
+      throw new Error('synthetic cleanup failure');
+    },
+  }), error => {
+    assert.equal(error instanceof AggregateError, true);
+    assert.match(error.message, /signal interruption/);
+    const evidence = JSON.stringify(error, Object.getOwnPropertyNames(error));
+    assert.match(evidence, /synthetic cleanup failure/);
+    assert.match(evidence, /release suite interrupted: SIGTERM/);
+    return true;
+  });
+});
+
 test('cleanup rejects paths outside the owned OS temp run boundary', async () => {
   assert.throws(() => validateOwnedRunPath(process.cwd()), /cleanup safety boundary rejected/);
   assert.throws(() => validateOwnedRunPath(tmpdir()), /cleanup safety boundary rejected/);

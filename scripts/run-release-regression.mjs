@@ -96,6 +96,9 @@ export async function runReleaseRegression(options = {}) {
     interruptedSignal = signal;
     runAbortController.abort();
   };
+  const appendFailure = (nextFailure, message) => {
+    failure = failure ? new AggregateError([failure, nextFailure], message) : nextFailure;
+  };
   process.once('SIGINT', onSignal);
   process.once('SIGTERM', onSignal);
   try {
@@ -131,10 +134,14 @@ export async function runReleaseRegression(options = {}) {
       try {
         await cleanupOwnedRun(runRoot, options.removeImpl);
       } catch (cleanupError) {
-        failure = failure
-          ? new AggregateError([failure, cleanupError], 'release failure followed by cleanup failure')
-          : cleanupError;
+        appendFailure(cleanupError, 'release failure followed by cleanup failure');
       }
+    }
+    if (interruptedSignal) {
+      appendFailure(
+        new Error(`release suite interrupted: ${interruptedSignal}`),
+        'release failure accompanied by signal interruption',
+      );
     }
     process.removeListener('SIGINT', onSignal);
     process.removeListener('SIGTERM', onSignal);
