@@ -419,4 +419,59 @@ describe('EF-77 diagnostic trace', () => {
     await provider.unmount();
     infoSpy.mockRestore();
   });
+
+  it('records the existing 30-second Retry timeout decision and interrupted transition', async () => {
+    installWindow('?ef77trace=true');
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
+    const session = {
+      ...persistedGeneratingSession(sensitiveSentinels.sessionId),
+      turnStatus: 'interrupted',
+      chatPhase: 'idle',
+    };
+    storage.set('chat_sessions', JSON.stringify([session]));
+    storage.set('current_session_id', session.id);
+
+    const provider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitFor(() => expect(captured?.isHydrated).toBe(true));
+    await waitFor(() => expect(captured?.turnStatus).toBe('interrupted'));
+
+    jest.useFakeTimers();
+    let retryPromise: Promise<void> | undefined;
+    await act(async () => {
+      retryPromise = captured?.retryLastMessage();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(30000);
+      await retryPromise;
+    });
+
+    const events = ef77Events(infoSpy);
+    expect(events.find(event => event.event === 'retry_transport_started')).toMatchObject({
+      isRetry: true,
+      requestIdPresent: true,
+      clientSessionIdPresent: true,
+    });
+    expect(events.find(event => event.event === 'stream_timeout_decision')).toMatchObject({
+      timeoutWon: true,
+      streamSettled: false,
+      firstEventObserved: false,
+      firstContentChunkObserved: false,
+      eventCount: 0,
+      contentChunkCount: 0,
+      doneObserved: false,
+      isRetry: true,
+    });
+    expect(events.find(event => event.event === 'retry_final_transition')).toMatchObject({
+      nextTurnStatus: 'interrupted',
+      transitionReason: 'stream_timeout',
+      isRetry: true,
+    });
+    expect(captured?.turnStatus).toBe('interrupted');
+    expectNoSensitiveTraceValues(events);
+
+    jest.useRealTimers();
+    await provider.unmount();
+    infoSpy.mockRestore();
+  });
 });
