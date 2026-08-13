@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
-import { chatStart, chatStream, FlowContext } from '../api/cozeApi';
+import { chatStart, chatStream, FlowContext, type RetryTransportDiagnostics } from '../api/cozeApi';
 import { ChatSession, ChatMessage, TurnStatus, PendingTurn } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
@@ -1294,6 +1294,24 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         terminationReason: 'pagehide' | 'provider_unmount' | null;
       } = { terminationReason: null };
       activeTransportLifecycleRef.current = transportLifecycle;
+      const retryTransportDiagnostics: RetryTransportDiagnostics = {
+        isRetry,
+        startedAt: Date.now(),
+        firstEventObserved: false,
+        firstContentChunkObserved: false,
+        eventCount: 0,
+        contentChunkCount: 0,
+        doneObserved: false,
+        streamSettled: false,
+      };
+      const retryDiagnosticsEnabled = isEf77DiagnosticEnabled();
+      emitEf77Trace('retry_transport_started', {
+        timestamp: retryTransportDiagnostics.startedAt,
+        isRetry,
+        requestIdPresent: !!snapshot.requestId,
+        conversationIdPresent: !!snapshot.conversationId,
+        clientSessionIdPresent: !!snapshot.sessionId,
+      });
 
       // 同步更新持久状态
       conversationIdRef.current = snapshot.conversationId;
@@ -1388,7 +1406,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           snapshot.roleId,
           userMessage,
           snapshot.conversationId,
-          snapshot.requestId
+          snapshot.requestId,
+          retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined
         );
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
@@ -1722,7 +1741,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
-            });
+            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined);
             // Some transports resolve during teardown without invoking a terminal
             // callback. Settle the request so an abandoned Provider cannot leave
             // its send Promise and timeout alive.
@@ -1777,6 +1796,18 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (streamTimeoutHandle) {
           clearTimeout(streamTimeoutHandle);
         }
+        emitEf77Trace('stream_timeout_decision', {
+          timestamp: Date.now(),
+          elapsedMs: Date.now() - retryTransportDiagnostics.startedAt,
+          timeoutWon: streamOutcome === 'timed_out',
+          streamSettled: retryTransportDiagnostics.streamSettled,
+          firstEventObserved: retryTransportDiagnostics.firstEventObserved,
+          firstContentChunkObserved: retryTransportDiagnostics.firstContentChunkObserved,
+          eventCount: retryTransportDiagnostics.eventCount,
+          contentChunkCount: retryTransportDiagnostics.contentChunkCount,
+          doneObserved: retryTransportDiagnostics.doneObserved,
+          isRetry,
+        });
         
         // A page/Provider teardown owns transport termination independently of
         // React cleanup timing. Preserve the durable generating snapshot so the
@@ -1798,6 +1829,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (streamOutcome === 'stream_error') {
           console.log('[EF-38] Stream error detected, calling markTurnFailed');
           await markTurnFailed(snapshot.sessionId, 'stream_error_mark_failed');
+          emitEf77Trace('retry_final_transition', {
+            timestamp: Date.now(), nextTurnStatus: 'failed',
+            transitionReason: 'stream_error', isRetry,
+          });
           return 'failed';
         }
         
@@ -1805,6 +1840,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (streamOutcome === 'timed_out') {
           console.warn('[EF-38] Stream timed out, marking turn interrupted');
           await markTurnInterrupted(snapshot.sessionId);
+          emitEf77Trace('retry_final_transition', {
+            timestamp: Date.now(), nextTurnStatus: 'interrupted',
+            transitionReason: 'stream_timeout', isRetry,
+          });
           return 'interrupted';
         }
         
@@ -1812,6 +1851,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         if (streamOutcome === 'empty') {
           console.log('[EF-38] Empty stream, marking turn interrupted');
           await markTurnInterrupted(snapshot.sessionId);
+          emitEf77Trace('retry_final_transition', {
+            timestamp: Date.now(), nextTurnStatus: 'interrupted',
+            transitionReason: 'empty_stream', isRetry,
+          });
           return 'interrupted';
         }
         
@@ -1899,6 +1942,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38: 持久化到 session（使用显式构建的最终消息数组）
         // finalizeTurnCompleted 会设置 turnStatus='completed', 移除 pendingTurn, chatPhase='done'
         await finalizeTurnCompleted(snapshot.sessionId, finalMessages);
+        emitEf77Trace('retry_final_transition', {
+          timestamp: Date.now(), nextTurnStatus: 'completed',
+          transitionReason: 'stream_and_ui_completed', isRetry,
+        });
 
         // 完整成功，清除 retry/regenerate 快照
         retrySnapshotRef.current = null;

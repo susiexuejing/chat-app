@@ -7,6 +7,35 @@
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import {
+  emitEf77Trace,
+  getEf77ErrorType,
+  isEf77DiagnosticEnabled,
+} from '../utils/ef77Diagnostics';
+
+export interface RetryTransportDiagnostics {
+  isRetry: boolean;
+  startedAt: number;
+  firstEventObserved: boolean;
+  firstContentChunkObserved: boolean;
+  eventCount: number;
+  contentChunkCount: number;
+  doneObserved: boolean;
+  streamSettled: boolean;
+}
+
+export function createRetryTransportDiagnostics(isRetry: boolean): RetryTransportDiagnostics {
+  return {
+    isRetry,
+    startedAt: Date.now(),
+    firstEventObserved: false,
+    firstContentChunkObserved: false,
+    eventCount: 0,
+    contentChunkCount: 0,
+    doneObserved: false,
+    streamSettled: false,
+  };
+}
 
 // 获取后端地址 - 尝试多个可能的地址
 function getBackendUrl(): string {
@@ -257,18 +286,41 @@ export interface ChatStartResponse {
  * 接口 1：即时返回前端流
  * POST /api/v1/chat/start
  */
-export async function chatStart(roleId: string, message: string, conversationId?: string, requestId?: string): Promise<ChatStartResponse> {
+export async function chatStart(roleId: string, message: string, conversationId?: string, requestId?: string, diagnostics?: RetryTransportDiagnostics): Promise<ChatStartResponse> {
   const BASE = getBackendUrl();
-  const response = await fetch(`${BASE}/api/v1/chat/start`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ roleId, message, conversationId, requestId }),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => '');
-    throw new Error(`chatStart failed (${response.status}): ${text}`);
+  const startedAt = Date.now();
+  emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
+  let httpStatus: number | null = null;
+  try {
+    const response = await fetch(`${BASE}/api/v1/chat/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roleId, message, conversationId, requestId }),
+    });
+    httpStatus = response.status;
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(`chatStart failed (${response.status}): ${text}`);
+    }
+    const result: ChatStartResponse = await response.json();
+    emitEf77Trace('chat_start_completed', {
+      timestamp: Date.now(),
+      durationMs: Date.now() - startedAt,
+      httpStatus,
+      backendSessionIdPresent: !!result.sessionId,
+      isRetry: diagnostics?.isRetry ?? false,
+    });
+    return result;
+  } catch (error) {
+    emitEf77Trace('chat_start_failed', {
+      timestamp: Date.now(),
+      durationMs: Date.now() - startedAt,
+      httpStatus,
+      errorType: getEf77ErrorType(error),
+      isRetry: diagnostics?.isRetry ?? false,
+    });
+    throw error;
   }
-  return response.json();
 }
 
 /**
@@ -286,15 +338,90 @@ export function chatStream(
     onDone?: () => void;
     onError?: (err: Error) => void;
   },
+  diagnostics?: RetryTransportDiagnostics,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const BASE = getBackendUrl();
     const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
+    const requestStartedAt = Date.now();
+    emitEf77Trace('stream_request_started', {
+      timestamp: requestStartedAt,
+      isRetry: diagnostics?.isRetry ?? false,
+      backendSessionIdPresent: !!sessionId,
+    });
+
+    const observeProgress = (data: string) => {
+      if (!diagnostics || !isEf77DiagnosticEnabled()) return;
+      diagnostics.eventCount += 1;
+      const firstEvent = !diagnostics.firstEventObserved;
+      diagnostics.firstEventObserved = true;
+      let contentObserved = false;
+      try {
+        const parsed: unknown = JSON.parse(data);
+        contentObserved = !!parsed && typeof parsed === 'object'
+          && typeof (parsed as { content?: unknown }).content === 'string'
+          && (parsed as { content: string }).content.length > 0;
+      } catch {
+        // Diagnostic classification never changes the existing SSE parser path.
+      }
+      if (contentObserved) diagnostics.contentChunkCount += 1;
+      const firstContent = contentObserved && !diagnostics.firstContentChunkObserved;
+      if (firstContent) diagnostics.firstContentChunkObserved = true;
+      if (firstEvent || firstContent) {
+        emitEf77Trace('stream_progress', {
+          timestamp: Date.now(),
+          firstEventObserved: diagnostics.firstEventObserved,
+          firstContentChunkObserved: diagnostics.firstContentChunkObserved,
+          eventCount: diagnostics.eventCount,
+          contentChunkCount: diagnostics.contentChunkCount,
+          isRetry: diagnostics.isRetry,
+        });
+      }
+    };
+
+    const observeTerminal = (terminal: {
+      doneObserved: boolean;
+      eofObserved: boolean;
+      resolved: boolean;
+      rejected: boolean;
+      error?: unknown;
+    }) => {
+      if (!diagnostics || diagnostics.streamSettled || !isEf77DiagnosticEnabled()) return;
+      diagnostics.doneObserved = terminal.doneObserved;
+      diagnostics.streamSettled = terminal.resolved || terminal.rejected;
+      emitEf77Trace('stream_progress', {
+        timestamp: Date.now(),
+        firstEventObserved: diagnostics.firstEventObserved,
+        firstContentChunkObserved: diagnostics.firstContentChunkObserved,
+        eventCount: diagnostics.eventCount,
+        contentChunkCount: diagnostics.contentChunkCount,
+        isRetry: diagnostics.isRetry,
+      });
+      emitEf77Trace('stream_terminal_observed', {
+        timestamp: Date.now(),
+        doneObserved: terminal.doneObserved,
+        eofObserved: terminal.eofObserved,
+        resolved: terminal.resolved,
+        rejected: terminal.rejected,
+        eventCount: diagnostics.eventCount,
+        contentChunkCount: diagnostics.contentChunkCount,
+        errorType: terminal.error === undefined ? null : getEf77ErrorType(terminal.error),
+        isRetry: diagnostics.isRetry,
+      });
+    };
 
     // Web 端和 RN 端统一使用 fetch SSE
     if (Platform.OS === 'web') {
       fetch(url)
         .then(async (response) => {
+          emitEf77Trace('stream_response_observed', {
+            timestamp: Date.now(),
+            durationMs: Date.now() - requestStartedAt,
+            httpStatus: response.status,
+            responseOk: response.ok,
+            readerPresent: !!response.body,
+            isRetry: diagnostics?.isRetry ?? false,
+          });
           if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
           }
@@ -318,18 +445,23 @@ export function chatStream(
               if (!trimmed || !trimmed.startsWith('data: ')) continue;
               const data = trimmed.slice(6);
               if (data === '[DONE]') {
+                if (diagnostics) diagnostics.doneObserved = true;
                 callbacks.onDone?.();
+                observeTerminal({ doneObserved: true, eofObserved: false, resolved: true, rejected: false });
                 resolve();
                 return;
               }
+              observeProgress(data);
               callbacks.onChunk?.(data);
             }
           }
           callbacks.onDone?.();
+          observeTerminal({ doneObserved: false, eofObserved: true, resolved: true, rejected: false });
           resolve();
         })
         .catch((err) => {
           callbacks.onError?.(err);
+          observeTerminal({ doneObserved: diagnostics?.doneObserved ?? false, eofObserved: false, resolved: false, rejected: true, error: err });
           reject(err);
         });
     } else {
@@ -341,21 +473,26 @@ export function chatStream(
         });
         sse.addEventListener('message', (event: any) => {
           if (event.data === '[DONE]') {
+            if (diagnostics) diagnostics.doneObserved = true;
             sse.close();
             callbacks.onDone?.();
+            observeTerminal({ doneObserved: true, eofObserved: false, resolved: true, rejected: false });
             resolve();
             return;
           }
+          observeProgress(event.data);
           callbacks.onChunk?.(event.data);
         });
         sse.addEventListener('error', (error: any) => {
           sse.close();
           const err = new Error(error.message || 'stream error');
           callbacks.onError?.(err);
+          observeTerminal({ doneObserved: diagnostics?.doneObserved ?? false, eofObserved: false, resolved: false, rejected: true, error: err });
           reject(err);
         });
         sse.addEventListener('close', () => {
           callbacks.onDone?.();
+          observeTerminal({ doneObserved: diagnostics?.doneObserved ?? false, eofObserved: true, resolved: true, rejected: false });
           resolve();
         });
       });
