@@ -7,10 +7,6 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // ID protocol regex (must match server validation)
 const ID_PROTOCOL_REGEX = /^[a-zA-Z0-9_-]{1,100}$/;
