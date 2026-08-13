@@ -84,9 +84,111 @@ export function getEf77LocationMetadata() {
   return { origin: window.location.origin, pathname: window.location.pathname };
 }
 
+const EF77_ALLOWED_TRACE_KEYS = new Set([
+  'activeChatPhase',
+  'activeSessionIdPresent',
+  'activeTurnStatus',
+  'adapterName',
+  'branchEntered',
+  'completedAt',
+  'errorType',
+  'eventType',
+  'executionStage',
+  'failurePath',
+  'hasPendingTurn',
+  'initialRevision',
+  'mounted',
+  'operation',
+  'origin',
+  'pathname',
+  'previousTurnStatus',
+  'promiseCompleted',
+  'providerInstanceId',
+  'queueGeneration',
+  'queueKind',
+  'requestIdPresent',
+  'resultingChatPhase',
+  'revision',
+  'sessionCount',
+  'sessionIdPresent',
+  'skipReason',
+  'snapshotHash',
+  'source',
+  'startedAt',
+  'storageKey',
+  'timestamp',
+  'transition',
+  'transitionReason',
+  'userMessageIdPresent',
+  'writeSource',
+  'writerSource',
+]);
+
+const normalizeEf77TraceKey = (key: string) => key.replace(/[^a-z0-9]/gi, '').toLowerCase();
+
+function presenceKeyForEf77SensitiveId(key: string): string | null {
+  const normalized = normalizeEf77TraceKey(key);
+  if (normalized === 'requestid') return 'requestIdPresent';
+  if (normalized === 'usermessageid' || normalized === 'messageid') {
+    return 'userMessageIdPresent';
+  }
+  if (
+    normalized === 'activesessionid' ||
+    normalized === 'currentsessionid' ||
+    normalized === 'restoredsessionid' ||
+    normalized === 'persistedsessionid' ||
+    normalized === 'backendsessionid' ||
+    normalized === 'sessionid' ||
+    normalized === 'sessionids'
+  ) {
+    return normalized === 'activesessionid' ? 'activeSessionIdPresent' : 'sessionIdPresent';
+  }
+  return null;
+}
+
+function collectEf77SensitiveIdPresence(
+  value: unknown,
+  presence: Record<string, boolean>,
+  seen: Set<object>
+): void {
+  if (!value || typeof value !== 'object' || seen.has(value)) return;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    value.forEach(item => collectEf77SensitiveIdPresence(item, presence, seen));
+    return;
+  }
+
+  for (const [key, nestedValue] of Object.entries(value)) {
+    const presenceKey = presenceKeyForEf77SensitiveId(key);
+    if (presenceKey) {
+      const values = Array.isArray(nestedValue) ? nestedValue : [nestedValue];
+      presence[presenceKey] = presence[presenceKey]
+        || values.some(item => item != null && item !== '');
+    }
+    collectEf77SensitiveIdPresence(nestedValue, presence, seen);
+  }
+}
+
+export function sanitizeEf77TraceDetails(
+  details: Record<string, unknown>
+): Record<string, unknown> {
+  const sanitized: Record<string, unknown> = {};
+  const presence: Record<string, boolean> = {};
+  collectEf77SensitiveIdPresence(details, presence, new Set<object>());
+
+  for (const [key, value] of Object.entries(details)) {
+    if (!EF77_ALLOWED_TRACE_KEYS.has(key)) continue;
+    if (value === null || ['boolean', 'number', 'string'].includes(typeof value)) {
+      sanitized[key] = value;
+    }
+  }
+  return { ...sanitized, ...presence };
+}
+
 export function emitEf77Trace(event: string, details: Record<string, unknown>): void {
   if (!isEf77DiagnosticEnabled()) return;
-  console.info(EF77_TRACE_PREFIX, JSON.stringify({ event, ...details }));
+  console.info(EF77_TRACE_PREFIX, JSON.stringify({ event, ...sanitizeEf77TraceDetails(details) }));
 }
 
 export function getEf77ErrorType(error: unknown): string {
