@@ -88,7 +88,7 @@ class NeuralProfileManager {
     }
   }
 
-  private saveProfiles(): void {
+  saveProfiles(): void {
     try {
       this.ensureDataDir();
       const data: Record<string, NeuralProfile> = {};
@@ -205,7 +205,7 @@ class NeuralProfileManager {
   }
 
   /** 生成神经状态文本片段，用于注入提示词 */
-  formatNeuralStateBlock(profile: NeuralProfile): string {
+  formatNeuralStateBlock(profile: Pick<NeuralProfile, 'attentionBias' | 'valueBias' | 'subconscious' | 'influenceLog' | 'longTermChangeLog'>): string {
     const w = profile.subconscious;
     const emotionsStr = w.dominantEmotions.length > 0
       ? w.dominantEmotions.join('、')

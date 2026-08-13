@@ -1,5 +1,13 @@
 import * as React from 'react';
 
+// V8 captureStackTrace type: precise callable signature matching useContext
+type CaptureStackTraceFn = (targetObject: object, constructorOpt?: () => void) => void;
+
+// Error constructor with optional V8 captureStackTrace
+type ErrorWithCaptureStackTrace = ErrorConstructor & {
+  captureStackTrace?: CaptureStackTraceFn;
+};
+
 export interface CreateContextOptions {
   /**
    * If `true`, React will throw if context is `null` or `undefined`
@@ -45,7 +53,7 @@ export function createContext<ContextType>(options: CreateContextOptions = {}) {
       const error = new Error(errorMessage);
 
       error.name = 'ContextError';
-      Error.captureStackTrace?.(error, useContext);
+      (Error as ErrorWithCaptureStackTrace).captureStackTrace?.(error, useContext);
       throw error;
     }
 

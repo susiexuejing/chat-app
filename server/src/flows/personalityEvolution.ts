@@ -38,7 +38,7 @@ export function getDefaultWeights(roleId: string): ResponseWeights {
   const weights: ResponseWeights = { ...DEFAULT_WEIGHTS, updatedAt: Date.now() };
   const specificDims = ROLE_SPECIFIC_DIMENSIONS[roleId] || [];
   for (const dim of specificDims) {
-    (weights as Record<string, unknown>)[dim as string] = 0.5;
+    (weights as unknown as Record<string, unknown>)[dim as string] = 0.5;
   }
   return weights;
 }
@@ -111,7 +111,7 @@ export function adjustWeights(
 
     // self_blame 重复（totalInteractions>=3 且出现过self_blame）
     const hasSelfBlame = patterns.some(p => p.includes('self_blame') || p.includes('自责'));
-    if (hasSelfBlame && ltuProfile.totalInteractions >= 3) {
+    if (hasSelfBlame && (ltuProfile.totalInteractions ?? 0) >= 3) {
       if (roleId === 'clever-fox') {
         deltas.cognitiveReframe = (deltas.cognitiveReframe ?? 0) + maxDelta * 0.7;
         reasons.push(`self_blame×${ltuProfile.totalInteractions} → cognitiveReframe↑`);

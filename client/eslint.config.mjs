@@ -142,4 +142,20 @@ export default [
       'forbidEmoji/no-emoji': 'off',
     },
   },
+
+  // Jest 测试文件和 mock 文件：识别 Jest 全局变量
+  {
+    files: [
+      "**/__tests__/**/*.{js,ts,tsx}",
+      "**/__mocks__/**/*.{js,ts}",
+      "jest.config.js",
+      "jest.setup.js",
+    ],
+    languageOptions: {
+      globals: {
+        ...globals.jest,
+        ...globals.node,
+      },
+    },
+  },
 ];

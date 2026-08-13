@@ -14,7 +14,8 @@ export type EventHint =
   | 'burnout'
   | 'sadness'
   | 'anger'
-  | 'work_relationship';
+  | 'work_relationship'
+  | 'work_pressure';
 
 export type FeelingHint =
   | 'general'
@@ -23,7 +24,16 @@ export type FeelingHint =
   | '愤怒/不服'
   | '疲惫/耗竭'
   | '迷茫/无意义'
-  | '焦虑/紧张';
+  | '焦虑/紧张'
+  | '悬着'
+  | '反复想'
+  | '委屈'
+  | '累'
+  | '慌'
+  | '闷'
+  | '空'
+  | '沉重'
+  | '';
 
 interface EventTemplate {
   reactions: string[];
