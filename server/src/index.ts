@@ -179,7 +179,7 @@ export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlo
 
 ${getRoleStyle(roleId)}
 
-${neuralProfile ? neuralManager.formatNeuralStateBlock(neuralProfile) : ''}
+${neuralProfile ? neuralProfile.deepPromptBlock : ''}
 
 用户当前心理状态（结构化分析，供参考）：
 ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}

@@ -1,5 +1,11 @@
 import * as React from 'react';
 
+// Node.js Error extension for captureStackTrace (V8 engine)
+interface NodeError extends Error {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  captureStackTrace?: (targetObject: object, constructorOpt?: (...args: any[]) => any) => void;
+}
+
 export interface CreateContextOptions {
   /**
    * If `true`, React will throw if context is `null` or `undefined`
@@ -45,7 +51,7 @@ export function createContext<ContextType>(options: CreateContextOptions = {}) {
       const error = new Error(errorMessage);
 
       error.name = 'ContextError';
-      Error.captureStackTrace?.(error, useContext);
+      (Error as unknown as NodeError).captureStackTrace?.(error, useContext);
       throw error;
     }
 
