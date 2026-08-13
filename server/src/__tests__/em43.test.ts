@@ -19,9 +19,11 @@ import {
   getFirstTwoRoundsReactionTimeline,
   getFirstTwoRoundsCompanionTimeline,
 } from '../flows/firstTwoRoundsReaction';
-import { generateReactionTimeline, generateCompanionTimeline, extractSignal } from '../flows/localReactionEngine';
+import { generateReactionTimeline, generateCompanionTimeline } from '../flows/localReactionEngine';
+import { extractSignal } from '../flows/signalExtractor';
 import { buildDeepSystemPrompt } from '../flows/deepPromptBuilder';
 import { PSYCHOLOGIST_ROLES } from '../roles/psychologistRoles';
+import { readFileSync } from 'node:fs';
 
 beforeEach(() => {
   resetAllConversations();
@@ -212,6 +214,85 @@ describe('EM-43: First Two Rounds Rules', () => {
   test('第 3 轮返回空规则', () => {
     const rules = getFirstTwoRoundsRulesWithTurn(3);
     expect(rules).toBe('');
+  });
+});
+
+// ==================== EF-41 confused overload ====================
+describe('EF-41: Smart Fox confused-overload first response', () => {
+  const ROLE_ID = 'clever-fox';
+  const exactInput = '今天发生了很多事，我脑子很乱，不知道该从哪里说起。';
+  const matchingInputs = [
+    exactInput,
+    '好多事情一下子挤在一起，我脑袋乱成一团，不知从哪开始。',
+    '事情一件接一件地涌来，我完全理不清，也不知道怎么开口。',
+  ];
+  const negativeInputs = [
+    '我不知道该怎么说。',
+    '房间很乱，我准备周末收拾。',
+    '今天开会、买菜、接孩子，晚上还看了电影。',
+  ];
+
+  function orderedOutput(input: string, userTurn = 1): { reaction: string; companion: string; combined: string } {
+    const signal = extractSignal(input);
+    const reaction = generateReactionTimeline(ROLE_ID, input, signal, userTurn).map(s => s.text).join('');
+    const companion = generateCompanionTimeline(ROLE_ID, input, signal, userTurn).map(s => s.text).join('');
+    return { reaction, companion, combined: `${reaction}${companion}` };
+  }
+
+  test.each(matchingInputs)('matches confused overload without exact-input hard-coding: %s', (input) => {
+    const output = orderedOutput(input);
+    expect(output.reaction).toContain('很多事情一下子挤在一起');
+    expect(output.reaction).toMatch(/脑子很乱|不知道从哪里开始/);
+    expect(output.companion).toContain('不用一次理清全部');
+    expect(output.companion).toMatch(/一件.{0,8}最让你卡住的事/);
+  });
+
+  test.each(negativeInputs)('does not match when both semantic categories are absent: %s', (input) => {
+    const output = orderedOutput(input);
+    expect(output.combined).not.toContain('很多事情一下子挤在一起');
+    expect(output.combined).not.toMatch(/一件.{0,8}最让你卡住的事/);
+  });
+
+  test('ordered first-turn output satisfies the EF-41 invariants', () => {
+    const { reaction, companion, combined } = orderedOutput(exactInput);
+
+    expect(reaction).not.toBe(companion);
+    expect(combined).not.toMatch(/这句话有东西|藏着什么|不是表面那么简单|有意思/);
+    expect(combined).not.toMatch(/焦虑症|抑郁症|创伤|PTSD|人格障碍/i);
+    expect(combined).not.toMatch(/你应该|你可以试试|建议你|先深呼吸/);
+    expect((combined.match(/[？?]/g) || [])).toHaveLength(1);
+    expect((combined.match(/我在听|我听到了|先放我这|帮你收着|我记着/g) || []).length).toBeLessThanOrEqual(1);
+  });
+
+  test('second turn remains restrained for the bounded condition', () => {
+    const output = orderedOutput(exactInput, 2);
+    expect(output.combined).toMatch(/很多事情一下子挤在一起/);
+    expect(output.combined).not.toMatch(/分析|诊断|模式|你应该|建议你/);
+    expect((output.combined.match(/[？?]/g) || [])).toHaveLength(1);
+  });
+
+  test('third turn remains on the existing timeline path', () => {
+    const signal = extractSignal(exactInput);
+    const withRawMessage = {
+      reaction: generateReactionTimeline(ROLE_ID, exactInput, signal, 3),
+      companion: generateCompanionTimeline(ROLE_ID, exactInput, signal, 3),
+    };
+    const withLegacyArgument = {
+      reaction: generateReactionTimeline(ROLE_ID, '不知道该从哪里说起', signal, 3),
+      companion: generateCompanionTimeline(ROLE_ID, '不知道该从哪里说起', signal, 3),
+    };
+
+    expect(withRawMessage).toEqual(withLegacyArgument);
+    expect(withRawMessage.reaction.length).toBeGreaterThan(1);
+    expect(withRawMessage.companion.length).toBeGreaterThan(1);
+  });
+
+  test('production chat/start passes the raw message to both first-two-round generators', () => {
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+    expect(source).toContain('generateReactionTimeline(roleId, message, signal, userTurn)');
+    expect(source).toContain('generateCompanionTimeline(roleId, message, signal, userTurn)');
+    expect(source).not.toContain('generateReactionTimeline(roleId, keywords?.[0] || message, signal, userTurn)');
+    expect(source).not.toContain('generateCompanionTimeline(roleId, keywords?.[0] || message, signal, userTurn)');
   });
 });
 

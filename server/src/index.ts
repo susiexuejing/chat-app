@@ -1600,8 +1600,8 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
-      reactionTimeline = generateReactionTimeline(roleId, keywords?.[0] || message, signal, userTurn);
-      companionTimeline = generateCompanionTimeline(roleId, keywords?.[0] || message, signal, userTurn);
+      reactionTimeline = generateReactionTimeline(roleId, message, signal, userTurn);
+      companionTimeline = generateCompanionTimeline(roleId, message, signal, userTurn);
       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
       companionLayer = companionTimeline[0]?.text || frontFlowText;
 

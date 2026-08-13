@@ -16,6 +16,29 @@
 import type { TimelineSegment } from './localReactionEngine';
 import type { Signal } from './signalExtractor';
 
+const OVERLOAD_PATTERNS = [
+  /(?:很多|好多|太多|一堆|一大堆|各种)(?:事|事情|东西|问题)/,
+  /(?:事|事情|东西|问题).{0,6}(?:很多|太多|堆在一起|挤在一起|一下子全来了)/,
+  /(?:一件接一件|接二连三|一股脑).{0,8}(?:发生|涌来|堆来|挤来|来了)/,
+  /(?:一下子|同时).{0,8}(?:挤|涌|堆).{0,4}(?:一起|过来)/,
+];
+
+const CONFUSION_PATTERNS = [
+  /(?:脑子|脑袋|思绪|头绪).{0,8}(?:很乱|乱成一团|一团乱|理不清|捋不清|转不过来)/,
+  /(?:不知|不知道|没想好|想不清).{0,8}(?:从哪|哪里|怎么).{0,8}(?:说|开始|讲|开口|理)/,
+  /(?:说不清|理不清|捋不清|无从下手|找不到头绪)/,
+];
+
+/**
+ * EF-41: Match only when the raw message contains both accumulated overload
+ * and difficulty sorting or starting. Neither category is sufficient alone.
+ */
+function isConfusedOverload(message?: string): boolean {
+  if (!message) return false;
+  return OVERLOAD_PATTERNS.some((pattern) => pattern.test(message))
+    && CONFUSION_PATTERNS.some((pattern) => pattern.test(message));
+}
+
 /**
  * Extract a short phrase from the user's message that can be referenced.
  * Returns the most meaningful clause (up to ~20 chars).
@@ -48,6 +71,13 @@ function extractUserPhrase(message: string): string {
  * Deterministic: same input always produces same output.
  */
 export function getFirstTwoRoundsReactionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
+  if (isConfusedOverload(userMessage)) {
+    return [{
+      displayAt: 0,
+      text: '听起来很多事情一下子挤在一起，你现在脑子很乱，也不知道从哪里开始。',
+    }];
+  }
+
   const phrase = userMessage ? extractUserPhrase(userMessage) : '';
   const keyword = signal?.keyword || '';
   const eventHint = signal?.eventHint || '';
@@ -91,6 +121,13 @@ export function getFirstTwoRoundsReactionTimeline(signal?: Signal, userMessage?:
  * Deterministic: same input always produces same output.
  */
 export function getFirstTwoRoundsCompanionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
+  if (isConfusedOverload(userMessage)) {
+    return [{
+      displayAt: 8,
+      text: '不用一次理清全部，先说一件此刻最让你卡住的事，好吗？',
+    }];
+  }
+
   const phrase = userMessage ? extractUserPhrase(userMessage) : '';
   const keyword = signal?.keyword || '';
   const eventHint = signal?.eventHint || '';
