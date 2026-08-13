@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { ChatProvider, EF38_STREAM_TIMEOUT_MS, useChat } from '../contexts/ChatContext';
 import { MessageList } from '../components/MessageList';
 import { chatStart, chatStream } from '../api/cozeApi';
 import * as sessionStore from '../stores/sessionStore';
@@ -59,6 +59,7 @@ interface StreamController {
   resolve: () => void;
   reject: (error: Error) => void;
   callbacks: StreamCallbacks;
+  signal?: AbortSignal;
 }
 
 interface CapturedContext {
@@ -136,14 +137,14 @@ function Harness() {
 function createStreamMock() {
   const controllers: StreamController[] = [];
 
-  mockedChatStream.mockImplementation((_sessionId, callbacks) => {
+  mockedChatStream.mockImplementation((_sessionId, callbacks, _diagnostics, signal) => {
     let resolvePromise: () => void = () => undefined;
     let rejectPromise: (error: Error) => void = () => undefined;
     const promise = new Promise<void>((resolve, reject) => {
       resolvePromise = resolve;
       rejectPromise = reject;
     });
-    controllers.push({ promise, resolve: resolvePromise, reject: rejectPromise, callbacks });
+    controllers.push({ promise, resolve: resolvePromise, reject: rejectPromise, callbacks, signal });
     return promise;
   });
 
@@ -494,15 +495,24 @@ describe('EF-38 minimum closed loops', () => {
     await waitForHydration();
     await waitFor(() => expect(recoveredProvider.getByText('重新生成')).toBeTruthy());
 
+    jest.useFakeTimers();
     await act(async () => {
       fireEvent.press(recoveredProvider.getByText('重新生成'));
+      await jest.advanceTimersByTimeAsync(0);
     });
-    await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(2));
-    await waitFor(() => {
-      expect(capturedContext?.turnStatus).toBe('generating');
-      expect(capturedContext?.chatPhase).toBe('responding');
-      expect(capturedContext?.isLoading).toBe(true);
+    expect(mockedChatStream).toHaveBeenCalledTimes(2);
+    expect(capturedContext?.turnStatus).toBe('generating');
+    expect(capturedContext?.chatPhase).toBe('responding');
+    expect(capturedContext?.isLoading).toBe(true);
+
+    await act(async () => {
+      streams[1].callbacks.onChunk?.(JSON.stringify({ type: 'timeline' }));
+      await jest.advanceTimersByTimeAsync(32001);
     });
+
+    expect(EF38_STREAM_TIMEOUT_MS).toBeGreaterThan(32000);
+    expect(capturedContext?.turnStatus).toBe('generating');
+    jest.useRealTimers();
 
     await act(async () => {
       streams[1].callbacks.onChunk?.(JSON.stringify({ content: '重试回复' }));
@@ -524,5 +534,68 @@ describe('EF-38 minimum closed loops', () => {
       streams[0].resolve();
       await abandonedSend;
     });
+  });
+
+  it('times out a stalled Retry, revokes its transport, and rejects late callbacks before the next Retry completes', async () => {
+    const streams = createStreamMock();
+    const firstProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const { sendPromise: abandonedSend } = await beginTurn('Timeout race message');
+    await firstProvider.unmount();
+    const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+    await waitFor(() => expect(recoveredProvider.getByText('重新生成')).toBeTruthy());
+
+    await act(async () => {
+      streams[0].resolve();
+      await abandonedSend;
+    });
+    jest.useFakeTimers();
+    await act(async () => {
+      fireEvent.press(recoveredProvider.getByText('重新生成'));
+      await Promise.resolve();
+    });
+    expect(mockedChatStream).toHaveBeenCalledTimes(2);
+    const pendingAtRetry = storedSessions[0].pendingTurn;
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(EF38_STREAM_TIMEOUT_MS);
+    });
+    jest.useRealTimers();
+    await waitFor(() => expect(capturedContext?.turnStatus).toBe('interrupted'));
+    expect(capturedContext?.pendingTurn).toEqual(pendingAtRetry);
+    expect(recoveredProvider.getByText('重新生成')).toBeTruthy();
+    expect(streams[1].signal?.aborted).toBe(true);
+
+    await act(async () => {
+      fireEvent.press(recoveredProvider.getByText('重新生成'));
+    });
+    await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(3));
+
+    await act(async () => {
+      streams[1].callbacks.onChunk?.(JSON.stringify({ content: 'STALE_ASSISTANT_CONTENT' }));
+      streams[1].callbacks.onDone?.();
+      streams[1].resolve();
+      await streams[1].promise;
+    });
+    expect(capturedContext?.turnStatus).toBe('generating');
+    expect(capturedContext?.messages.some(message => message.content.includes('STALE_ASSISTANT_CONTENT'))).toBe(false);
+
+    await act(async () => {
+      streams[2].callbacks.onChunk?.(JSON.stringify({ content: 'Current retry response' }));
+      streams[2].callbacks.onDone?.();
+      streams[2].resolve();
+      await streams[2].promise;
+    });
+
+    await waitFor(() => expect(capturedContext?.turnStatus).toBe('completed'));
+    expect(capturedContext?.messages.map(message => message.content)).toEqual([
+      'Timeout race message',
+      'Current retry response',
+    ]);
+    expect(capturedContext?.pendingTurn).toBeUndefined();
+    expect(capturedContext?.messages.filter(message => message.role === 'user')).toHaveLength(1);
+    expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(1);
   });
 });
