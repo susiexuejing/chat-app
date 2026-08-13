@@ -405,13 +405,17 @@ describe('EF-77 diagnostic trace', () => {
     infoSpy.mockRestore();
   });
 
-  it('emits no EF-77 trace and installs no pagehide handler when disabled', async () => {
+  it('keeps the teardown listener silent when EF-77 diagnostics are disabled', async () => {
     installWindow('');
     const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => undefined);
     const provider = await render(<ChatProvider><Harness /></ChatProvider>);
     await waitFor(() => expect(captured?.isHydrated).toBe(true));
     expect(ef77Events(infoSpy)).toEqual([]);
-    expect(listeners.has('pagehide')).toBe(false);
+    expect(listeners.has('pagehide')).toBe(true);
+    const writesBeforePageHide = (AsyncStorage.setItem as jest.Mock).mock.calls.length;
+    listeners.get('pagehide')?.({ type: 'pagehide' });
+    expect(ef77Events(infoSpy)).toEqual([]);
+    expect((AsyncStorage.setItem as jest.Mock).mock.calls.length).toBe(writesBeforePageHide);
     await provider.unmount();
     infoSpy.mockRestore();
   });
