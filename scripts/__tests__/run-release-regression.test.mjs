@@ -72,9 +72,13 @@ async function runUntilReadyAndSignal(file, signal, readinessTimeoutMs = 2_000) 
   const sibling = await mkdtemp(path.join(tmpdir(), 'emotionflow-ef95-release-'));
   const siblingName = path.basename(sibling);
   before.add(siblingName);
-  const child = spawn(process.execPath, ['scripts/run-release-regression.mjs'], {
+  const child = spawn(process.execPath, [
+    '--input-type=module', '-e',
+    "import { runReleaseRegression } from './scripts/run-release-regression.mjs'; await runReleaseRegression({ manifestPath: process.argv[1] });",
+    file,
+  ], {
     cwd: path.resolve(import.meta.dirname, '../..'),
-    env: { ...process.env, EF95_MANIFEST_PATH: file },
+    env: process.env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let output = '';
@@ -99,6 +103,17 @@ async function runUntilReadyAndSignal(file, signal, readinessTimeoutMs = 2_000) 
   assert.deepEqual(delta, []);
   assert.equal((await stat(sibling)).isDirectory(), true);
   await cleanupOwnedRun(sibling);
+}
+
+function runInjectedCli(file) {
+  return spawnSync(process.execPath, [
+    '--input-type=module', '-e',
+    "import { runReleaseRegression } from './scripts/run-release-regression.mjs'; await runReleaseRegression({ manifestPath: process.argv[1] });",
+    file,
+  ], {
+    cwd: path.resolve(import.meta.dirname, '../..'),
+    env: process.env,
+  });
 }
 
 test('valid manifest and successful suite return without artifacts', async () => {
@@ -227,32 +242,23 @@ test('package script and documentation expose the same canonical command', async
   assert.match(documentation, /scripts\/release-suite\.manifest\.json/);
 });
 
-test('CLI exits zero when every approved suite succeeds', async () => {
+test('test-only injected runner exits zero when every synthetic suite succeeds', async () => {
   const file = await manifestFile(cliManifest(0));
-  const result = spawnSync(process.execPath, ['scripts/run-release-regression.mjs'], {
-    cwd: path.resolve(import.meta.dirname, '../..'),
-    env: { ...process.env, EF95_MANIFEST_PATH: file },
-  });
+  const result = runInjectedCli(file);
   assert.equal(result.status, 0);
   assert.match(result.stdout.toString(), /\[release\] 1 approved suites passed; isolated artifacts cleaned/);
 });
 
-test('CLI exits non-zero when one approved suite fails', async () => {
+test('test-only injected runner exits non-zero when one synthetic suite fails', async () => {
   const file = await manifestFile(cliManifest(9));
-  const result = spawnSync(process.execPath, ['scripts/run-release-regression.mjs'], {
-    cwd: path.resolve(import.meta.dirname, '../..'),
-    env: { ...process.env, EF95_MANIFEST_PATH: file },
-  });
+  const result = runInjectedCli(file);
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(result.stdout.toString(), /approved suites passed/);
 });
 
-test('CLI exits non-zero for an invalid manifest', async () => {
+test('test-only injected runner exits non-zero for an invalid manifest', async () => {
   const file = await manifestFile({ schemaVersion: 7 });
-  const result = spawnSync(process.execPath, ['scripts/run-release-regression.mjs'], {
-    cwd: path.resolve(import.meta.dirname, '../..'),
-    env: { ...process.env, EF95_MANIFEST_PATH: file },
-  });
+  const result = runInjectedCli(file);
   assert.notEqual(result.status, 0);
   assert.doesNotMatch(result.stdout.toString(), /approved suites passed/);
 });
@@ -263,9 +269,13 @@ test('independent invocations report their own validated manifest counts', async
   twoSuiteManifest.included.push({ ...twoSuiteManifest.included[0], id: 'synthetic-suite-two' });
   const twoSuites = await manifestFile(twoSuiteManifest);
   const run = file => new Promise(resolve => {
-    const child = spawn(process.execPath, ['scripts/run-release-regression.mjs'], {
+    const child = spawn(process.execPath, [
+      '--input-type=module', '-e',
+      "import { runReleaseRegression } from './scripts/run-release-regression.mjs'; await runReleaseRegression({ manifestPath: process.argv[1] });",
+      file,
+    ], {
       cwd: path.resolve(import.meta.dirname, '../..'),
-      env: { ...process.env, EF95_MANIFEST_PATH: file },
+      env: process.env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -277,6 +287,22 @@ test('independent invocations report their own validated manifest counts', async
   assert.deepEqual([first.signal, second.signal], [null, null]);
   assert.match(first.stdout, /\[release\] 1 approved suites passed/);
   assert.match(second.stdout, /\[release\] 2 approved suites passed/);
+});
+
+test('canonical CLI ignores EF95_MANIFEST_PATH and retains repository manifest authority', async () => {
+  const malicious = cliManifest(0);
+  malicious.included[0].id = 'environment-injected-suite';
+  const file = await manifestFile(malicious);
+  const result = spawnSync(process.execPath, ['scripts/run-release-regression.mjs'], {
+    cwd: path.resolve(import.meta.dirname, '../..'),
+    env: { ...process.env, CI: '1', EF95_MANIFEST_PATH: file },
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  assert.equal(result.status, 0);
+  assert.doesNotMatch(result.stdout.toString(), /environment-injected-suite/);
+  assert.match(result.stdout.toString(), /\[release\] client-approved-jest/);
+  assert.match(result.stdout.toString(), /\[release\] runtime-data-static-guard/);
+  assert.match(result.stdout.toString(), /\[release\] 2 approved suites passed/);
 });
 
 test('readiness followed by SIGTERM stops the child, exits non-zero, and cleans only its run directory', async () => {

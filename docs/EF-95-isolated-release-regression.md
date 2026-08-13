@@ -6,7 +6,7 @@ Canonical repository-root command:
 pnpm run test:release
 ```
 
-The command reads `scripts/release-suite.manifest.json`; it never discovers or runs tests outside that approved manifest. A malformed manifest, bootstrap error, included-suite failure, interrupt, or unsafe cleanup failure returns a non-zero exit code.
+The canonical CLI always reads the fixed repository manifest at `scripts/release-suite.manifest.json`; environment variables cannot replace its path, included suites, commands, arguments, or working directories. Synthetic manifest injection is available only through the exported `runReleaseRegression({ manifestPath })` unit-test API and is not part of the formal CLI. The command never discovers or runs tests outside the approved manifest. A malformed repository manifest, bootstrap error, included-suite failure, interrupt, or unsafe cleanup failure returns a non-zero exit code.
 
 ## Isolation and cleanup
 

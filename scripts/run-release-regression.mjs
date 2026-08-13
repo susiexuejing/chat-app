@@ -85,7 +85,7 @@ function runSuite(suite, env, abortSignal, onStarted, spawnImpl = spawn) {
 }
 
 export async function runReleaseRegression(options = {}) {
-  const manifestPath = options.manifestPath ?? process.env.EF95_MANIFEST_PATH ?? DEFAULT_MANIFEST;
+  const manifestPath = options.manifestPath ?? DEFAULT_MANIFEST;
   let failure = null;
   let interruptedSignal = null;
   let runRoot = null;
