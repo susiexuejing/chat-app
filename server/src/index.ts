@@ -189,7 +189,7 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     // Load long-term understanding for this user+role
     const ltuProfile = await loadProfile(session.userId, session.roleId);
     const longTermSummary = generateLTUSummary(ltuProfile);
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn, session.userMessage);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: session.userMessage },

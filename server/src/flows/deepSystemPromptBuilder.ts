@@ -11,8 +11,9 @@
 import type { NeuralProfile } from './neuralProfileManager';
 import type { FlowResult, FlowContext } from './flowTypes';
 import { getFirstTwoRoundsRulesWithTurn } from './firstTwoRoundsRules';
+import { isConfusedOverload } from './firstTwoRoundsReaction';
 
-export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number): string {
+export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, userMessage?: string): string {
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -62,6 +63,19 @@ export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlo
     ? (neuralProfile as { deepPromptBlock?: string }).deepPromptBlock ?? ''
     : '';
 
+  const confusedOverloadCompositionBlock = roleId === 'clever-fox'
+    && !!userTurn
+    && userTurn <= 2
+    && isConfusedOverload(userMessage, true)
+    ? `\n===== EF-41 首两轮组合约束 =====
+前置 Reaction 与 Companion 已经完成理解、减压，并提出了本轮唯一的问题。
+- Deep 续写不得提出任何问题，也不得使用问号
+- 不得重复“先挑一件 / 先说一件 / 随便说 / 从哪里开始”等邀请
+- 不得重复“不用一次理清 / 慢慢来 / 我在听 / 我帮你收着”等安抚或承接
+- 只补充一句不带建议、不带诊断、不带新邀请的自然陈述；没有新增价值时可以极短
+================================\n`
+    : '';
+
   return `你是「${roleName}」。
 
 ${getRoleStyle(roleId)}
@@ -73,6 +87,7 @@ ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
 ${longTermSummary ? `\n${longTermSummary}\n` : ''}
 ${flowBlock}
 ${changeBlock || ''}
+${confusedOverloadCompositionBlock}
 请严格遵守：
 - 不要重复以上前置陪伴内容
 - 不要输出 JSON
