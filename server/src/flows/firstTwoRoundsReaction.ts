@@ -23,20 +23,39 @@ const OVERLOAD_PATTERNS = [
   /(?:一下子|同时).{0,8}(?:挤|涌|堆).{0,4}(?:一起|过来)/,
 ];
 
+const SMART_FOX_OVERLOAD_PATTERNS = [
+  /(?:事|事情).{0,4}一件接一件/,
+  /(?:信息|消息|内容).{0,5}(?:太多|很多|过量)/,
+  /(?:脑子|脑袋).{0,8}(?:塞满|装满)/,
+];
+
 const CONFUSION_PATTERNS = [
   /(?:脑子|脑袋|思绪|头绪).{0,8}(?:很乱|乱成一团|一团乱|理不清|捋不清|转不过来)/,
   /(?:不知|不知道|没想好|想不清).{0,8}(?:从哪|哪里|怎么).{0,8}(?:说|开始|讲|开口|理)/,
   /(?:说不清|理不清|捋不清|无从下手|找不到头绪)/,
 ];
 
+const SMART_FOX_CONFUSION_PATTERNS = [
+  /(?:思绪|想法).{0,8}(?:全挤|挤成一团|乱成一团|理不清|捋不清)/,
+  /(?:不知|不知道).{0,8}(?:先|该先).{0,8}(?:讲|说|处理).{0,5}(?:哪|什么)/,
+  /(?:想说.{0,4})?找不到.{0,4}(?:开头|入口|起点)/,
+];
+
 /**
  * EF-41: Match only when the raw message contains both accumulated overload
  * and difficulty sorting or starting. Neither category is sufficient alone.
  */
-function isConfusedOverload(message?: string): boolean {
+export function isConfusedOverload(message?: string, includeSmartFoxExpansion = false): boolean {
   if (!message) return false;
-  return OVERLOAD_PATTERNS.some((pattern) => pattern.test(message))
-    && CONFUSION_PATTERNS.some((pattern) => pattern.test(message));
+  const overloadPatterns = includeSmartFoxExpansion
+    ? [...OVERLOAD_PATTERNS, ...SMART_FOX_OVERLOAD_PATTERNS]
+    : OVERLOAD_PATTERNS;
+  const confusionPatterns = includeSmartFoxExpansion
+    ? [...CONFUSION_PATTERNS, ...SMART_FOX_CONFUSION_PATTERNS]
+    : CONFUSION_PATTERNS;
+
+  return overloadPatterns.some((pattern) => pattern.test(message))
+    && confusionPatterns.some((pattern) => pattern.test(message));
 }
 
 /**
@@ -70,8 +89,12 @@ function extractUserPhrase(message: string): string {
  * Generate a Reaction segment that references the user's specific content.
  * Deterministic: same input always produces same output.
  */
-export function getFirstTwoRoundsReactionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
-  if (isConfusedOverload(userMessage)) {
+export function getFirstTwoRoundsReactionTimeline(
+  signal?: Signal,
+  userMessage?: string,
+  includeSmartFoxExpansion = false,
+): TimelineSegment[] {
+  if (isConfusedOverload(userMessage, includeSmartFoxExpansion)) {
     return [{
       displayAt: 0,
       text: '听起来很多事情一下子挤在一起，你现在脑子很乱，也不知道从哪里开始。',
@@ -120,8 +143,12 @@ export function getFirstTwoRoundsReactionTimeline(signal?: Signal, userMessage?:
  * Generate a Companion segment that references the user's specific content.
  * Deterministic: same input always produces same output.
  */
-export function getFirstTwoRoundsCompanionTimeline(signal?: Signal, userMessage?: string): TimelineSegment[] {
-  if (isConfusedOverload(userMessage)) {
+export function getFirstTwoRoundsCompanionTimeline(
+  signal?: Signal,
+  userMessage?: string,
+  includeSmartFoxExpansion = false,
+): TimelineSegment[] {
+  if (isConfusedOverload(userMessage, includeSmartFoxExpansion)) {
     return [{
       displayAt: 8,
       text: '不用一次理清全部，先说一件此刻最让你卡住的事，好吗？',

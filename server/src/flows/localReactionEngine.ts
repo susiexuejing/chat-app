@@ -179,7 +179,7 @@ export function generateReactionTimeline(roleId: string, message: string, signal
   // EM-43: 前两轮使用更克制的模板，基于信号选择回应
   if (userTurn && userTurn <= 2) {
     const sig = signal || extractSignal(message);
-    return getFirstTwoRoundsReactionTimeline(sig, message);
+    return getFirstTwoRoundsReactionTimeline(sig, message, roleId === 'clever-fox');
   }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.reactionTimeline;
@@ -189,7 +189,7 @@ export function generateCompanionTimeline(roleId: string, message: string, signa
   // EM-43: 前两轮使用更克制的模板，基于信号选择回应
   if (userTurn && userTurn <= 2) {
     const sig = signal || extractSignal(message);
-    return getFirstTwoRoundsCompanionTimeline(sig, message);
+    return getFirstTwoRoundsCompanionTimeline(sig, message, roleId === 'clever-fox');
   }
   const result = localGenerateTimeline(roleId, message, signal);
   return result.companionTimeline;
