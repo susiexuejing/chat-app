@@ -128,8 +128,19 @@ The operator collects sanitized evidence and runs the side-effect-free command b
 ```bash
 node scripts/production-readiness-gate.mjs validate-postdeploy \
   --manifest production-readiness-manifest.json \
-  --evidence production-post-deploy-evidence.json
+  --evidence production-post-deploy-evidence.json \
+  --approved-manifest-sha256 <separately-recorded-64-character-digest>
 ```
+
+`--approved-manifest-sha256` is mandatory and comes from the separately recorded CTO/CEO authorization record. It must not be copied or derived from the post-deploy evidence JSON. The validator computes the supplied local manifest's SHA-256 and requires a three-way equality:
+
+```text
+external approved digest
+= computed local readiness-manifest digest
+= evidence.manifestSha256
+```
+
+Missing, malformed, or mismatched values fail non-zero.
 
 Evidence must prove all of the following agree with the approved manifest:
 
@@ -153,7 +164,7 @@ Rollback triggers include:
 - integrity/data/authentication/authorization/ownership failure; or
 - inability to verify the candidate independently.
 
-After rollback, independent evidence must show the restored frontend and backend have the rollback target's exact commit/version, `environment=production`, and health `ok`. Until that verification passes, admission remains stopped and neither candidate activation nor rollback may be declared successful.
+After rollback, `rollbackVerification` must be an object with separate `frontend` and `backend` identities. Each side must independently show the rollback target's exact commit, application version and build time, plus `environment=production` and health `ok`; the two sides must also agree with each other. A flat legacy identity, a missing side, or any mismatch/unhealthy/non-production side fails closed. Until this verification passes, admission remains stopped and neither candidate activation nor rollback may be declared successful.
 
 Infrastructure-specific commands, hostnames, backup technology, timeout values, monitoring source, approver configuration, and stop-admission mechanism are external prerequisites intentionally absent from EF-93. If they cannot be made verifiable before an authorized release, Production activation must not begin.
 
@@ -166,4 +177,4 @@ pnpm run test:release
 git diff --check
 ```
 
-The focused tests cover the valid synthetic path and reject malformed/unknown identity, non-production environment, missing version/time, malformed schema, checksum tampering, missing/failed EF-94/EF-95/secret checks, post-deploy mismatch/unhealthy evidence, unsafe rollback targets, and secret-like/raw-user fields.
+The focused tests cover the valid synthetic path and reject malformed/unknown identity, non-production environment, missing version/time, malformed schema, checksum tampering, changed canonical check provenance or EF-95 manifest digest, missing/failed EF-94/EF-95/secret checks, missing/malformed/mismatched external approved-manifest digest, post-deploy mismatch/unhealthy evidence, flat or incomplete rollback proof, two-sided rollback mismatches, unsafe rollback targets, and secret-like/raw-user fields.

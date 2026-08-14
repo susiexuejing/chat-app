@@ -1,17 +1,31 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
+const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const ISO_UTC_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
-const REQUIRED_CHECKS = [
-  'ef-94-release-gate',
-  'ef-95-isolated-release-regression',
-  'gitleaks-current-tree',
-];
+const CANONICAL_EF95_MANIFEST_PATH = path.join(REPO_ROOT, 'scripts/release-suite.manifest.json');
+export const CANONICAL_EF95_MANIFEST_SHA256 = createHash('sha256')
+  .update(readFileSync(CANONICAL_EF95_MANIFEST_PATH))
+  .digest('hex');
+export const CANONICAL_REQUIRED_CHECKS = Object.freeze([
+  Object.freeze({
+    id: 'ef-94-release-gate', status: 'passed', command: 'pnpm run test:release',
+  }),
+  Object.freeze({
+    id: 'ef-95-isolated-release-regression', status: 'passed',
+    command: 'pnpm run test:release', evidenceSha256: CANONICAL_EF95_MANIFEST_SHA256,
+  }),
+  Object.freeze({
+    id: 'gitleaks-current-tree', status: 'passed',
+    command: 'gitleaks detect --source=/repo --no-git --config=/repo/.gitleaks.toml --redact --verbose',
+  }),
+]);
 const DISALLOWED_EVIDENCE_KEY = /(secret|token|password|authorization|cookie|email|phone|user.?message|raw.?user|prompt)/i;
 
 function assertObject(value, label) {
@@ -44,6 +58,12 @@ function assertSafeEvidence(value, trail = 'evidence') {
 function assertSha(value, label) {
   if (typeof value !== 'string' || !SHA_PATTERN.test(value)) {
     throw new Error(`${label} must be a full lowercase 40-character Git commit`);
+  }
+}
+
+function assertSha256(value, label) {
+  if (typeof value !== 'string' || !SHA256_PATTERN.test(value)) {
+    throw new Error(`${label} must be a lowercase 64-character SHA-256`);
   }
 }
 
@@ -99,13 +119,15 @@ export function validateReadinessManifest(manifest, options = {}) {
     assertNonEmpty(artifact.name, 'artifact.name');
     if (artifactNames.has(artifact.name)) throw new Error('duplicate artifact name');
     artifactNames.add(artifact.name);
-    if (!/^[0-9a-f]{64}$/.test(artifact.sha256)) throw new Error('artifact checksum is malformed');
+    if (!SHA256_PATTERN.test(artifact.sha256)) throw new Error('artifact checksum is malformed');
     if (!Number.isSafeInteger(artifact.sizeBytes) || artifact.sizeBytes <= 0) {
       throw new Error('artifact size must be positive');
     }
   }
 
-  if (!Array.isArray(manifest.checks)) throw new Error('checks are required');
+  if (!Array.isArray(manifest.checks) || manifest.checks.length !== CANONICAL_REQUIRED_CHECKS.length) {
+    throw new Error('exact canonical checks are required');
+  }
   const checks = new Map();
   for (const check of manifest.checks) {
     assertObject(check, 'check');
@@ -114,18 +136,18 @@ export function validateReadinessManifest(manifest, options = {}) {
     if (checks.has(check.id)) throw new Error('duplicate required check');
     if (check.status !== 'passed') throw new Error(`required check failed: ${check.id}`);
     assertNonEmpty(check.command, 'check.command');
-    if (check.evidenceSha256 !== undefined && !/^[0-9a-f]{64}$/.test(check.evidenceSha256)) {
+    if (check.evidenceSha256 !== undefined && !SHA256_PATTERN.test(check.evidenceSha256)) {
       throw new Error('check evidence checksum is malformed');
     }
     checks.set(check.id, check);
   }
-  for (const id of REQUIRED_CHECKS) {
-    if (!checks.has(id)) throw new Error(`required check missing: ${id}`);
-  }
-  if (checks.get('ef-94-release-gate').command !== 'pnpm run test:release'
-    || checks.get('ef-95-isolated-release-regression').command !== 'pnpm run test:release'
-    || !checks.get('ef-95-isolated-release-regression').evidenceSha256) {
-    throw new Error('EF-94/EF-95 canonical provenance is invalid');
+  for (const canonical of CANONICAL_REQUIRED_CHECKS) {
+    const actual = checks.get(canonical.id);
+    if (!actual) throw new Error(`required check missing: ${canonical.id}`);
+    if (actual.status !== canonical.status || actual.command !== canonical.command
+      || actual.evidenceSha256 !== canonical.evidenceSha256) {
+      throw new Error(`canonical check provenance mismatch: ${canonical.id}`);
+    }
   }
 
   assertObject(manifest.provenance, 'provenance');
@@ -153,7 +175,6 @@ export async function createReadinessManifest({
   applicationVersion,
   buildTime,
   artifacts,
-  ef95ManifestPath,
   provenance,
 }) {
   assertSha(approvedCommit, 'approvedCommit');
@@ -163,7 +184,6 @@ export async function createReadinessManifest({
     const metadata = await stat(filePath);
     return { name, sha256: await sha256File(filePath), sizeBytes: metadata.size };
   }));
-  const ef95ManifestSha256 = await sha256File(ef95ManifestPath);
   const manifest = {
     schemaVersion: 1,
     manifestType: 'emotionflow-production-readiness',
@@ -172,14 +192,7 @@ export async function createReadinessManifest({
     buildTime,
     environment: 'production',
     artifacts: artifactEntries,
-    checks: [
-      { id: 'ef-94-release-gate', status: 'passed', command: 'pnpm run test:release' },
-      {
-        id: 'ef-95-isolated-release-regression', status: 'passed',
-        command: 'pnpm run test:release', evidenceSha256: ef95ManifestSha256,
-      },
-      { id: 'gitleaks-current-tree', status: 'passed', command: 'gitleaks detect --no-git --redact' },
-    ],
+    checks: CANONICAL_REQUIRED_CHECKS.map(check => ({ ...check })),
     provenance,
   };
   return validateReadinessManifest(manifest, { approvedCommit, checkoutCommit });
@@ -211,9 +224,12 @@ export function validatePostDeployEvidence(evidence, readinessManifest, options 
   if (evidence.schemaVersion !== 1 || evidence.evidenceType !== 'emotionflow-production-post-deploy') {
     throw new Error('malformed post-deploy evidence schema');
   }
-  if (!/^[0-9a-f]{64}$/.test(evidence.manifestSha256)) throw new Error('manifest checksum is required');
-  if (options.manifestSha256 !== undefined && evidence.manifestSha256 !== options.manifestSha256) {
-    throw new Error('post-deploy evidence references a different readiness manifest');
+  assertSha256(evidence.manifestSha256, 'evidence.manifestSha256');
+  assertSha256(options.approvedManifestSha256, 'approvedManifestSha256');
+  assertSha256(options.manifestSha256, 'computed manifestSha256');
+  if (options.approvedManifestSha256 !== options.manifestSha256
+    || evidence.manifestSha256 !== options.manifestSha256) {
+    throw new Error('approved, computed, and evidence manifest checksums must match');
   }
   const expected = {
     gitCommit: readinessManifest.gitCommit,
@@ -238,7 +254,7 @@ export function validatePostDeployEvidence(evidence, readinessManifest, options 
   assertNonEmpty(rollback.targetApplicationVersion, 'rollbackPlan.targetApplicationVersion');
   assertUtc(rollback.targetBuildTime, 'rollbackPlan.targetBuildTime');
   assertUtc(rollback.capturedAt, 'rollbackPlan.capturedAt');
-  if (!/^[0-9a-f]{64}$/.test(rollback.artifactManifestSha256)
+  if (!SHA256_PATTERN.test(rollback.artifactManifestSha256)
     || rollback.backupIntegrityVerified !== true) {
     throw new Error('rollback target is unverifiable');
   }
@@ -246,11 +262,20 @@ export function validatePostDeployEvidence(evidence, readinessManifest, options 
   if (evidence.activationOutcome === 'candidate_active') {
     if (evidence.rollbackVerification !== null) throw new Error('unexpected rollback verification');
   } else if (evidence.activationOutcome === 'rolled_back') {
-    validateIdentity(evidence.rollbackVerification, 'rollbackVerification', {
+    const verification = assertObject(evidence.rollbackVerification, 'rollbackVerification');
+    assertExactKeys(verification, ['frontend', 'backend'], 'rollbackVerification');
+    const expectedRollback = {
       gitCommit: rollback.targetGitCommit,
       applicationVersion: rollback.targetApplicationVersion,
       buildTime: rollback.targetBuildTime,
-    });
+    };
+    validateIdentity(verification.frontend, 'rollbackVerification.frontend', expectedRollback);
+    validateIdentity(verification.backend, 'rollbackVerification.backend', expectedRollback);
+    if (verification.frontend.gitCommit !== verification.backend.gitCommit
+      || verification.frontend.applicationVersion !== verification.backend.applicationVersion
+      || verification.frontend.buildTime !== verification.backend.buildTime) {
+      throw new Error('rollback frontend/backend identity mismatch');
+    }
   } else {
     throw new Error('activation outcome is invalid');
   }
@@ -282,7 +307,6 @@ async function main() {
     const manifest = await createReadinessManifest({
       approvedCommit: args['approved-commit'], checkoutCommit,
       applicationVersion: args['app-version'], buildTime: args['build-time'], artifacts,
-      ef95ManifestPath: args['ef95-manifest'],
       provenance: {
         repository: args.repository, workflow: args.workflow,
         runId: args['run-id'], runAttempt: args['run-attempt'],
@@ -308,8 +332,10 @@ async function main() {
       readFile(args.manifest, 'utf8'), readFile(args.evidence, 'utf8'),
     ]);
     const evidence = JSON.parse(evidenceRaw);
+    const computedManifestSha256 = createHash('sha256').update(manifestRaw).digest('hex');
     validatePostDeployEvidence(evidence, JSON.parse(manifestRaw), {
-      manifestSha256: createHash('sha256').update(manifestRaw).digest('hex'),
+      approvedManifestSha256: args['approved-manifest-sha256'],
+      manifestSha256: computedManifestSha256,
     });
     return;
   }

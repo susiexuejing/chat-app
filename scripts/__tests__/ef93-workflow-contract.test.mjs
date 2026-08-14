@@ -4,6 +4,8 @@ import test from 'node:test';
 
 const workflowUrl = new URL('../../.github/workflows/production-readiness.yml', import.meta.url);
 const packageUrl = new URL('../../package.json', import.meta.url);
+const gateScriptUrl = new URL('../production-readiness-gate.mjs', import.meta.url);
+const docsUrl = new URL('../../docs/EF-93-production-deployment-gate.md', import.meta.url);
 
 async function workflowText() {
   return readFile(workflowUrl, 'utf8');
@@ -27,12 +29,27 @@ test('exact approved commit is syntax checked, checked out, and compared to HEAD
 });
 
 test('EF-94 and EF-95 reuse the one canonical release command and fixed manifest', async () => {
-  const [workflow, packageRaw] = await Promise.all([workflowText(), readFile(packageUrl, 'utf8')]);
+  const [workflow, packageRaw, gateScript] = await Promise.all([
+    workflowText(), readFile(packageUrl, 'utf8'), readFile(gateScriptUrl, 'utf8'),
+  ]);
   const packageJson = JSON.parse(packageRaw);
   assert.equal(packageJson.scripts['test:release'], 'node scripts/run-release-regression.mjs');
   assert.equal((workflow.match(/run: pnpm run test:release/g) ?? []).length, 1);
-  assert.match(workflow, /scripts\/release-suite\.manifest\.json/);
+  assert.match(gateScript, /scripts\/release-suite\.manifest\.json/);
+  assert.doesNotMatch(workflow, /--ef95-manifest/);
   assert.doesNotMatch(workflow, /jest|runTestsByPath/);
+});
+
+test('post-deploy contract requires an external approved manifest digest and two-sided rollback', async () => {
+  const [gateScript, docs] = await Promise.all([
+    readFile(gateScriptUrl, 'utf8'), readFile(docsUrl, 'utf8'),
+  ]);
+  assert.match(gateScript, /args\['approved-manifest-sha256'\]/);
+  assert.match(gateScript, /verification\.frontend/);
+  assert.match(gateScript, /verification\.backend/);
+  assert.match(docs, /--approved-manifest-sha256/);
+  assert.match(docs, /external approved digest/);
+  assert.match(docs, /separate `frontend` and `backend` identities/);
 });
 
 test('artifact job cannot run unless identity, release regression, and secret scan pass', async () => {

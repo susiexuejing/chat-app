@@ -6,6 +6,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test, { after } from 'node:test';
 import {
+  CANONICAL_EF95_MANIFEST_SHA256,
+  CANONICAL_REQUIRED_CHECKS,
   createReadinessManifest,
   getCheckoutCommit,
   sha256File,
@@ -33,14 +35,7 @@ function validManifest() {
     buildTime: '2026-08-14T01:02:03Z',
     environment: 'production',
     artifacts: [{ name: 'frontend.tar.gz', sha256: CHECKSUM, sizeBytes: 12 }],
-    checks: [
-      { id: 'ef-94-release-gate', status: 'passed', command: 'pnpm run test:release' },
-      {
-        id: 'ef-95-isolated-release-regression', status: 'passed',
-        command: 'pnpm run test:release', evidenceSha256: CHECKSUM,
-      },
-      { id: 'gitleaks-current-tree', status: 'passed', command: 'gitleaks detect --no-git --redact' },
-    ],
+    checks: CANONICAL_REQUIRED_CHECKS.map(check => ({ ...check })),
     provenance: {
       repository: 'synthetic/repository', workflow: 'Production Readiness Gate',
       runId: '100', runAttempt: '1',
@@ -78,12 +73,18 @@ function validPostDeployEvidence() {
   };
 }
 
+function postDeployOptions(manifestSha256 = CHECKSUM) {
+  return { approvedManifestSha256: manifestSha256, manifestSha256 };
+}
+
 test('fully valid synthetic readiness and post-deploy evidence pass', () => {
   const manifest = validateReadinessManifest(validManifest(), {
     approvedCommit: CANDIDATE,
     checkoutCommit: CANDIDATE,
   });
-  assert.equal(validatePostDeployEvidence(validPostDeployEvidence(), manifest).activationOutcome, 'candidate_active');
+  assert.equal(validatePostDeployEvidence(
+    validPostDeployEvidence(), manifest, postDeployOptions(),
+  ).activationOutcome, 'candidate_active');
 });
 
 test('non-40-character and uppercase commits are rejected', () => {
@@ -148,60 +149,58 @@ test('missing or failed EF-94, EF-95, and secret checks are rejected', () => {
   for (const id of ['ef-94-release-gate', 'ef-95-isolated-release-regression', 'gitleaks-current-tree']) {
     const missing = validManifest();
     missing.checks = missing.checks.filter(check => check.id !== id);
-    assert.throws(() => validateReadinessManifest(missing), /required check missing/);
+    assert.throws(() => validateReadinessManifest(missing), /canonical checks|required check missing/);
     const failed = validManifest();
     failed.checks.find(check => check.id === id).status = 'failed';
     assert.throws(() => validateReadinessManifest(failed), /required check failed/);
   }
 });
 
-test('EF-94 and EF-95 provenance cannot replace the canonical command or manifest checksum', () => {
+test('all required checks enforce exact centralized command provenance and EF-95 digest', () => {
   const commandChanged = validManifest();
   commandChanged.checks[0].command = 'node synthetic-other-runner.js';
-  assert.throws(() => validateReadinessManifest(commandChanged), /canonical provenance/);
-  const noManifestChecksum = validManifest();
-  delete noManifestChecksum.checks[1].evidenceSha256;
-  assert.throws(() => validateReadinessManifest(noManifestChecksum), /canonical provenance/);
+  assert.throws(() => validateReadinessManifest(commandChanged), /canonical check provenance mismatch/);
+  const gitleaksChanged = validManifest();
+  gitleaksChanged.checks[2].command = 'echo secret-scan-skipped';
+  assert.throws(() => validateReadinessManifest(gitleaksChanged), /gitleaks-current-tree/);
+  const manifestDigestChanged = validManifest();
+  manifestDigestChanged.checks[1].evidenceSha256 = 'f'.repeat(64);
+  assert.throws(() => validateReadinessManifest(manifestDigestChanged), /ef-95-isolated/);
+  assert.equal(validManifest().checks[1].evidenceSha256, CANONICAL_EF95_MANIFEST_SHA256);
 });
 
 test('manifest generation derives cryptographic artifact and EF-95 provenance', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ef93-generate-'));
   roots.push(root);
   const artifact = path.join(root, 'artifact.tar.gz');
-  const ef95 = path.join(root, 'release-suite.manifest.json');
   await writeFile(artifact, 'synthetic immutable artifact');
-  await writeFile(ef95, '{"schemaVersion":1}');
   const manifest = await createReadinessManifest({
     approvedCommit: CANDIDATE,
     checkoutCommit: CANDIDATE,
     applicationVersion: '1.0.0',
     buildTime: '2026-08-14T01:02:03Z',
     artifacts: [{ name: 'artifact.tar.gz', filePath: artifact }],
-    ef95ManifestPath: ef95,
     provenance: {
       repository: 'synthetic/repository', workflow: 'Production Readiness Gate',
       runId: '100', runAttempt: '1',
     },
   });
   assert.equal(manifest.artifacts[0].sha256, await sha256File(artifact));
-  assert.equal(manifest.checks[1].evidenceSha256, await sha256File(ef95));
+  assert.equal(manifest.checks[1].evidenceSha256, CANONICAL_EF95_MANIFEST_SHA256);
 });
 
 test('real CLI generates and validates an exact-checkout synthetic artifact', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ef93-cli-'));
   roots.push(root);
   const artifact = path.join(root, 'frontend.tar.gz');
-  const ef95 = path.join(root, 'release-suite.manifest.json');
   const output = path.join(root, 'manifest.json');
   await writeFile(artifact, 'synthetic CLI artifact');
-  await writeFile(ef95, '{"schemaVersion":1}');
   const checkoutCommit = getCheckoutCommit();
   const generate = spawnSync(process.execPath, [
     SCRIPT_PATH, 'generate',
     '--approved-commit', checkoutCommit,
     '--app-version', '1.0.0',
     '--build-time', '2026-08-14T01:02:03Z',
-    '--ef95-manifest', ef95,
     '--repository', 'synthetic/repository',
     '--workflow', 'Production Readiness Gate',
     '--run-id', '100',
@@ -220,59 +219,184 @@ test('real CLI generates and validates an exact-checkout synthetic artifact', as
   assert.equal(validate.status, 0, validate.stderr);
 });
 
+test('post-deploy CLI requires a separately supplied approved manifest trust anchor', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ef93-postdeploy-cli-'));
+  roots.push(root);
+  const artifact = path.join(root, 'frontend.tar.gz');
+  const manifestPath = path.join(root, 'manifest.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  await writeFile(artifact, 'synthetic postdeploy artifact');
+  const checkoutCommit = getCheckoutCommit();
+  const generate = spawnSync(process.execPath, [
+    SCRIPT_PATH, 'generate', '--approved-commit', checkoutCommit,
+    '--app-version', '1.0.0', '--build-time', '2026-08-14T01:02:03Z',
+    '--repository', 'synthetic/repository', '--workflow', 'Production Readiness Gate',
+    '--run-id', '100', '--run-attempt', '1',
+    '--artifact', `frontend.tar.gz=${artifact}`, '--output', manifestPath,
+  ], { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.equal(generate.status, 0, generate.stderr);
+  const approvedDigest = await sha256File(manifestPath);
+  const evidence = validPostDeployEvidence();
+  evidence.manifestSha256 = approvedDigest;
+  evidence.frontend.gitCommit = checkoutCommit;
+  evidence.backend.gitCommit = checkoutCommit;
+  await writeFile(evidencePath, JSON.stringify(evidence));
+  const baseArgs = [
+    SCRIPT_PATH, 'validate-postdeploy', '--manifest', manifestPath, '--evidence', evidencePath,
+  ];
+  const missing = spawnSync(process.execPath, baseArgs, { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.notEqual(missing.status, 0);
+  assert.match(missing.stderr, /approvedManifestSha256/);
+  const malformed = spawnSync(process.execPath, [
+    ...baseArgs, '--approved-manifest-sha256', 'bad',
+  ], { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.notEqual(malformed.status, 0);
+  assert.match(malformed.stderr, /64-character SHA-256/);
+  const mismatched = spawnSync(process.execPath, [
+    ...baseArgs, '--approved-manifest-sha256', 'f'.repeat(64),
+  ], { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.stderr, /must match/);
+  const valid = spawnSync(process.execPath, [
+    ...baseArgs, '--approved-manifest-sha256', approvedDigest,
+  ], { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.equal(valid.status, 0, valid.stderr);
+  const originalManifest = await readFile(manifestPath, 'utf8');
+  await writeFile(manifestPath, `${originalManifest} `);
+  const localManifestTampered = spawnSync(process.execPath, [
+    ...baseArgs, '--approved-manifest-sha256', approvedDigest,
+  ], { cwd: REPO_ROOT, encoding: 'utf8' });
+  assert.notEqual(localManifestTampered.status, 0);
+  assert.match(localManifestTampered.stderr, /must match/);
+});
+
 test('frontend/backend commit mismatch is rejected', () => {
   const evidence = validPostDeployEvidence();
   evidence.backend.gitCommit = 'e'.repeat(40);
-  assert.throws(() => validatePostDeployEvidence(evidence, validManifest()), /identity does not match/);
+  assert.throws(() => validatePostDeployEvidence(
+    evidence, validManifest(), postDeployOptions(),
+  ), /identity does not match/);
 });
 
-test('post-deploy evidence must reference the exact readiness manifest checksum', () => {
+test('post-deploy requires external approved digest and three-way exact match', () => {
   assert.throws(() => validatePostDeployEvidence(
-    validPostDeployEvidence(), validManifest(), { manifestSha256: 'd'.repeat(64) },
-  ), /different readiness manifest/);
+    validPostDeployEvidence(), validManifest(), { manifestSha256: CHECKSUM },
+  ), /approvedManifestSha256/);
+  assert.throws(() => validatePostDeployEvidence(
+    validPostDeployEvidence(), validManifest(), {
+      approvedManifestSha256: 'bad', manifestSha256: CHECKSUM,
+    },
+  ), /64-character SHA-256/);
+  assert.throws(() => validatePostDeployEvidence(
+    validPostDeployEvidence(), validManifest(), {
+      approvedManifestSha256: 'd'.repeat(64), manifestSha256: CHECKSUM,
+    },
+  ), /must match/);
+  const evidenceMismatch = validPostDeployEvidence();
+  evidenceMismatch.manifestSha256 = 'e'.repeat(64);
+  assert.throws(() => validatePostDeployEvidence(
+    evidenceMismatch, validManifest(), postDeployOptions(),
+  ), /must match/);
 });
 
 test('backend environment other than production is rejected', () => {
   const evidence = validPostDeployEvidence();
   evidence.backend.environment = 'DEV';
-  assert.throws(() => validatePostDeployEvidence(evidence, validManifest()), /environment must be production/);
+  assert.throws(() => validatePostDeployEvidence(
+    evidence, validManifest(), postDeployOptions(),
+  ), /environment must be production/);
 });
 
 test('unhealthy backend is rejected', () => {
   const evidence = validPostDeployEvidence();
   evidence.backend.health = 'degraded';
-  assert.throws(() => validatePostDeployEvidence(evidence, validManifest()), /unhealthy/);
+  assert.throws(() => validatePostDeployEvidence(
+    evidence, validManifest(), postDeployOptions(),
+  ), /unhealthy/);
 });
 
 test('rollback target absent, same as candidate, or unverifiable is rejected', () => {
   const absent = validPostDeployEvidence();
   absent.rollbackPlan.targetGitCommit = '';
-  assert.throws(() => validatePostDeployEvidence(absent, validManifest()), /40-character Git commit/);
+  assert.throws(() => validatePostDeployEvidence(absent, validManifest(), postDeployOptions()), /40-character Git commit/);
   const same = validPostDeployEvidence();
   same.rollbackPlan.targetGitCommit = CANDIDATE;
-  assert.throws(() => validatePostDeployEvidence(same, validManifest()), /must differ/);
+  assert.throws(() => validatePostDeployEvidence(same, validManifest(), postDeployOptions()), /must differ/);
   const unverifiable = validPostDeployEvidence();
   unverifiable.rollbackPlan.backupIntegrityVerified = false;
-  assert.throws(() => validatePostDeployEvidence(unverifiable, validManifest()), /unverifiable/);
+  assert.throws(() => validatePostDeployEvidence(unverifiable, validManifest(), postDeployOptions()), /unverifiable/);
 });
 
-test('rolled-back outcome requires independently healthy exact target verification', () => {
-  const evidence = validPostDeployEvidence();
-  evidence.activationOutcome = 'rolled_back';
-  evidence.rollbackVerification = {
+function exactRollbackIdentity() {
+  return {
     ...identity(ROLLBACK),
     applicationVersion: '0.9.0',
     buildTime: '2026-08-13T01:02:03Z',
   };
-  validatePostDeployEvidence(evidence, validManifest());
-  evidence.rollbackVerification.gitCommit = 'e'.repeat(40);
-  assert.throws(() => validatePostDeployEvidence(evidence, validManifest()), /does not match/);
+}
+
+function rolledBackEvidence() {
+  const evidence = validPostDeployEvidence();
+  evidence.activationOutcome = 'rolled_back';
+  evidence.rollbackVerification = {
+    frontend: exactRollbackIdentity(),
+    backend: exactRollbackIdentity(),
+  };
+  return evidence;
+}
+
+test('valid two-sided exact rollback proof passes', () => {
+  validatePostDeployEvidence(rolledBackEvidence(), validManifest(), postDeployOptions());
+});
+
+test('flat or missing-sided rollback verification is rejected', () => {
+  const flat = rolledBackEvidence();
+  flat.rollbackVerification = exactRollbackIdentity();
+  assert.throws(() => validatePostDeployEvidence(
+    flat, validManifest(), postDeployOptions(),
+  ), /unsupported field/);
+  for (const side of ['frontend', 'backend']) {
+    const missing = rolledBackEvidence();
+    delete missing.rollbackVerification[side];
+    assert.throws(() => validatePostDeployEvidence(
+      missing, validManifest(), postDeployOptions(),
+    ), new RegExp(`rollbackVerification\\.${side} must be an object`));
+  }
+});
+
+test('rollback frontend/backend commit, version, and build mismatches are rejected', () => {
+  for (const [field, value] of [
+    ['gitCommit', 'e'.repeat(40)],
+    ['applicationVersion', '0.8.0'],
+    ['buildTime', '2026-08-12T01:02:03Z'],
+  ]) {
+    const evidence = rolledBackEvidence();
+    evidence.rollbackVerification.backend[field] = value;
+    assert.throws(() => validatePostDeployEvidence(
+      evidence, validManifest(), postDeployOptions(),
+    ), /does not match/);
+  }
+});
+
+test('rollback rejects unhealthy or non-production frontend/backend proof', () => {
+  const unhealthy = rolledBackEvidence();
+  unhealthy.rollbackVerification.frontend.health = 'degraded';
+  assert.throws(() => validatePostDeployEvidence(
+    unhealthy, validManifest(), postDeployOptions(),
+  ), /unhealthy/);
+  const wrongEnvironment = rolledBackEvidence();
+  wrongEnvironment.rollbackVerification.backend.environment = 'DEV';
+  assert.throws(() => validatePostDeployEvidence(
+    wrongEnvironment, validManifest(), postDeployOptions(),
+  ), /environment must be production/);
 });
 
 test('secret-like and raw-user-data evidence fields are rejected recursively', () => {
   for (const field of ['accessToken', 'rawUserMessage']) {
     const evidence = validPostDeployEvidence();
     evidence.rollbackPlan[field] = 'synthetic forbidden value';
-    assert.throws(() => validatePostDeployEvidence(evidence, validManifest()), /disallowed sensitive or user-data field/);
+    assert.throws(() => validatePostDeployEvidence(
+      evidence, validManifest(), postDeployOptions(),
+    ), /disallowed sensitive or user-data field/);
   }
 });

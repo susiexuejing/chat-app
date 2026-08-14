@@ -194,7 +194,6 @@ jobs:
             --approved-commit "$APPROVED_COMMIT" \
             --app-version "$APP_VERSION" \
             --build-time "$BUILD_TIME" \
-            --ef95-manifest scripts/release-suite.manifest.json \
             --repository "$GITHUB_REPOSITORY" \
             --workflow "Production Readiness Gate" \
             --run-id "$GITHUB_RUN_ID" \
