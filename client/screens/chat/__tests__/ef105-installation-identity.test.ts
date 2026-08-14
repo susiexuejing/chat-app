@@ -82,6 +82,59 @@ describe('EF-105 installation identity', () => {
     (AsyncStorage.setItem as jest.Mock).mockRejectedValue(new Error('storage unavailable'));
     await expect(getOrCreateInstallationIdentity()).rejects.toThrow('storage unavailable');
   });
+
+  it('single-flights concurrent callers for a missing identity record', async () => {
+    const callers = Array.from({ length: 5 }, () => getOrCreateInstallationIdentity());
+    const identities = await Promise.all(callers);
+    expect(identities.every(identity => identity === identities[0])).toBe(true);
+    expect(identities.map(identity => identity.userId)).toEqual(Array(5).fill(firstUserId));
+    expect(AsyncStorage.getItem).toHaveBeenCalledTimes(1);
+    expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1);
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('single-flights corrupt-record replacement without touching session storage', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue('{broken');
+    (globalThis.crypto.randomUUID as jest.Mock).mockReturnValue(secondUserId);
+    const identities = await Promise.all(
+      Array.from({ length: 4 }, () => getOrCreateInstallationIdentity()),
+    );
+    expect(identities.every(identity => identity === identities[0])).toBe(true);
+    expect(identities.map(identity => identity.userId)).toEqual(Array(4).fill(secondUserId));
+    expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1);
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      INSTALLATION_IDENTITY_STORAGE_KEY,
+      JSON.stringify(identities[0]),
+    );
+    expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
+  });
+
+  it('rejects all concurrent callers on write failure and permits a later retry', async () => {
+    (globalThis.crypto.randomUUID as jest.Mock)
+      .mockReturnValueOnce(firstUserId)
+      .mockReturnValueOnce(secondUserId);
+    (AsyncStorage.setItem as jest.Mock)
+      .mockRejectedValueOnce(new Error('storage unavailable'))
+      .mockResolvedValueOnce(undefined);
+
+    const failed = await Promise.allSettled(
+      Array.from({ length: 3 }, () => getOrCreateInstallationIdentity()),
+    );
+    expect(failed).toHaveLength(3);
+    expect(failed.every(result => result.status === 'rejected')).toBe(true);
+    expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(1);
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+
+    const retried = await getOrCreateInstallationIdentity();
+    expect(retried).toEqual({ schemaVersion: 1, userId: secondUserId });
+    expect(globalThis.crypto.randomUUID).toHaveBeenCalledTimes(2);
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(2);
+    expect(AsyncStorage.setItem).toHaveBeenLastCalledWith(
+      INSTALLATION_IDENTITY_STORAGE_KEY,
+      JSON.stringify(retried),
+    );
+  });
 });
 
 describe('EF-105 canonical conversation compatibility', () => {

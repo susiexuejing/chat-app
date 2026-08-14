@@ -30,23 +30,36 @@ async function generateUuidV4(): Promise<string> {
   return expoCrypto.randomUUID();
 }
 
-export async function getOrCreateInstallationIdentity(): Promise<InstallationIdentity> {
-  const raw = await AsyncStorage.getItem(INSTALLATION_IDENTITY_STORAGE_KEY);
-  if (raw) {
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      if (isInstallationIdentity(parsed)) return parsed;
-    } catch {
-      // Replace only this dedicated identity record below. Session data is separate.
-    }
+let installationIdentityInFlight: Promise<InstallationIdentity> | null = null;
+
+export function getOrCreateInstallationIdentity(): Promise<InstallationIdentity> {
+  if (!installationIdentityInFlight) {
+    const operation = (async (): Promise<InstallationIdentity> => {
+      const raw = await AsyncStorage.getItem(INSTALLATION_IDENTITY_STORAGE_KEY);
+      if (raw) {
+        try {
+          const parsed: unknown = JSON.parse(raw);
+          if (isInstallationIdentity(parsed)) return parsed;
+        } catch {
+          // Replace only this dedicated identity record below. Session data is separate.
+        }
+      }
+
+      const identity: InstallationIdentity = {
+        schemaVersion: INSTALLATION_IDENTITY_SCHEMA_VERSION,
+        userId: await generateUuidV4(),
+      };
+      await AsyncStorage.setItem(INSTALLATION_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
+      return identity;
+    })();
+    installationIdentityInFlight = operation;
+    const clear = () => {
+      if (installationIdentityInFlight === operation) installationIdentityInFlight = null;
+    };
+    operation.then(clear, clear);
   }
 
-  const identity: InstallationIdentity = {
-    schemaVersion: INSTALLATION_IDENTITY_SCHEMA_VERSION,
-    userId: await generateUuidV4(),
-  };
-  await AsyncStorage.setItem(INSTALLATION_IDENTITY_STORAGE_KEY, JSON.stringify(identity));
-  return identity;
+  return installationIdentityInFlight;
 }
 
 export function attachCanonicalConversation(
