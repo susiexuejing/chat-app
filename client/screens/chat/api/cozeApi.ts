@@ -363,10 +363,11 @@ export function chatStream(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const BASE = getBackendUrl();
-    const identityQuery = identity
-      ? `&userId=${encodeURIComponent(identity.userId)}&conversationId=${encodeURIComponent(identity.conversationId)}`
-      : '';
-    const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}${identityQuery}`;
+    const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
+    const identityHeaders = identity ? {
+      'X-EmotionFlow-User-Id': identity.userId,
+      'X-EmotionFlow-Conversation-Id': identity.conversationId,
+    } : undefined;
     const requestStartedAt = Date.now();
     emitEf77Trace('stream_request_started', {
       timestamp: requestStartedAt,
@@ -436,7 +437,7 @@ export function chatStream(
 
     // Web 端和 RN 端统一使用 fetch SSE
     if (Platform.OS === 'web') {
-      fetch(url, { signal })
+      fetch(url, { signal, headers: identityHeaders })
         .then(async (response) => {
           emitEf77Trace('stream_response_observed', {
             timestamp: Date.now(),
@@ -493,7 +494,10 @@ export function chatStream(
       import('react-native-sse').then((mod) => {
         const RNSSE = mod.default;
         const sse = new RNSSE(url, {
-          headers: { 'Accept': 'text/event-stream' },
+          headers: {
+            'Accept': 'text/event-stream',
+            ...identityHeaders,
+          },
         });
         let versionedTerminalObserved = false;
         signal?.addEventListener('abort', () => sse.close(), { once: true });

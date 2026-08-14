@@ -89,15 +89,52 @@ describe('EF-105 canonical conversation compatibility', () => {
     'preserves legacy content and attaches a canonical mapping for %s',
     legacyConversationId => {
       const original = session({ conversationId: legacyConversationId });
-      const [mapped] = attachCanonicalConversation([original], original.id, canonicalA);
+      const [mapped] = attachCanonicalConversation([original], original.id, canonicalA, firstUserId);
       expect(mapped.conversationId).toBe(canonicalA);
-      expect(mapped.legacyConversationId).toBe(legacyConversationId?.startsWith('conv_')
-        ? legacyConversationId
-        : undefined);
+      expect(mapped.canonicalConversationUserId).toBe(firstUserId);
+      expect(mapped.legacyConversationId).toBe(legacyConversationId);
       expect(mapped.messages).toEqual(original.messages);
       expect(original.conversationId).toBe(legacyConversationId);
     },
   );
+
+  it('reuses a canonical UUID only when it is correlated to the current installation', async () => {
+    const correlated = session({
+      conversationId: canonicalA,
+      canonicalConversationUserId: firstUserId,
+    });
+    const createConversation = jest.fn();
+    const persistMapping = jest.fn();
+    const prepared = await prepareCanonicalConversation({
+      sessions: [correlated], clientSessionId: correlated.id, roleId: correlated.roleId,
+      userId: firstUserId, createConversation, persistMapping,
+    });
+    expect(prepared.conversationId).toBe(canonicalA);
+    expect(createConversation).not.toHaveBeenCalled();
+    expect(persistMapping).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['regenerated identity', { conversationId: canonicalA, canonicalConversationUserId: secondUserId }],
+    ['pre-EF-105 UUID', { conversationId: canonicalA }],
+    ['provisional ID', { conversationId: 'conv_legacy_value' }],
+  ])('creates a fresh mapping for %s without changing messages', async (_label, mapping) => {
+    const original = session(mapping);
+    const persistMapping = jest.fn(async () => undefined);
+    const prepared = await prepareCanonicalConversation({
+      sessions: [original], clientSessionId: original.id, roleId: original.roleId,
+      userId: firstUserId, createConversation: async () => ({ id: canonicalB }), persistMapping,
+    });
+    expect(prepared.conversationId).toBe(canonicalB);
+    expect(prepared.sessions[0]).toMatchObject({
+      conversationId: canonicalB,
+      canonicalConversationUserId: firstUserId,
+      legacyConversationId: mapping.conversationId,
+      messages: original.messages,
+    });
+    expect(original.conversationId).toBe(mapping.conversationId);
+    expect(persistMapping).toHaveBeenCalledTimes(1);
+  });
 
   it('orders canonical creation before mapping persistence and gives new chats distinct IDs', async () => {
     const calls: string[] = [];

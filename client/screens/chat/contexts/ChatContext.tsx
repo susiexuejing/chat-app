@@ -14,7 +14,7 @@ import { ChatSession, ChatMessage, TurnStatus, PendingTurn, ResponseLayer } from
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
   getOrCreateInstallationIdentity,
-  isUuidV4,
+  hasProvenCanonicalConversation,
   prepareCanonicalConversation,
 } from '../stores/installationIdentity';
 import {
@@ -721,7 +721,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
             if (restoredSession?.conversationId) {
               conversationIdRef.current = restoredSession.conversationId;
-              console.log('[EF-59] Restored conversationIdRef:', restoredSession.conversationId);
+              console.log('[EF-59] Restored conversation mapping');
             }
           } else if (persistedSessions.length > 0) {
             // EF-59: 无效活动指针回退 - 选择最近更新的会话
@@ -829,7 +829,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           currentSessionId: traceSessionId,
           sessionsCount: traceSessions.length,
           messagesCount: traceSession?.messages?.length ?? 0,
-          conversationId: traceSession?.conversationId ?? null,
+          conversationIdPresent: !!traceSession?.conversationId,
           roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
         });
         
@@ -918,7 +918,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // EF-59 TRACE: session 找到
     console.log('[EF59_TRACE] session found', {
       sessionId: session.id,
-      conversationId: session.conversationId,
+      conversationIdPresent: !!session.conversationId,
       messageCount: session.messages?.length ?? 0
     });
 
@@ -937,19 +937,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // EF-59 TRACE: 调用 fetchConversation
         console.log('[EF59_TRACE] fetchConversation called', {
-          conversationId: backendConversationId
+          conversationIdPresent: true,
         });
 
         const result = await fetchConversation(backendConversationId);
         
         // EF-59 TRACE: backend response
         console.log('[EF59_TRACE] backend response', {
-          conversationId: (result?.conversation as { id?: string } | undefined)?.id ?? null,
+          conversationIdPresent: !!(result?.conversation as { id?: string } | undefined)?.id,
           messagesCount: result?.messages?.length ?? 0
         });
 
         if (!result) {
-          console.log('[EF-59] No backend conversation found for id:', backendConversationId);
+          console.log('[EF-59] No backend conversation found for current mapping');
           return;
         }
 
@@ -973,7 +973,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // EF-59 TRACE: merge result
           console.log('[EF59_TRACE] merge result', {
             finalMessagesCount: mappedMessages.length,
-            conversationId: conv.id,
+            conversationIdPresent: !!conv.id,
             roleId: conv.roleId
           });
 
@@ -1415,14 +1415,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // EF-38 CTO Fix: One authoritative transition
       // Creates/updates session + user message + generating state in one operation
       // This replaces the separate setSessions call to avoid race condition
-      const existingCanonicalConversationId = isUuidV4(existingSession?.conversationId)
-        ? existingSession.conversationId
-        : isUuidV4(snapshot.conversationId)
-          ? snapshot.conversationId
-          : undefined;
-      const legacyConversationId = snapshot.conversationId.startsWith('conv_')
-        ? snapshot.conversationId
-        : existingSession?.legacyConversationId;
+      const existingCanonicalConversationId = hasProvenCanonicalConversation(
+        existingSession,
+        installationUserId,
+      ) ? existingSession.conversationId : undefined;
+      const storedConversationId = existingCanonicalConversationId
+        ?? existingSession?.conversationId
+        ?? snapshot.conversationId
+        ?? undefined;
+      const legacyConversationId = existingCanonicalConversationId
+        ? existingSession?.legacyConversationId
+        : storedConversationId ?? existingSession?.legacyConversationId;
       const pendingTurn: PendingTurn = {
         turnId,
         requestId: snapshot.requestId,
@@ -1442,7 +1445,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         pendingTurn,
         userMessage.slice(0, 30),  // title
         snapshot.roleId,
-        existingCanonicalConversationId,
+        storedConversationId,
         legacyConversationId,
       );
 

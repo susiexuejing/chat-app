@@ -53,8 +53,9 @@ export function attachCanonicalConversation(
   sessions: ChatSession[],
   clientSessionId: string,
   conversationId: string,
+  userId: string,
 ): ChatSession[] {
-  if (!isUuidV4(conversationId)) {
+  if (!isUuidV4(conversationId) || !isUuidV4(userId)) {
     throw new Error('Canonical conversation creation returned an invalid identifier');
   }
 
@@ -62,12 +63,13 @@ export function attachCanonicalConversation(
   const next = sessions.map(session => {
     if (session.id !== clientSessionId) return session;
     found = true;
-    const legacyConversationId = session.conversationId?.startsWith('conv_')
-      ? session.conversationId
+    const legacyConversationId = session.conversationId !== conversationId
+      ? session.conversationId ?? session.legacyConversationId
       : session.legacyConversationId;
     return {
       ...session,
       conversationId,
+      canonicalConversationUserId: userId,
       legacyConversationId,
       pendingTurn: session.pendingTurn
         ? { ...session.pendingTurn, conversationId }
@@ -80,6 +82,16 @@ export function attachCanonicalConversation(
   return next;
 }
 
+export function hasProvenCanonicalConversation(
+  session: Pick<ChatSession, 'conversationId' | 'canonicalConversationUserId'> | undefined,
+  userId: string,
+): session is ChatSession & { conversationId: string; canonicalConversationUserId: string } {
+  return isUuidV4(userId)
+    && isUuidV4(session?.conversationId)
+    && isUuidV4(session.canonicalConversationUserId)
+    && session.canonicalConversationUserId === userId;
+}
+
 export async function prepareCanonicalConversation(args: {
   sessions: ChatSession[];
   clientSessionId: string;
@@ -89,7 +101,7 @@ export async function prepareCanonicalConversation(args: {
   persistMapping: (sessions: ChatSession[]) => Promise<void>;
 }): Promise<{ conversationId: string; sessions: ChatSession[] }> {
   const existing = args.sessions.find(session => session.id === args.clientSessionId);
-  if (isUuidV4(existing?.conversationId)) {
+  if (hasProvenCanonicalConversation(existing, args.userId)) {
     return { conversationId: existing.conversationId, sessions: args.sessions };
   }
 
@@ -97,7 +109,7 @@ export async function prepareCanonicalConversation(args: {
   if (!created || !isUuidV4(created.id)) {
     throw new Error('Canonical conversation creation failed');
   }
-  const mapped = attachCanonicalConversation(args.sessions, args.clientSessionId, created.id);
+  const mapped = attachCanonicalConversation(args.sessions, args.clientSessionId, created.id, args.userId);
   await args.persistMapping(mapped);
   return { conversationId: created.id, sessions: mapped };
 }

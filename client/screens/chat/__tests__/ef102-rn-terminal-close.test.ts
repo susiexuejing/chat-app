@@ -48,13 +48,17 @@ type HarnessEvent = { data?: string; message?: string };
 type HarnessListener = (event: HarnessEvent) => void;
 
 class ReactNativeSseHarness {
+  static lastUrl = '';
+  static lastOptions: { headers?: Record<string, string> } | undefined;
   private closed = false;
   private processedLength = 0;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private xhr: FakeXMLHttpRequest | null = null;
   private readonly listeners = new Map<string, HarnessListener[]>();
 
-  constructor(_url: string) {
+  constructor(url: string, options?: { headers?: Record<string, string> }) {
+    ReactNativeSseHarness.lastUrl = url;
+    ReactNativeSseHarness.lastOptions = options;
     this.pollTimer = setTimeout(() => this.open(), 500);
   }
 
@@ -149,6 +153,8 @@ describe.each<Scenario>(['success', 'error', 'timeout'])('EF-102 RN terminal clo
     jest.useFakeTimers();
     FakeXMLHttpRequest.instances.length = 0;
     FakeXMLHttpRequest.responseText = responseFor(scenario);
+    ReactNativeSseHarness.lastUrl = '';
+    ReactNativeSseHarness.lastOptions = undefined;
     Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
     Object.defineProperty(globalThis, 'XMLHttpRequest', {
       configurable: true,
@@ -169,6 +175,8 @@ describe.each<Scenario>(['success', 'error', 'timeout'])('EF-102 RN terminal clo
     const onDone = jest.fn(() => {
       expect(observedTypes.at(-1)).toBe(scenario === 'success' ? 'turn.completed' : 'error');
     });
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const conversationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const stream = chatStream('session-1', {
       onChunk: data => {
         const event = JSON.parse(data) as { eventType: string; content?: string; code?: string };
@@ -177,13 +185,20 @@ describe.each<Scenario>(['success', 'error', 'timeout'])('EF-102 RN terminal clo
         if (event.code) observedCodes.push(event.code);
       },
       onDone,
-    });
+    }, undefined, undefined, { userId, conversationId });
 
     await jest.advanceTimersByTimeAsync(500);
     await stream;
     await jest.advanceTimersByTimeAsync(6_000);
 
     expect(FakeXMLHttpRequest.instances).toHaveLength(1);
+    expect(ReactNativeSseHarness.lastUrl).not.toContain(userId);
+    expect(ReactNativeSseHarness.lastUrl).not.toContain(conversationId);
+    expect(ReactNativeSseHarness.lastOptions?.headers).toEqual({
+      Accept: 'text/event-stream',
+      'X-EmotionFlow-User-Id': userId,
+      'X-EmotionFlow-Conversation-Id': conversationId,
+    });
     expect(FakeXMLHttpRequest.instances[0].abortCount).toBe(1);
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(observedTypes).toEqual(scenario === 'success'

@@ -33,7 +33,7 @@ describe('EF-105 API identity transport', () => {
     expect(body.clientSessionId).toBeUndefined();
   });
 
-  it('keeps responseRunId distinct while transporting userId and conversationId through chat/stream', async () => {
+  it('keeps stable identity out of the web URL and sends it in dedicated headers', async () => {
     const read = jest.fn().mockResolvedValue({ done: true, value: undefined });
     const fetchMock = jest.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
@@ -44,10 +44,15 @@ describe('EF-105 API identity transport', () => {
     await chatStream(responseRunId, {}, undefined, undefined, { userId, conversationId });
 
     const url = String(fetchMock.mock.calls[0][0]);
+    const request = fetchMock.mock.calls[0][1] as RequestInit;
     expect(url).toContain(`sessionId=${responseRunId}`);
-    expect(url).toContain(`userId=${userId}`);
-    expect(url).toContain(`conversationId=${conversationId}`);
+    expect(url).not.toContain(userId);
+    expect(url).not.toContain(conversationId);
     expect(url).not.toContain(clientSessionId);
+    expect(request.headers).toEqual({
+      'X-EmotionFlow-User-Id': userId,
+      'X-EmotionFlow-Conversation-Id': conversationId,
+    });
     expect(new Set([userId, conversationId, responseRunId]).size).toBe(3);
   });
 });
