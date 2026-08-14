@@ -51,6 +51,11 @@ jest.mock('../api/cozeApi', () => ({
   chatStream: jest.fn(),
 }));
 
+jest.mock('../stores/sessionStore', () => ({
+  ...jest.requireActual('../stores/sessionStore'),
+  createConversation: jest.fn(async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
+}));
+
 const mockedChatStart = chatStart as jest.MockedFunction<typeof chatStart>;
 const mockedChatStream = chatStream as jest.MockedFunction<typeof chatStream>;
 

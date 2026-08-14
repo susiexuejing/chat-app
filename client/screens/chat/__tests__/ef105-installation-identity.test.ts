@@ -1,0 +1,148 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  INSTALLATION_IDENTITY_STORAGE_KEY,
+  attachCanonicalConversation,
+  getOrCreateInstallationIdentity,
+  prepareCanonicalConversation,
+} from '../stores/installationIdentity';
+import type { ChatSession } from '../types';
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn(),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+  },
+}));
+const firstUserId = '11111111-1111-4111-8111-111111111111';
+const secondUserId = '22222222-2222-4222-8222-222222222222';
+const canonicalA = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const canonicalB = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+function session(overrides: Partial<ChatSession> = {}): ChatSession {
+  return {
+    id: 'session_local_1',
+    roleId: 'clever-fox',
+    messages: [{ id: 'legacy-message', role: 'user', content: 'preserved', timestamp: 1 }],
+    createdAt: 1,
+    updatedAt: 1,
+    ...overrides,
+  };
+}
+
+describe('EF-105 installation identity', () => {
+  const originalCrypto = globalThis.crypto;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: { randomUUID: jest.fn(() => firstUserId) },
+    });
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
+  });
+
+  afterAll(() => {
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+  });
+
+  it('creates and durably stores one versioned UUIDv4 on first install', async () => {
+    const identity = await getOrCreateInstallationIdentity();
+    expect(identity).toEqual({ schemaVersion: 1, userId: firstUserId });
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith(
+      INSTALLATION_IDENTITY_STORAGE_KEY,
+      JSON.stringify(identity),
+    );
+  });
+
+  it('reuses the stored userId after reopen without creating another one', async () => {
+    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({
+      schemaVersion: 1,
+      userId: firstUserId,
+    }));
+    expect(await getOrCreateInstallationIdentity()).toEqual({ schemaVersion: 1, userId: firstUserId });
+    expect(globalThis.crypto.randomUUID).not.toHaveBeenCalled();
+    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
+  });
+
+  it.each(['{broken', JSON.stringify({ schemaVersion: 1, userId: 'not-a-uuid' })])(
+    'replaces only a corrupt identity record: %s',
+    async raw => {
+      (AsyncStorage.getItem as jest.Mock).mockResolvedValue(raw);
+      (globalThis.crypto.randomUUID as jest.Mock).mockReturnValue(secondUserId);
+      expect(await getOrCreateInstallationIdentity()).toEqual({ schemaVersion: 1, userId: secondUserId });
+      expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
+      expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not return an unstable in-memory identity when its write fails', async () => {
+    (AsyncStorage.setItem as jest.Mock).mockRejectedValue(new Error('storage unavailable'));
+    await expect(getOrCreateInstallationIdentity()).rejects.toThrow('storage unavailable');
+  });
+});
+
+describe('EF-105 canonical conversation compatibility', () => {
+  it.each([undefined, 'conv_legacy_value'])(
+    'preserves legacy content and attaches a canonical mapping for %s',
+    legacyConversationId => {
+      const original = session({ conversationId: legacyConversationId });
+      const [mapped] = attachCanonicalConversation([original], original.id, canonicalA);
+      expect(mapped.conversationId).toBe(canonicalA);
+      expect(mapped.legacyConversationId).toBe(legacyConversationId?.startsWith('conv_')
+        ? legacyConversationId
+        : undefined);
+      expect(mapped.messages).toEqual(original.messages);
+      expect(original.conversationId).toBe(legacyConversationId);
+    },
+  );
+
+  it('orders canonical creation before mapping persistence and gives new chats distinct IDs', async () => {
+    const calls: string[] = [];
+    const createConversation = jest.fn()
+      .mockImplementationOnce(async () => { calls.push('create-a'); return { id: canonicalA }; })
+      .mockImplementationOnce(async () => { calls.push('create-b'); return { id: canonicalB }; });
+    const persistMapping = jest.fn(async () => { calls.push('persist'); });
+
+    const first = await prepareCanonicalConversation({
+      sessions: [session()], clientSessionId: 'session_local_1', roleId: 'clever-fox',
+      userId: firstUserId, createConversation, persistMapping,
+    });
+    calls.push('chatStart-a');
+    const second = await prepareCanonicalConversation({
+      sessions: [session({ id: 'session_local_2' })], clientSessionId: 'session_local_2', roleId: 'clever-fox',
+      userId: firstUserId, createConversation, persistMapping,
+    });
+    calls.push('chatStart-b');
+
+    expect(calls).toEqual([
+      'create-a', 'persist', 'chatStart-a',
+      'create-b', 'persist', 'chatStart-b',
+    ]);
+    expect(first.conversationId).not.toBe(second.conversationId);
+    expect(createConversation).toHaveBeenNthCalledWith(1, firstUserId, 'clever-fox');
+    expect(createConversation).toHaveBeenNthCalledWith(2, firstUserId, 'clever-fox');
+  });
+
+  it('stops before continuation when canonical creation or mapping persistence fails', async () => {
+    const continueToChatStart = jest.fn();
+    const createFailure = prepareCanonicalConversation({
+      sessions: [session()], clientSessionId: 'session_local_1', roleId: 'clever-fox',
+      userId: firstUserId, createConversation: async () => null, persistMapping: jest.fn(),
+    }).then(continueToChatStart);
+    await expect(createFailure).rejects.toThrow('Canonical conversation creation failed');
+
+    const original = session({ conversationId: 'conv_legacy_value' });
+    const mappingFailure = prepareCanonicalConversation({
+      sessions: [original], clientSessionId: original.id, roleId: original.roleId,
+      userId: firstUserId, createConversation: async () => ({ id: canonicalA }),
+      persistMapping: async () => { throw new Error('mapping write failed'); },
+    }).then(continueToChatStart);
+    await expect(mappingFailure).rejects.toThrow('mapping write failed');
+    expect(continueToChatStart).not.toHaveBeenCalled();
+    expect(original.conversationId).toBe('conv_legacy_value');
+    expect(original.messages).toHaveLength(1);
+  });
+});

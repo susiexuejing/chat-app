@@ -59,7 +59,7 @@ describe('EF-59 Runtime Fix Tests', () => {
     (AsyncStorage.setItem as jest.Mock).mockResolvedValue(undefined);
     (sessionStore.getChatSessions as jest.Mock).mockResolvedValue([]);
     (sessionStore.createConversation as jest.Mock).mockResolvedValue({
-      id: 'backend-conv-123',
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       user_id: 'test-device',
       role_id: 'test-role',
       state: 'active',
