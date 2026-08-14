@@ -71,6 +71,8 @@ interface CapturedContext {
   pendingTurn?: PendingTurn;
   messages: ChatMessage[];
   sendMessage: (text: string) => Promise<boolean>;
+  retryLastMessage: () => Promise<void>;
+  selectSession: (sessionId: string) => void;
 }
 
 const chatStartResponse: ChatStartResponse = {
@@ -128,6 +130,8 @@ function Harness() {
       pendingTurn: context.pendingTurn,
       messages: context.messages,
       sendMessage: context.sendMessage,
+      retryLastMessage: context.retryLastMessage,
+      selectSession: context.selectSession,
     };
   }, [context]);
 
@@ -156,17 +160,18 @@ async function waitForHydration() {
 }
 
 async function beginTurn(text = 'Hello') {
+  const previousStreamCount = mockedChatStream.mock.calls.length;
   let sendPromise: Promise<boolean> | undefined;
   await act(async () => {
     sendPromise = capturedContext?.sendMessage(text);
     await Promise.resolve();
   });
-  await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(mockedChatStream).toHaveBeenCalledTimes(previousStreamCount + 1));
   await waitFor(() => {
     expect(capturedContext?.turnStatus).toBe('generating');
-    expect(capturedContext?.chatPhase).toBe('responding');
+    expect(['responding', 'waiting_deep']).toContain(capturedContext?.chatPhase);
     expect(capturedContext?.isLoading).toBe(true);
-    expect(capturedContext?.isThinking).toBe(true);
+    expect(capturedContext?.isThinking).toBe(capturedContext?.chatPhase === 'responding');
   });
   if (!sendPromise) {
     throw new Error('sendMessage did not return a Promise');
@@ -228,8 +233,20 @@ describe('EF-38 minimum closed loops', () => {
     await waitFor(() => {
       expect(capturedContext?.chatPhase).toBe('done');
       expect(capturedContext?.turnStatus).toBe('completed');
-      expect(capturedContext?.messages).toHaveLength(2);
+      expect(capturedContext?.messages).toHaveLength(3);
     });
+    const completedMessages = capturedContext!.messages;
+    const completedTurnId = completedMessages[0].turnId;
+    expect(completedTurnId).toBeTruthy();
+    expect(completedMessages.map(message => message.turnId)).toEqual([
+      completedTurnId,
+      completedTurnId,
+      completedTurnId,
+    ]);
+    expect(completedMessages.slice(1).map(message => message.responseLayer)).toEqual([
+      'reaction',
+      'deep',
+    ]);
 
     await firstProvider.unmount();
     await render(<ChatProvider><Harness /></ChatProvider>);
@@ -239,7 +256,7 @@ describe('EF-38 minimum closed loops', () => {
       expect(capturedContext?.chatPhase).toBe('done');
       expect(capturedContext?.turnStatus).toBe('completed');
       expect(capturedContext?.messages.map(message => message.content))
-        .toEqual(['Hello', '完整回复']);
+        .toEqual(['Hello', '', '完整回复']);
     });
   });
 
@@ -340,10 +357,11 @@ describe('EF-38 minimum closed loops', () => {
       expect(capturedContext?.turnStatus).toBe('completed');
       expect(capturedContext?.messages.map(message => message.content)).toEqual([
         'Refresh race message',
+        '',
         'Recovered assistant reply',
       ]);
       expect(capturedContext?.messages.filter(message => message.role === 'user')).toHaveLength(1);
-      expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(1);
+      expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(2);
     });
     infoSpy.mockRestore();
   });
@@ -449,6 +467,8 @@ describe('EF-38 minimum closed loops', () => {
     });
     expect(recoveredProvider.queryByText(/正在思考中/)).toBeNull();
     expect(recoveredProvider.queryByText('重新生成')).toBeNull();
+    expect(capturedContext?.messages[0].turnId).toBeUndefined();
+    expect(capturedContext?.messages[0].responseLayer).toBeUndefined();
   });
 
   it('Loop B2: transport resolve before cleanup persists one interrupted turn', async () => {
@@ -489,6 +509,8 @@ describe('EF-38 minimum closed loops', () => {
     const { sendPromise: abandonedSend } = await beginTurn();
     await waitFor(() => expect(storedSessions[0]?.pendingTurn).toBeDefined());
     const originalUserMessageId = storedSessions[0].pendingTurn!.userMessageId;
+    const originalTurnId = storedSessions[0].pendingTurn!.turnId;
+    const originalResponseMessageIds = storedSessions[0].pendingTurn!.responseMessageIds;
 
     await firstProvider.unmount();
     const recoveredProvider = await render(<ChatProvider><Harness /></ChatProvider>);
@@ -524,10 +546,18 @@ describe('EF-38 minimum closed loops', () => {
     await waitFor(() => {
       expect(capturedContext?.chatPhase).toBe('done');
       expect(capturedContext?.turnStatus).toBe('completed');
-      expect(capturedContext?.messages).toHaveLength(2);
+      expect(capturedContext?.messages).toHaveLength(3);
       expect(capturedContext?.messages[0].id).toBe(originalUserMessageId);
+      expect(capturedContext?.messages.every(message => message.turnId === originalTurnId)).toBe(true);
+      expect(capturedContext?.messages
+        .filter(message => message.role === 'assistant')
+        .map(message => message.id))
+        .toEqual([
+          originalResponseMessageIds?.reaction,
+          originalResponseMessageIds?.deep,
+        ]);
       expect(capturedContext?.messages.map(message => message.content))
-        .toEqual(['Hello', '重试回复']);
+        .toEqual(['Hello', '', '重试回复']);
     });
 
     await act(async () => {
@@ -592,10 +622,138 @@ describe('EF-38 minimum closed loops', () => {
     await waitFor(() => expect(capturedContext?.turnStatus).toBe('completed'));
     expect(capturedContext?.messages.map(message => message.content)).toEqual([
       'Timeout race message',
+      '',
       'Current retry response',
     ]);
     expect(capturedContext?.pendingTurn).toBeUndefined();
     expect(capturedContext?.messages.filter(message => message.role === 'user')).toHaveLength(1);
-    expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(1);
+    expect(capturedContext?.messages.filter(message => message.role === 'assistant')).toHaveLength(2);
+  });
+
+  it('EF-104: creates four owned entities and keeps multi-chunk Deep isolated', async () => {
+    const companionText = 'COMPANION_TYPING_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    mockedChatStart.mockResolvedValueOnce({
+      ...chatStartResponse,
+      reactionLayer: 'R',
+      companionLayer: companionText,
+      reactionTimeline: [{ displayAt: 0, text: 'R' }],
+      companionTimeline: [{ displayAt: 1, text: companionText }],
+    });
+    const streams = createStreamMock();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const { sendPromise } = await beginTurn('Owned turn');
+    await act(async () => {
+      await new Promise(resolve => setTimeout(resolve, 1100));
+    });
+    await waitFor(() => {
+      expect(capturedContext?.messages.some(message => message.responseLayer === 'companion')).toBe(true);
+    });
+
+    const beforeDeep = capturedContext!.messages.map(message => ({ ...message }));
+    const expectedLayerIds = capturedContext!.pendingTurn?.responseMessageIds;
+    await act(async () => {
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D1' }));
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D2' }));
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D3' }));
+      streams[0].callbacks.onDone?.();
+      streams[0].resolve();
+      await streams[0].promise;
+      await sendPromise;
+    });
+
+    await waitFor(() => expect(capturedContext?.turnStatus).toBe('completed'));
+    const entities = capturedContext!.messages;
+    expect(entities).toHaveLength(4);
+    const [user, reaction, companion, deep] = entities;
+    expect(new Set(entities.map(message => message.id)).size).toBe(4);
+    expect(new Set(entities.map(message => message.turnId)).size).toBe(1);
+    expect([reaction.responseLayer, companion.responseLayer, deep.responseLayer]).toEqual([
+      'reaction',
+      'companion',
+      'deep',
+    ]);
+    expect(reaction.content).toBe(beforeDeep.find(message => message.responseLayer === 'reaction')?.content);
+    expect(companion.content).toBe(companionText);
+    expect(reaction.content).not.toMatch(/D1|D2|D3/);
+    expect(companion.content).not.toMatch(/D1|D2|D3/);
+    expect(deep.content).toBe('D1D2D3');
+    expect(entities.filter(message => message.responseLayer === 'deep')).toHaveLength(1);
+    expect([reaction.id, companion.id, deep.id]).toEqual([
+      expectedLayerIds?.reaction,
+      expectedLayerIds?.companion,
+      expectedLayerIds?.deep,
+    ]);
+    expect(user.role).toBe('user');
+  });
+
+  it('EF-104: stale Turn1 callbacks cannot mutate Turn2 entities', async () => {
+    const streams = createStreamMock();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const first = await beginTurn('Turn one');
+    await completeStream(streams[0], 'Turn1 Deep');
+    await act(async () => { await first.sendPromise; });
+    const turn1Messages = capturedContext!.messages.map(message => ({ ...message }));
+    const turn1Id = turn1Messages[0].turnId;
+
+    const second = await beginTurn('Turn two');
+    const turn2Id = capturedContext!.pendingTurn?.turnId;
+    const turn2Before = capturedContext!.messages
+      .filter(message => message.turnId === turn2Id)
+      .map(message => ({ ...message }));
+
+    await act(async () => {
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: ' late' }));
+      await new Promise(resolve => setTimeout(resolve, 50));
+    });
+
+    expect(capturedContext!.messages.filter(message => message.turnId === turn2Id)).toEqual(turn2Before);
+    expect(capturedContext!.messages
+      .filter(message => message.turnId === turn1Id && message.responseLayer !== 'deep'))
+      .toEqual(turn1Messages.filter(message => message.responseLayer !== 'deep'));
+
+    await completeStream(streams[1], 'Turn2 Deep');
+    await act(async () => { await second.sendPromise; });
+    const finalTurn2 = capturedContext!.messages.filter(message => message.turnId === turn2Id);
+    expect(finalTurn2.some(message => message.content.includes('late'))).toBe(false);
+    expect(finalTurn2.find(message => message.responseLayer === 'deep')?.content).toBe('Turn2 Deep');
+  });
+
+  it('EF-104: session switch revokes late callback ownership', async () => {
+    storedSessions = [
+      {
+        id: 'session-a', roleId: 'clever-fox', messages: [], createdAt: 1, updatedAt: 1,
+        conversationId: 'conversation-a', turnStatus: 'idle', chatPhase: 'idle',
+      },
+      {
+        id: 'session-b', roleId: 'clever-fox', messages: [
+          { id: 'legacy-b', role: 'assistant', content: 'Session B history', timestamp: 1 },
+        ], createdAt: 1, updatedAt: 1, conversationId: 'conversation-b', turnStatus: 'completed', chatPhase: 'done',
+      },
+    ];
+    storage.current_session_id = 'session-a';
+    const streams = createStreamMock();
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitForHydration();
+
+    const active = await beginTurn('Session A turn');
+    await act(async () => capturedContext?.selectSession('session-b'));
+    expect(capturedContext?.messages.map(message => message.content)).toEqual(['Session B history']);
+
+    await act(async () => {
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'Late A Deep' }));
+      streams[0].callbacks.onDone?.();
+      streams[0].resolve();
+      await streams[0].promise;
+      await active.sendPromise;
+    });
+
+    expect(capturedContext?.messages.map(message => message.content)).toEqual(['Session B history']);
+    expect(capturedContext?.messages.some(message => message.content.includes('Late A Deep'))).toBe(false);
+    expect(storedSessions.find(session => session.id === 'session-b')?.messages)
+      .toEqual([{ id: 'legacy-b', role: 'assistant', content: 'Session B history', timestamp: 1 }]);
   });
 });
