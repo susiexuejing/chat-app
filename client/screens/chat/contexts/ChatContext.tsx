@@ -16,6 +16,7 @@ import {
   getOrCreateInstallationIdentity,
   hasProvenCanonicalConversation,
   prepareCanonicalConversation,
+  readInstallationIdentity,
 } from '../stores/installationIdentity';
 import {
   EF77_STORAGE_KEY,
@@ -526,18 +527,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     console.log('[EF59_STATE_TRACE] sessions state changed', {
       count: sessions.length,
       sessions: sessions.map(s => ({
-        id: s.id,
-        conversationId: s.conversationId,
+        sessionIdPresent: !!s.id,
+        conversationIdPresent: !!s.conversationId,
+        mappingUserIdPresent: !!s.canonicalConversationUserId,
         messages: s.messages?.length
       }))
     });
   }, [sessions]);
 
-  // EF-59 SESSION TRACE: currentSessionId 变化追踪（显式原始值）
+  // EF-59 SESSION TRACE: currentSessionId 变化追踪（仅记录存在性）
   useEffect(() => {
     console.log('[EF59_SESSION_TRACE] currentSessionId changed ' + JSON.stringify({
       instanceId: providerInstanceId.current,
-      value: String(currentSessionId),
+      valuePresent: !!currentSessionId,
       timestamp: Date.now()
     }));
     
@@ -576,8 +578,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         console.log('[EF59_STATE_TRACE] persisted sessions loaded', {
           count: persistedSessions.length,
           sessions: persistedSessions.map(s => ({
-            id: s.id,
-            conversationId: s.conversationId,
+            sessionIdPresent: !!s.id,
+            conversationIdPresent: !!s.conversationId,
+            mappingUserIdPresent: !!s.canonicalConversationUserId,
             messages: s.messages?.length
           }))
         });
@@ -606,23 +609,22 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             });
           }
           
-          // EF-59 SESSION TRACE: 恢复前详细状态（显式原始值）
+          // EF-59 SESSION TRACE: 恢复前详细状态（仅记录存在性）
           console.log('[EF59_SESSION_TRACE] restoring current session', {
-            persistedSessionId: String(persistedSessionId),
+            persistedSessionIdPresent: !!persistedSessionId,
             sessionsCount: persistedSessions.length,
-            sessionIds: persistedSessions.map(s => String(s.id)),
             matchFound: persistedSessionId ? !!persistedSessions.find(s => s.id === persistedSessionId) : false
           });
           
           if (persistedSessionId && persistedSessions.find(s => s.id === persistedSessionId)) {
             // EF-59 STATE TRACE: currentSessionId 恢复
             console.log('[EF59_STATE_TRACE] currentSession restored', {
-              currentSessionId: String(persistedSessionId)
+              currentSessionIdPresent: true,
             });
             
             // EF-59 SETTER TRACE
             console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
-              value: String(persistedSessionId),
+              valuePresent: true,
               source: 'loadPersistedState',
               timestamp: Date.now()
             });
@@ -630,11 +632,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const restoredSession = persistedSessions.find(s => s.id === persistedSessionId);
             diagnosticActiveSessionIdRef.current = persistedSessionId;
             console.log('[EF59_ACTIVE_SESSION_TRACE] ' + JSON.stringify({
-              persistedSessionId,
+              persistedSessionIdPresent: true,
               persistedSessionExists: !!restoredSession,
               sessionsCount: persistedSessions.length,
-              restoredSessionId: restoredSession?.id ?? null,
-              currentSessionIdAfterRestore: persistedSessionId,
+              restoredSessionIdPresent: !!restoredSession?.id,
+              currentSessionIdAfterRestorePresent: true,
               source: 'loadPersistedState',
               timestamp: Date.now()
             }));
@@ -713,7 +715,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 messageCount: recoveredMessages.length,
               });
               console.log('[EF-38] Interrupted state persisted:', {
-                sessionId: restoredSession.id,
+                sessionIdPresent: true,
                 recoveredMessagesCount: recoveredMessages.length,
                 hasPendingTurn: !!restoredSession.pendingTurn,
               });
@@ -813,7 +815,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               conversationIdRef.current = mostRecentSession.conversationId;
             }
             console.log('[EF-59] Fallback to most recent session:', {
-              sessionId: mostRecentSession.id,
+              sessionIdPresent: !!mostRecentSession.id,
               roleId: mostRecentSession.roleId,
               updatedAt: mostRecentSession.updatedAt,
               messagesCount: mostRecentSession.messages.length
@@ -826,7 +828,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         const traceSessions = await getChatSessions();
         const traceSession = traceSessionId ? traceSessions.find(s => s.id === traceSessionId) : null;
         console.log('[EF59_TRACE] loadPersistedState completed', {
-          currentSessionId: traceSessionId,
+          currentSessionIdPresent: !!traceSessionId,
           sessionsCount: traceSessions.length,
           messagesCount: traceSession?.messages?.length ?? 0,
           conversationIdPresent: !!traceSession?.conversationId,
@@ -897,7 +899,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     // EF-59 TRACE: syncFromBackend 开始
     console.log('[EF59_TRACE] syncFromBackend start', {
-      currentSessionId,
+      currentSessionIdPresent: !!currentSessionId,
       sessionsCount: sessions.length,
       hasSynced: hasSyncedRef.current
     });
@@ -917,21 +919,62 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
     // EF-59 TRACE: session 找到
     console.log('[EF59_TRACE] session found', {
-      sessionId: session.id,
+      sessionIdPresent: !!session.id,
       conversationIdPresent: !!session.conversationId,
       messageCount: session.messages?.length ?? 0
     });
 
-    // 确认 session 存在后才锁定，防止重复同步
+    // Lock this effect while identity proof is in progress. Failed proof clears
+    // the lock so a later lifecycle-triggered attempt can read storage again.
     hasSyncedRef.current = true;
-
     const syncFromBackend = async () => {
+      let installationIdentity;
+      try {
+        installationIdentity = await readInstallationIdentity();
+      } catch (error) {
+        hasSyncedRef.current = false;
+        console.warn('[EF-105] Backend hydration skipped', {
+          reason: 'identity_read_failed',
+          conversationIdPresent: !!session.conversationId,
+          errorType: getEf77ErrorType(error),
+        });
+        return;
+      }
+
+      if (!installationIdentity) {
+        hasSyncedRef.current = false;
+        console.warn('[EF-105] Backend hydration skipped', {
+          reason: 'identity_missing_or_invalid',
+          conversationIdPresent: !!session.conversationId,
+        });
+        return;
+      }
+
+      if (!hasProvenCanonicalConversation(session, installationIdentity.userId)) {
+        hasSyncedRef.current = false;
+        const reason = !session.conversationId
+          ? 'conversation_mapping_missing'
+          : session.conversationId.startsWith('conv_')
+            ? 'conversation_mapping_provisional'
+            : !session.canonicalConversationUserId
+              ? 'conversation_mapping_uncorrelated'
+              : 'conversation_mapping_identity_mismatch';
+        console.warn('[EF-105] Backend hydration skipped', {
+          reason,
+          conversationIdPresent: !!session.conversationId,
+          mappingUserIdPresent: !!session.canonicalConversationUserId,
+        });
+        return;
+      }
+
+      // Only a mapping proven against the current stored installation identity
+      // may replace visible local history with backend conversation data.
       try {
         // EF-59 Fix: 使用会话的 conversationId（后端 ID）而不是 sessionId（前端 ID）
         const backendConversationId = session.conversationId;
         
         if (!backendConversationId) {
-          console.log('[EF-59] No backend conversationId for session:', currentSessionId);
+          console.log('[EF-59] No backend conversation mapping for current session');
           return;
         }
 
@@ -985,7 +1028,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         // 网络错误时保持缓存数据，不覆盖
-        console.error('[EF-59] Failed to sync from backend:', error);
+        console.error('[EF-59] Failed to sync from backend', {
+          errorType: getEf77ErrorType(error),
+        });
       }
     };
 

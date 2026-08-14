@@ -11,6 +11,10 @@ import { renderHook, act } from '@testing-library/react-native';
 import { ChatProvider, useChat } from '../contexts/ChatContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as sessionStore from '../stores/sessionStore';
+import { INSTALLATION_IDENTITY_STORAGE_KEY } from '../stores/installationIdentity';
+
+const installationUserId = '11111111-1111-4111-8111-111111111111';
+const installationIdentity = JSON.stringify({ schemaVersion: 1, userId: installationUserId });
 
 // Mock AsyncStorage
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -147,11 +151,12 @@ describe('EF-59 Runtime Fix Tests', () => {
     });
 
     it('should use backend conversation ID for fetchConversation', async () => {
-      const backendConvId = 'backend-conv-abc';
+      const backendConvId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
       const existingSession = {
         id: 'session-456',
         roleId: 'test-role',
         conversationId: backendConvId,
+        canonicalConversationUserId: installationUserId,
         messages: [],
         messageQueue: [],
         createdAt: Date.now(),
@@ -161,6 +166,7 @@ describe('EF-59 Runtime Fix Tests', () => {
       (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
         if (key === 'current_session_id') return Promise.resolve('session-456');
         if (key === 'current_role_id') return Promise.resolve('test-role');
+        if (key === INSTALLATION_IDENTITY_STORAGE_KEY) return Promise.resolve(installationIdentity);
         return Promise.resolve(null);
       });
 
@@ -205,11 +211,12 @@ describe('EF-59 Runtime Fix Tests', () => {
       // 
       // The fix: hasSyncedRef is only set after session is found
 
-      const backendConvId = 'backend-conv-race';
+      const backendConvId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
       const existingSession = {
         id: 'session-race',
         roleId: 'test-role',
         conversationId: backendConvId,
+        canonicalConversationUserId: installationUserId,
         messages: [
           { id: 'msg-1', role: 'user', content: 'Hello', timestamp: Date.now() - 1000 },
         ],
@@ -228,6 +235,7 @@ describe('EF-59 Runtime Fix Tests', () => {
       (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
         if (key === 'current_session_id') return Promise.resolve('session-race');
         if (key === 'current_role_id') return Promise.resolve('test-role');
+        if (key === INSTALLATION_IDENTITY_STORAGE_KEY) return Promise.resolve(installationIdentity);
         return Promise.resolve(null);
       });
 
@@ -299,7 +307,8 @@ describe('EF-59 Runtime Fix Tests', () => {
       const existingSession = {
         id: 'session-789',
         roleId: 'test-role',
-        conversationId: 'backend-conv-xyz',
+        conversationId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        canonicalConversationUserId: installationUserId,
         messages: cachedMessages,
         messageQueue: [],
         createdAt: Date.now(),
@@ -309,6 +318,7 @@ describe('EF-59 Runtime Fix Tests', () => {
       (AsyncStorage.getItem as jest.Mock).mockImplementation((key: string) => {
         if (key === 'current_session_id') return Promise.resolve('session-789');
         if (key === 'current_role_id') return Promise.resolve('test-role');
+        if (key === INSTALLATION_IDENTITY_STORAGE_KEY) return Promise.resolve(installationIdentity);
         return Promise.resolve(null);
       });
 
