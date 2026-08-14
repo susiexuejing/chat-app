@@ -631,12 +631,13 @@ describe('EF-38 minimum closed loops', () => {
   });
 
   it('EF-104: creates four owned entities and keeps multi-chunk Deep isolated', async () => {
+    const companionText = 'COMPANION_TYPING_ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     mockedChatStart.mockResolvedValueOnce({
       ...chatStartResponse,
       reactionLayer: 'R',
-      companionLayer: 'C',
+      companionLayer: companionText,
       reactionTimeline: [{ displayAt: 0, text: 'R' }],
-      companionTimeline: [{ displayAt: 1, text: 'C' }],
+      companionTimeline: [{ displayAt: 1, text: companionText }],
     });
     const streams = createStreamMock();
     await render(<ChatProvider><Harness /></ChatProvider>);
@@ -651,9 +652,11 @@ describe('EF-38 minimum closed loops', () => {
     });
 
     const beforeDeep = capturedContext!.messages.map(message => ({ ...message }));
+    const expectedLayerIds = capturedContext!.pendingTurn?.responseMessageIds;
     await act(async () => {
       streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D1' }));
       streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D2' }));
+      streams[0].callbacks.onChunk?.(JSON.stringify({ content: 'D3' }));
       streams[0].callbacks.onDone?.();
       streams[0].resolve();
       await streams[0].promise;
@@ -672,8 +675,16 @@ describe('EF-38 minimum closed loops', () => {
       'deep',
     ]);
     expect(reaction.content).toBe(beforeDeep.find(message => message.responseLayer === 'reaction')?.content);
-    expect(companion.content).toBe(beforeDeep.find(message => message.responseLayer === 'companion')?.content);
-    expect(deep.content).toBe('D1D2');
+    expect(companion.content).toBe(companionText);
+    expect(reaction.content).not.toMatch(/D1|D2|D3/);
+    expect(companion.content).not.toMatch(/D1|D2|D3/);
+    expect(deep.content).toBe('D1D2D3');
+    expect(entities.filter(message => message.responseLayer === 'deep')).toHaveLength(1);
+    expect([reaction.id, companion.id, deep.id]).toEqual([
+      expectedLayerIds?.reaction,
+      expectedLayerIds?.companion,
+      expectedLayerIds?.deep,
+    ]);
     expect(user.role).toBe('user');
   });
 

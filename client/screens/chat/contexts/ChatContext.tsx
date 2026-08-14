@@ -1778,8 +1778,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                     setChatPhase('deep_arriving');
 
                     // 2. 如果正在 typing（某段还在渲染中）→ 缓存 deep，等当前段打完再追加
-                    if (typingTimer) {
-                      deepBuffer = parsed.content;
+                    if (typingTimer || textQueue.length > 0) {
+                      deepBuffer += parsed.content;
                       console.log(`[Deep] 正在typing，缓存deep，不打断当前段`);
                       return;
                     }
@@ -1791,6 +1791,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   }
 
                   // ── 后续 Deep chunk ──
+                  // If handoff is still waiting for the active front-layer
+                  // queue, every accepted Deep chunk must join the same FIFO
+                  // buffer. Sending D2 through textQueue while D1 remains in
+                  // deepBuffer would render D2 before D1.
+                  if (deepBuffer) {
+                    deepBuffer += parsed.content;
+                    return;
+                  }
                   pushToQueue(parsed.content, deepTarget);
                 } catch { /* ignore */ }
               },
