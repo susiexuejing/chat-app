@@ -2,6 +2,9 @@ name: EF-92 Static Gate
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - dev
   pull_request:
     branches:
       - dev
@@ -19,6 +22,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify checkout identity
+        id: checkout_identity
+        continue-on-error: true
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          CHECKED_OUT_SHA=$(git rev-parse HEAD)
+          echo "checked_out_sha=${CHECKED_OUT_SHA}" >> "${GITHUB_OUTPUT}"
+          test "${CHECKED_OUT_SHA}" = "${EXPECTED_SHA}"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -68,11 +81,13 @@ jobs:
         if: always()
         run: |
           {
+            echo "CHECKED_OUT_SHA=${{ steps.checkout_identity.outputs.checked_out_sha }}"
             echo "GITHUB_SHA=${GITHUB_SHA}"
             echo "Node=$(node --version 2>&1 || echo unavailable)"
             echo "pnpm=$(pnpm --version 2>&1 || echo unavailable)"
             echo "TypeScript=$(pnpm --dir client exec tsc --version 2>&1 || echo unavailable)"
             echo "ESLint=$(pnpm --dir client exec eslint --version 2>&1 || echo unavailable)"
+            echo "checkout_identity=${{ steps.checkout_identity.outcome }}"
             echo "install=${{ steps.install.outcome }}"
             echo "client_tsc=${{ steps.client_tsc.outcome }}"
             echo "client_eslint=${{ steps.client_eslint.outcome }}"
@@ -91,6 +106,7 @@ jobs:
       - name: Enforce static gate
         if: always()
         run: |
+          test "${{ steps.checkout_identity.outcome }}" = success
           test "${{ steps.install.outcome }}" = success
           test "${{ steps.client_tsc.outcome }}" = success
           test "${{ steps.client_eslint.outcome }}" = success
