@@ -20,6 +20,10 @@ const REPEATED_HOLDING_PATTERN = /(?:我.{0,8}(?:在听|听着|陪着|接着|收
 
 const UNSOLICITED_ACTION_PATTERN = /(?:你(?:可以|应该|需要|最好)|不妨|建议|试试|要不|不如|去.{0,10}(?:站|走|坐|躺|喝|洗|吹|看)|把.{0,16}(?:推开|放下|收拾|关掉|拿走|倒掉)|先.{0,10}(?:深呼吸|休息|喝水|睡|散步))/;
 
+const USER_DIRECTED_ACTION_PATTERN = /(?:^|[，,；;。]\s*)你(?:只管|先(?!前|后)|去|来(?!自|到))/;
+
+const JOINT_PROGRESSION_PATTERN = /(?:^|[，,；;。]\s*)(?:我们|咱们)(?:再|一起)/;
+
 function splitSentences(text: string): string[] {
   return text
     .replace(/```[\s\S]*?```/g, ' ')
@@ -35,6 +39,8 @@ function isUsefulDeclarativeSentence(sentence: string): boolean {
   if (REPEATED_INVITATION_PATTERN.test(sentence)) return false;
   if (REPEATED_HOLDING_PATTERN.test(sentence)) return false;
   if (UNSOLICITED_ACTION_PATTERN.test(sentence)) return false;
+  if (USER_DIRECTED_ACTION_PATTERN.test(sentence)) return false;
+  if (JOINT_PROGRESSION_PATTERN.test(sentence)) return false;
   return true;
 }
 
