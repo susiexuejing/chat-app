@@ -13,6 +13,11 @@ import { chatStart, chatStream, FlowContext, type RetryTransportDiagnostics } fr
 import { ChatSession, ChatMessage, TurnStatus, PendingTurn, ResponseLayer } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
+  getOrCreateInstallationIdentity,
+  hasProvenCanonicalConversation,
+  prepareCanonicalConversation,
+} from '../stores/installationIdentity';
+import {
   EF77_STORAGE_KEY,
   attributedSetItem,
   emitEf77Trace,
@@ -716,7 +721,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // EF-59 Fix: 恢复 conversationIdRef（后端对话 ID）
             if (restoredSession?.conversationId) {
               conversationIdRef.current = restoredSession.conversationId;
-              console.log('[EF-59] Restored conversationIdRef:', restoredSession.conversationId);
+              console.log('[EF-59] Restored conversation mapping');
             }
           } else if (persistedSessions.length > 0) {
             // EF-59: 无效活动指针回退 - 选择最近更新的会话
@@ -824,7 +829,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           currentSessionId: traceSessionId,
           sessionsCount: traceSessions.length,
           messagesCount: traceSession?.messages?.length ?? 0,
-          conversationId: traceSession?.conversationId ?? null,
+          conversationIdPresent: !!traceSession?.conversationId,
           roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
         });
         
@@ -913,7 +918,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // EF-59 TRACE: session 找到
     console.log('[EF59_TRACE] session found', {
       sessionId: session.id,
-      conversationId: session.conversationId,
+      conversationIdPresent: !!session.conversationId,
       messageCount: session.messages?.length ?? 0
     });
 
@@ -932,19 +937,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // EF-59 TRACE: 调用 fetchConversation
         console.log('[EF59_TRACE] fetchConversation called', {
-          conversationId: backendConversationId
+          conversationIdPresent: true,
         });
 
         const result = await fetchConversation(backendConversationId);
         
         // EF-59 TRACE: backend response
         console.log('[EF59_TRACE] backend response', {
-          conversationId: (result?.conversation as { id?: string } | undefined)?.id ?? null,
+          conversationIdPresent: !!(result?.conversation as { id?: string } | undefined)?.id,
           messagesCount: result?.messages?.length ?? 0
         });
 
         if (!result) {
-          console.log('[EF-59] No backend conversation found for id:', backendConversationId);
+          console.log('[EF-59] No backend conversation found for current mapping');
           return;
         }
 
@@ -968,7 +973,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // EF-59 TRACE: merge result
           console.log('[EF59_TRACE] merge result', {
             finalMessagesCount: mappedMessages.length,
-            conversationId: conv.id,
+            conversationIdPresent: !!conv.id,
             roleId: conv.roleId
           });
 
@@ -1127,7 +1132,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       pendingTurn: PendingTurn,
       title: string,
       roleId: string,
-      conversationId?: string
+      conversationId?: string,
+      legacyConversationId?: string,
     ) => {
       const currentSessions = sessionsRef.current;
       const existingIdx = currentSessions.findIndex(s => s.id === sessionId);
@@ -1142,6 +1148,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       
       // Create or update session with generating state
       const sessionData = {
+        ...existingSession,
         id: sessionId,
         roleId,
         title,
@@ -1149,6 +1156,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         createdAt: existingIdx >= 0 ? existingSession.createdAt : Date.now(),
         updatedAt: Date.now(),
         conversationId,
+        legacyConversationId: legacyConversationId ?? existingSession?.legacyConversationId,
         turnStatus: 'generating' as TurnStatus,
         pendingTurn,
         chatPhase: 'responding' as const,
@@ -1316,6 +1324,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     ): Promise<'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed'> => {
       // 确保当前角色与快照一致
       const roleToUse = roles.find(r => r.id === snapshot.roleId) || currentRole;
+      let installationUserId: string;
+      try {
+        installationUserId = (await getOrCreateInstallationIdentity()).userId;
+      } catch (identityError) {
+        if (mountedRef.current) setError('无法安全保存本机身份，请重试');
+        retrySnapshotRef.current = snapshot;
+        console.error('[EF-105] Installation identity unavailable:', getEf77ErrorType(identityError));
+        return 'chatstart_failed';
+      }
 
       // 设置 abort controller
       const controller = new AbortController();
@@ -1398,6 +1415,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // EF-38 CTO Fix: One authoritative transition
       // Creates/updates session + user message + generating state in one operation
       // This replaces the separate setSessions call to avoid race condition
+      const existingCanonicalConversationId = hasProvenCanonicalConversation(
+        existingSession,
+        installationUserId,
+      ) ? existingSession.conversationId : undefined;
+      const storedConversationId = existingCanonicalConversationId
+        ?? existingSession?.conversationId
+        ?? snapshot.conversationId
+        ?? undefined;
+      const legacyConversationId = existingCanonicalConversationId
+        ? existingSession?.legacyConversationId
+        : storedConversationId ?? existingSession?.legacyConversationId;
       const pendingTurn: PendingTurn = {
         turnId,
         requestId: snapshot.requestId,
@@ -1405,7 +1433,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         userMessage,
         startedAt: retryPendingTurn?.startedAt ?? Date.now(),
         roleId: snapshot.roleId,
-        conversationId: snapshot.conversationId,
+        conversationId: existingCanonicalConversationId,
         responseMessageIds,
       };
       
@@ -1417,19 +1445,42 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         pendingTurn,
         userMessage.slice(0, 30),  // title
         snapshot.roleId,
-        snapshot.conversationId
+        storedConversationId,
+        legacyConversationId,
       );
 
-      // EF-59: 确保有后端对话 ID 后再持久化
-      let backendConvId = conversationIdRef.current;
-      if (!backendConvId && !isRetry) {
-        // 首次发送消息，创建后端对话
-        const newConv = await createConversation('default-user', roleToUse.id);
-        if (newConv) {
-          backendConvId = newConv.id;
-          conversationIdRef.current = backendConvId;
+      // EF-105: A canonical Conversation is server-created. Local conv_* values
+      // remain compatibility metadata and are never sent as canonical IDs.
+      let backendConvId = existingCanonicalConversationId;
+      if (!backendConvId) {
+        try {
+          const prepared = await prepareCanonicalConversation({
+            sessions: sessionsRef.current,
+            clientSessionId: snapshot.sessionId,
+            roleId: roleToUse.id,
+            userId: installationUserId,
+            createConversation,
+            persistMapping: mappedSessions => persistSessions(
+              mappedSessions,
+              'ChatContext.attachCanonicalConversation',
+              'canonical_conversation_attached',
+              snapshot.sessionId,
+            ),
+          });
+          sessionsRef.current = prepared.sessions;
+          setSessions(prepared.sessions);
+          backendConvId = prepared.conversationId;
+        } catch (mappingError) {
+          if (mountedRef.current) setError('无法创建安全的对话连接，请重试');
+          retrySnapshotRef.current = snapshot;
+          console.error('[EF-105] Canonical conversation unavailable:', getEf77ErrorType(mappingError));
+          await markTurnFailed(snapshot.sessionId, 'outer_catch_mark_failed');
+          return 'chatstart_failed';
         }
       }
+      snapshot.conversationId = backendConvId;
+      conversationIdRef.current = backendConvId;
+      setConversationId(backendConvId);
       if (backendConvId && !isRetry) {
         persistMessage(backendConvId, {
           role: 'user',
@@ -1450,7 +1501,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           userMessage,
           snapshot.conversationId,
           snapshot.requestId,
-          retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined
+          retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined,
+          installationUserId,
         );
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
@@ -1854,7 +1906,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
-            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal);
+            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal, {
+              userId: installationUserId,
+              conversationId: backendConvId,
+            });
             // Some transports resolve during teardown without invoking a terminal
             // callback. Settle the request so an abandoned Provider cannot leave
             // its send Promise and timeout alive.
@@ -2110,7 +2165,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         cleanupResources();
       }
     },
-    [currentRole, cleanupResources, finalizeTurnCompleted, markTurnFailed, markTurnGenerating, markTurnInterrupted]
+    [currentRole, cleanupResources, finalizeTurnCompleted, markTurnFailed, markTurnGenerating, markTurnInterrupted, persistSessions]
   );
 
   // EM-43: 发送守卫包装

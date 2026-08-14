@@ -27,7 +27,7 @@ jest.mock('../stores/sessionStore', () => ({
   saveChatSessions: jest.fn().mockResolvedValue(undefined),
   getChatSessions: jest.fn().mockResolvedValue([]),
   persistMessage: jest.fn().mockResolvedValue(undefined),
-  createConversation: jest.fn().mockResolvedValue({ id: 'conv-test-123' }),
+  createConversation: jest.fn().mockResolvedValue({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }),
   fetchConversation: jest.fn().mockResolvedValue(null),
 }));
 

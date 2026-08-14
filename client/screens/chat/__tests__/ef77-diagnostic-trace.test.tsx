@@ -27,6 +27,10 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 jest.mock('@expo/vector-icons', () => ({ FontAwesome6: () => null }));
 jest.mock('../api/cozeApi', () => ({ chatStart: jest.fn(), chatStream: jest.fn() }));
+jest.mock('../stores/sessionStore', () => ({
+  ...jest.requireActual('../stores/sessionStore'),
+  createConversation: jest.fn(async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
+}));
 
 const mockedChatStart = chatStart as jest.MockedFunction<typeof chatStart>;
 const mockedChatStream = chatStream as jest.MockedFunction<typeof chatStream>;

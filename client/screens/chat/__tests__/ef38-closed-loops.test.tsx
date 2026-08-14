@@ -211,7 +211,7 @@ describe('EF-38 minimum closed loops', () => {
       }));
     });
     mockedPersistMessage.mockResolvedValue(null);
-    mockedCreateConversation.mockResolvedValue({ id: 'conversation-1' });
+    mockedCreateConversation.mockResolvedValue({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
     mockedFetchConversation.mockResolvedValue(null);
     mockedChatStart.mockResolvedValue(chatStartResponse);
   });
