@@ -24,6 +24,8 @@ import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
 import { validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations.js';
+import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
+import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -101,6 +103,7 @@ interface ChatSession {
   neuralProfile: NeuralProfile; // 当前用户神经状态
   flowResult: FlowResult | null; // Flow System 心理流向分析结果
   flowContext: FlowContext | null; // Step1: 结构化 FlowContext（用于 Deep prompt）
+  eventSequencer: TurnEventSequencer; // EF-102: server-owned ordering for this turn
 }
 
 const sessions = new Map<string, ChatSession>();
@@ -804,6 +807,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       deepError: null,
       flowResult: null,
       flowContext,
+      eventSequencer: new TurnEventSequencer(),
     };
     sessions.set(sessionId, session);
 
@@ -887,9 +891,16 @@ app.get('/api/v1/chat/stream', (req, res) => {
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
 
-  // 先告知前端时间线 + FlowContext
-  res.write(`data: ${JSON.stringify({
-    type: 'timeline',
+  const emit = <T extends StreamEventType>(
+    eventType: T,
+    payload: StreamPayloadByType[T],
+  ) => {
+    const event = session.eventSequencer.next(eventType, payload);
+    res.write(serializeStreamEvent(event));
+  };
+
+  emit('turn.started', {
+    sessionId: session.sessionId,
     deepReadyAt: session.deepReadyAt,
     reactionLayer: session.reactionLayer || '',
     companionLayer: session.companionLayer || '',
@@ -900,7 +911,9 @@ app.get('/api/v1/chat/stream', (req, res) => {
       flowConfidence: session.flowContext.flowConfidence,
       flowRisk: session.flowContext.flowRisk || null,
     } : null,
-  })}\n\n`);
+  });
+  emit('reaction', { content: session.reactionLayer || '' });
+  emit('companion', { content: session.companionLayer || '' });
 
   let lastIndex = 0;
   let lastHeartbeat = Date.now();
@@ -913,7 +926,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
     if (now < session.deepReadyAt) {
       // 每5秒发一次心跳保持连接
       if (now - lastHeartbeat >= 5000) {
-        res.write(`data: ${JSON.stringify({ type: 'heartbeat', remaining: Math.ceil((session.deepReadyAt - now) / 1000) })}\n\n`);
+        res.write(': keepalive\n\n');
         lastHeartbeat = now;
       }
       return;
@@ -923,7 +936,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
     while (lastIndex < session.deepChunks.length) {
       const chunk = session.deepChunks[lastIndex++];
       if (chunk) {
-        res.write(`data: ${JSON.stringify({ type: 'deep', content: chunk })}\n\n`);
+        emit('deep.delta', { content: chunk });
       }
     }
 
@@ -931,8 +944,8 @@ app.get('/api/v1/chat/stream', (req, res) => {
     if (session.deepDone) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
-      res.write(`data: ${JSON.stringify({ type: 'deep', done: true })}\n\n`);
-      res.write('data: [DONE]\n\n');
+      emit('deep.completed', {});
+      emit('turn.completed', { status: 'completed' });
       res.end();
       return;
     }
@@ -941,8 +954,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
     if (session.deepError && !session.deepStreaming) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
-      res.write(`data: ${JSON.stringify({ type: 'error', message: session.deepError, done: true })}\n\n`);
-      res.write('data: [DONE]\n\n');
+      emit('error', mapSafeStreamError('deep_response_failed'));
       res.end();
       return;
     }
@@ -951,8 +963,7 @@ app.get('/api/v1/chat/stream', (req, res) => {
   // 150秒超时（90秒缓存 + 60秒流式传输）
   const timeout = setTimeout(() => {
     clearInterval(pollInterval);
-    res.write(`data: ${JSON.stringify({ type: 'timeout', done: true })}\n\n`);
-    res.write('data: [DONE]\n\n');
+    emit('error', mapSafeStreamError('stream_timeout'));
     res.end();
   }, 150000);
 
