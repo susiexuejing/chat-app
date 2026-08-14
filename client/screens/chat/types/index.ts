@@ -48,6 +48,10 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   conversationId?: string;
+  // EF-105: The installation identity that created the active canonical mapping.
+  canonicalConversationUserId?: string;
+  // Preserve the replaced provisional or uncorrelated identifier as metadata.
+  legacyConversationId?: string;
   // EF-59: 持久化聊天阶段，用于恢复 UI 状态
   chatPhase?: 'idle' | 'responding' | 'companion' | 'waiting_deep' | 'deep_arriving' | 'done';
   // EF-38: Turn lifecycle for interrupted generation recovery

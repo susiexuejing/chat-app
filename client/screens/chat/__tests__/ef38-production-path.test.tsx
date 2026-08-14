@@ -177,7 +177,7 @@ jest.mock('../stores/sessionStore', () => ({
   getChatSessions: jest.fn(async () => storedSessions),
   saveChatSessions: jest.fn(async (sessions: any[]) => { storedSessions = [...sessions]; }),
   persistMessage: jest.fn(async () => null),
-  createConversation: jest.fn(async () => ({ id: 'conv-123' })),
+  createConversation: jest.fn(async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
   fetchConversation: jest.fn(async () => null),
 }));
 

@@ -298,7 +298,14 @@ export interface ChatStartResponse {
  * 接口 1：即时返回前端流
  * POST /api/v1/chat/start
  */
-export async function chatStart(roleId: string, message: string, conversationId?: string, requestId?: string, diagnostics?: RetryTransportDiagnostics): Promise<ChatStartResponse> {
+export async function chatStart(
+  roleId: string,
+  message: string,
+  conversationId?: string,
+  requestId?: string,
+  diagnostics?: RetryTransportDiagnostics,
+  userId?: string,
+): Promise<ChatStartResponse> {
   const BASE = getBackendUrl();
   const startedAt = Date.now();
   emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
@@ -307,7 +314,7 @@ export async function chatStart(roleId: string, message: string, conversationId?
     const response = await fetch(`${BASE}/api/v1/chat/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roleId, message, conversationId, requestId }),
+      body: JSON.stringify({ roleId, message, userId, conversationId, requestId }),
     });
     httpStatus = response.status;
     if (!response.ok) {
@@ -352,10 +359,15 @@ export function chatStream(
   },
   diagnostics?: RetryTransportDiagnostics,
   signal?: AbortSignal,
+  identity?: { userId: string; conversationId: string },
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const BASE = getBackendUrl();
     const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
+    const identityHeaders = identity ? {
+      'X-EmotionFlow-User-Id': identity.userId,
+      'X-EmotionFlow-Conversation-Id': identity.conversationId,
+    } : undefined;
     const requestStartedAt = Date.now();
     emitEf77Trace('stream_request_started', {
       timestamp: requestStartedAt,
@@ -425,7 +437,7 @@ export function chatStream(
 
     // Web 端和 RN 端统一使用 fetch SSE
     if (Platform.OS === 'web') {
-      fetch(url, { signal })
+      fetch(url, { signal, headers: identityHeaders })
         .then(async (response) => {
           emitEf77Trace('stream_response_observed', {
             timestamp: Date.now(),
@@ -482,7 +494,10 @@ export function chatStream(
       import('react-native-sse').then((mod) => {
         const RNSSE = mod.default;
         const sse = new RNSSE(url, {
-          headers: { 'Accept': 'text/event-stream' },
+          headers: {
+            'Accept': 'text/event-stream',
+            ...identityHeaders,
+          },
         });
         let versionedTerminalObserved = false;
         signal?.addEventListener('abort', () => sse.close(), { once: true });
