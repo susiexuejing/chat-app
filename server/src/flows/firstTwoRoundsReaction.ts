@@ -27,6 +27,7 @@ const SMART_FOX_OVERLOAD_PATTERNS = [
   /(?:事|事情).{0,4}一件接一件/,
   /(?:信息|消息|内容).{0,5}(?:太多|很多|过量)/,
   /(?:脑子|脑袋).{0,8}(?:塞满|装满)/,
+  /(?:事|事情|东西|问题).{0,6}(?:全|都)?(?:挤|塞).{0,6}(?:脑子|脑袋|头脑)(?:里|中)?/,
 ];
 
 const CONFUSION_PATTERNS = [
@@ -56,6 +57,43 @@ export function isConfusedOverload(message?: string, includeSmartFoxExpansion = 
 
   return overloadPatterns.some((pattern) => pattern.test(message))
     && confusionPatterns.some((pattern) => pattern.test(message));
+}
+
+interface ConfusedOverloadCopy {
+  reaction: string;
+  companion: string;
+}
+
+/**
+ * EF-41: Keep the Smart Fox response deterministic while grounding it in the
+ * overload and confusion language the user actually supplied.
+ */
+function getSmartFoxConfusedOverloadCopy(message: string): ConfusedOverloadCopy {
+  if (/(?:信息|消息|内容).{0,5}(?:太多|很多|过量)|(?:脑子|脑袋).{0,8}(?:塞满|装满)/.test(message)) {
+    return {
+      reaction: '一下子装进来的信息太多，脑子像被塞满了，连开头也找不到。',
+      companion: '不用一次理清；此刻最卡住你的，是哪一小块？',
+    };
+  }
+
+  if (/(?:一件接一件|接二连三)|(?:思绪|想法).{0,8}(?:全挤|挤成一团)/.test(message)) {
+    return {
+      reaction: '事情一件接一件，思绪也全挤成一团，先讲哪件都难选。',
+      companion: '不用一次理清；此刻最卡住你的，是哪一小块？',
+    };
+  }
+
+  if (/(?:事|事情|东西|问题).{0,6}(?:全|都)?(?:挤|塞).{0,6}(?:脑子|脑袋|头脑)/.test(message)) {
+    return {
+      reaction: '事情全挤在脑子里，连先说什么都拿不准。',
+      companion: '不用一次理清；此刻最卡住你的，是哪一小块？',
+    };
+  }
+
+  return {
+    reaction: '今天的事情一下子堆得太多，脑子乱着，也不知道该从哪里说起。',
+    companion: '不用一次理清；此刻最卡住你的，是哪一小块？',
+  };
 }
 
 /**
@@ -92,12 +130,12 @@ function extractUserPhrase(message: string): string {
 export function getFirstTwoRoundsReactionTimeline(
   signal?: Signal,
   userMessage?: string,
-  includeSmartFoxExpansion = false,
+  enableSmartFoxConfusedOverload = false,
 ): TimelineSegment[] {
-  if (isConfusedOverload(userMessage, includeSmartFoxExpansion)) {
+  if (enableSmartFoxConfusedOverload && isConfusedOverload(userMessage, true)) {
     return [{
       displayAt: 0,
-      text: '听起来很多事情一下子挤在一起，你现在脑子很乱，也不知道从哪里开始。',
+      text: getSmartFoxConfusedOverloadCopy(userMessage || '').reaction,
     }];
   }
 
@@ -146,12 +184,12 @@ export function getFirstTwoRoundsReactionTimeline(
 export function getFirstTwoRoundsCompanionTimeline(
   signal?: Signal,
   userMessage?: string,
-  includeSmartFoxExpansion = false,
+  enableSmartFoxConfusedOverload = false,
 ): TimelineSegment[] {
-  if (isConfusedOverload(userMessage, includeSmartFoxExpansion)) {
+  if (enableSmartFoxConfusedOverload && isConfusedOverload(userMessage, true)) {
     return [{
       displayAt: 8,
-      text: '不用一次理清全部，先说一件此刻最让你卡住的事，好吗？',
+      text: getSmartFoxConfusedOverloadCopy(userMessage || '').companion,
     }];
   }
 
