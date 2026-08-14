@@ -14,6 +14,8 @@ const positiveMessages = [
 
 const secondTurnMessage = '事情全挤在脑子里，我完全不知道该先说什么。';
 
+const ctoRuntimeFailure = '我手边刚好有杯温咖啡，正对着笔记本理思路，你只管在这儿喘口气，等哪根线头自己松动了，我们再顺着往下摸。';
+
 const devFailureFixtures: Array<{
   name: string;
   source: Ef41DeepOutputSource;
@@ -117,5 +119,29 @@ describe('EF-41 Deep output composition validator', () => {
 
     expect(output).toBe(EF41_DEEP_FALLBACK);
     expect(output).not.toMatch(/想到哪|随手丢|要不|窗边|[？?]/);
+  });
+
+  test.each(['cleaned', 'last-resort', 'reasoning'] as const)('rejects the exact CTO runtime output on the %s path', (source) => {
+    const output = validateOutput(ctoRuntimeFailure, positiveMessages[1], source);
+
+    expect(output).toBe(EF41_DEEP_FALLBACK);
+    expect(output).not.toMatch(/你只管|喘口气|我们再|往下摸/);
+  });
+
+  test('preserves an objective non-directive declarative sentence', () => {
+    const objective = '脑子里塞满东西的时候，确实会像一团理不清的毛线。';
+    const output = validateOutput(objective, positiveMessages[1], 'cleaned');
+
+    expect(output).toBe(objective);
+  });
+
+  test('rejects an unseen user-directed and joint-progression paraphrase', () => {
+    const output = validateOutput(
+      '这会儿确实很挤，你先缓一缓，咱们再一起看看哪条线更清楚。',
+      positiveMessages[1],
+      'cleaned',
+    );
+
+    expect(output).toBe(EF41_DEEP_FALLBACK);
   });
 });
