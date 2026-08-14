@@ -62,6 +62,18 @@ const STREAM_API_URL = BACKEND_BASE_URL
   ? `${BACKEND_BASE_URL}/api/v1/chat/stream` 
   : '/api/v1/chat/stream';
 
+function isVersionedTurnTerminal(data: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    if (!parsed || typeof parsed !== 'object') return false;
+    const event = parsed as Record<string, unknown>;
+    return event.schemaVersion === 1
+      && (event.eventType === 'turn.completed' || event.eventType === 'error');
+  } catch {
+    return false;
+  }
+}
+
 // 组合分析接口（轻量 + 深度）
 const COMBINED_API_URL = BACKEND_BASE_URL 
   ? `${BACKEND_BASE_URL}/api/v1/chat/combined` 
@@ -472,18 +484,21 @@ export function chatStream(
         const sse = new RNSSE(url, {
           headers: { 'Accept': 'text/event-stream' },
         });
+        let versionedTerminalObserved = false;
         signal?.addEventListener('abort', () => sse.close(), { once: true });
         sse.addEventListener('message', (event: any) => {
           if (event.data === '[DONE]') {
             if (diagnostics) diagnostics.doneObserved = true;
             sse.close();
-            callbacks.onDone?.();
-            observeTerminal({ doneObserved: true, eofObserved: false, resolved: true, rejected: false });
-            resolve();
             return;
           }
           observeProgress(event.data);
           callbacks.onChunk?.(event.data);
+          if (isVersionedTurnTerminal(event.data)) {
+            versionedTerminalObserved = true;
+            if (diagnostics) diagnostics.doneObserved = true;
+            sse.close();
+          }
         });
         sse.addEventListener('error', (error: any) => {
           sse.close();
@@ -494,7 +509,12 @@ export function chatStream(
         });
         sse.addEventListener('close', () => {
           callbacks.onDone?.();
-          observeTerminal({ doneObserved: diagnostics?.doneObserved ?? false, eofObserved: true, resolved: true, rejected: false });
+          observeTerminal({
+            doneObserved: diagnostics?.doneObserved ?? versionedTerminalObserved,
+            eofObserved: !versionedTerminalObserved,
+            resolved: true,
+            rejected: false,
+          });
           resolve();
         });
       });
