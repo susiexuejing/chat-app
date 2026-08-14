@@ -22,6 +22,17 @@ export function isInstallationIdentity(value: unknown): value is InstallationIde
     && isUuidV4(record.userId);
 }
 
+export async function readInstallationIdentity(): Promise<InstallationIdentity | null> {
+  const raw = await AsyncStorage.getItem(INSTALLATION_IDENTITY_STORAGE_KEY);
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return isInstallationIdentity(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 async function generateUuidV4(): Promise<string> {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
@@ -35,15 +46,8 @@ let installationIdentityInFlight: Promise<InstallationIdentity> | null = null;
 export function getOrCreateInstallationIdentity(): Promise<InstallationIdentity> {
   if (!installationIdentityInFlight) {
     const operation = (async (): Promise<InstallationIdentity> => {
-      const raw = await AsyncStorage.getItem(INSTALLATION_IDENTITY_STORAGE_KEY);
-      if (raw) {
-        try {
-          const parsed: unknown = JSON.parse(raw);
-          if (isInstallationIdentity(parsed)) return parsed;
-        } catch {
-          // Replace only this dedicated identity record below. Session data is separate.
-        }
-      }
+      const stored = await readInstallationIdentity();
+      if (stored) return stored;
 
       const identity: InstallationIdentity = {
         schemaVersion: INSTALLATION_IDENTITY_SCHEMA_VERSION,
