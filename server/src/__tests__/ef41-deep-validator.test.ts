@@ -12,6 +12,8 @@ const positiveMessages = [
   '今天的信息太多了，脑子像塞满了一样，想说却找不到开头。',
 ];
 
+const secondTurnMessage = '事情全挤在脑子里，我完全不知道该先说什么。';
+
 const devFailureFixtures: Array<{
   name: string;
   source: Ef41DeepOutputSource;
@@ -102,5 +104,18 @@ describe('EF-41 Deep output composition validator', () => {
   test.each(['cleaned', 'last-resort', 'reasoning'] as const)('uses deterministic fallback on the %s path when every sentence is rejected', (source) => {
     const output = validateOutput('你想从哪里开始？我都在旁边陪着。', positiveMessages[0], source);
     expect(output).toBe(EF41_DEEP_FALLBACK);
+  });
+
+  test.each(['cleaned', 'last-resort', 'reasoning'] as const)('activates for the P3 second-turn %s path', (source) => {
+    const output = validateOutput(
+      '你想到哪句就随手丢出来。要不先去窗边站一会儿。',
+      secondTurnMessage,
+      source,
+      'clever-fox',
+      2,
+    );
+
+    expect(output).toBe(EF41_DEEP_FALLBACK);
+    expect(output).not.toMatch(/想到哪|随手丢|要不|窗边|[？?]/);
   });
 });

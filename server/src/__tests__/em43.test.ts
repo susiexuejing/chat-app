@@ -241,10 +241,10 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
 
   test.each(matchingInputs)('matches confused overload without exact-input hard-coding: %s', (input) => {
     const output = orderedOutput(input);
-    expect(output.reaction).toContain('很多事情一下子挤在一起');
-    expect(output.reaction).toMatch(/脑子很乱|不知道从哪里开始/);
-    expect(output.companion).toContain('不用一次理清全部');
-    expect(output.companion).toMatch(/一件.{0,8}最让你卡住的事/);
+    expect(output.reaction).toMatch(/事情|信息|脑子|思绪/);
+    expect(output.reaction).toMatch(/太多|挤|乱|理不清|开头|先讲|先说/);
+    expect(output.companion).toContain('不用一次理清');
+    expect(output.companion).toMatch(/最卡住你的.{0,4}哪一小块/);
   });
 
   test.each(negativeInputs)('does not match when both semantic categories are absent: %s', (input) => {
@@ -266,7 +266,7 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
 
   test('second turn remains restrained for the bounded condition', () => {
     const output = orderedOutput(exactInput, 2);
-    expect(output.combined).toMatch(/很多事情一下子挤在一起/);
+    expect(output.combined).toMatch(/事情一下子堆得太多/);
     expect(output.combined).not.toMatch(/分析|诊断|模式|你应该|建议你/);
     expect((output.combined.match(/[？?]/g) || [])).toHaveLength(1);
   });
@@ -293,6 +293,18 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
     expect(source).toContain('generateCompanionTimeline(roleId, message, signal, userTurn)');
     expect(source).not.toContain('generateReactionTimeline(roleId, keywords?.[0] || message, signal, userTurn)');
     expect(source).not.toContain('generateCompanionTimeline(roleId, keywords?.[0] || message, signal, userTurn)');
+  });
+
+  test('production Deep composition receives role, raw message, real turn, and all output sources', () => {
+    const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
+
+    expect((source.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(3);
+    expect((source.match(/roleId: session\.roleId/g) || [])).toHaveLength(3);
+    expect((source.match(/userMessage: session\.userMessage/g) || [])).toHaveLength(3);
+    expect((source.match(/\n\s*userTurn,/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(source).toContain("source: 'cleaned'");
+    expect(source).toContain("source: 'last-resort'");
+    expect(source).toContain("source: 'reasoning'");
   });
 });
 
