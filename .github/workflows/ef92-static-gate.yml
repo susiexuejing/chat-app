@@ -1,0 +1,114 @@
+name: EF-92 Static Gate
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  static-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out event commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify checkout identity
+        id: checkout_identity
+        continue-on-error: true
+        env:
+          EXPECTED_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        run: |
+          CHECKED_OUT_SHA=$(git rev-parse HEAD)
+          echo "checked_out_sha=${CHECKED_OUT_SHA}" >> "${GITHUB_OUTPUT}"
+          test "${CHECKED_OUT_SHA}" = "${EXPECTED_SHA}"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install dependencies
+        id: install
+        continue-on-error: true
+        run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
+
+      - name: Type-check client
+        id: client_tsc
+        if: always()
+        continue-on-error: true
+        run: pnpm --dir client exec tsc --noEmit
+
+      - name: Lint client without repository formatter
+        id: client_eslint
+        if: always()
+        continue-on-error: true
+        run: pnpm --dir client exec eslint ./ --quiet
+
+      - name: Type-check server
+        id: server_tsc
+        if: always()
+        continue-on-error: true
+        run: pnpm --dir server exec tsc --noEmit
+
+      - name: Verify dependency files are unchanged
+        id: integrity
+        if: always()
+        continue-on-error: true
+        run: >-
+          git diff --exit-code HEAD --
+          package.json pnpm-lock.yaml client/package.json server/package.json
+
+      - name: Write static-gate evidence
+        if: always()
+        run: |
+          {
+            echo "CHECKED_OUT_SHA=${{ steps.checkout_identity.outputs.checked_out_sha }}"
+            echo "GITHUB_SHA=${GITHUB_SHA}"
+            echo "Node=$(node --version 2>&1 || echo unavailable)"
+            echo "pnpm=$(pnpm --version 2>&1 || echo unavailable)"
+            echo "TypeScript=$(pnpm --dir client exec tsc --version 2>&1 || echo unavailable)"
+            echo "ESLint=$(pnpm --dir client exec eslint --version 2>&1 || echo unavailable)"
+            echo "checkout_identity=${{ steps.checkout_identity.outcome }}"
+            echo "install=${{ steps.install.outcome }}"
+            echo "client_tsc=${{ steps.client_tsc.outcome }}"
+            echo "client_eslint=${{ steps.client_eslint.outcome }}"
+            echo "server_tsc=${{ steps.server_tsc.outcome }}"
+            echo "integrity=${{ steps.integrity.outcome }}"
+          } > ef92-static-gate-evidence.txt
+
+      - name: Upload static-gate evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ef92-static-gate-evidence
+          path: ef92-static-gate-evidence.txt
+          if-no-files-found: error
+
+      - name: Enforce static gate
+        if: always()
+        run: |
+          test "${{ steps.checkout_identity.outcome }}" = success
+          test "${{ steps.install.outcome }}" = success
+          test "${{ steps.client_tsc.outcome }}" = success
+          test "${{ steps.client_eslint.outcome }}" = success
+          test "${{ steps.server_tsc.outcome }}" = success
+          test "${{ steps.integrity.outcome }}" = success
