@@ -21,6 +21,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import type { ResponseWeights } from './flows/evolutionTypes';
 import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
+import { validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations.js';
 
@@ -297,14 +298,26 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     // 只保留最终中文回复
     const cleaned = extractFinalChineseResponse(deepContentBuffer);
     if (cleaned.trim()) {
-      session.deepChunks.push(cleaned);
+      session.deepChunks.push(validateEf41DeepOutput({
+        text: cleaned,
+        roleId: session.roleId,
+        userTurn,
+        userMessage: session.userMessage,
+        source: 'cleaned',
+      }));
       console.log(`[Deep] Cleaned content: ${cleaned.length} chars (raw: ${deepContentBuffer.length} chars)`);
     } else if (deepContentBuffer.trim()) {
       // 🛡️ 极兜底：清洗返回空但原始内容不为空 → 截取最后300字
       const last300 = deepContentBuffer.slice(-300).trim();
       const cjk = last300.match(/[\u4e00-\u9fff]/g);
       if (cjk && cjk.length >= 10) {
-        session.deepChunks.push(last300);
+        session.deepChunks.push(validateEf41DeepOutput({
+          text: last300,
+          roleId: session.roleId,
+          userTurn,
+          userMessage: session.userMessage,
+          source: 'last-resort',
+        }));
         console.log(`[Deep] Last-resort fallback: ${last300.length} chars (${cjk.length} CJK)`);
       } else {
         console.log(`[Deep] Cleaning returned empty AND no CJK in last 300 chars (raw: ${deepContentBuffer.length} chars)`);
@@ -314,7 +327,13 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
     // 将 reasoning_content 作为最终内容推给前端
     if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
-      session.deepChunks.push(reasoningBuffer.trim());
+      session.deepChunks.push(validateEf41DeepOutput({
+        text: reasoningBuffer.trim(),
+        roleId: session.roleId,
+        userTurn,
+        userMessage: session.userMessage,
+        source: 'reasoning',
+      }));
       const duration = Date.now() - streamStartTime;
       console.log(`[Deep] Fallback: used reasoning_content (${reasoningBuffer.length} chars, took ${duration}ms)`);
     }
