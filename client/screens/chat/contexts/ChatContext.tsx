@@ -10,7 +10,7 @@ import React, {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
 import { chatStart, chatStream, FlowContext, type RetryTransportDiagnostics } from '../api/cozeApi';
-import { ChatSession, ChatMessage, TurnStatus, PendingTurn } from '../types';
+import { ChatSession, ChatMessage, TurnStatus, PendingTurn, ResponseLayer } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
   EF77_STORAGE_KEY,
@@ -22,6 +22,14 @@ import {
   isEf77DiagnosticEnabled,
   summarizeEf77Snapshot,
 } from '../utils/ef77Diagnostics';
+import {
+  appendOwnedResponseContent,
+  createResponseMessage,
+  generateResponseMessageId,
+  generateTurnId,
+  updateOwnedResponseMessage,
+  type ResponseMessageTarget,
+} from '../utils/messageOwnership';
 
 // Server SSE deadline is 150 seconds; retain a bounded client-side guard with
 // enough transport grace to observe the server's terminal event.
@@ -80,6 +88,8 @@ interface ChatContextValue {
 
 // EM-43: 发送快照，用于 retry/regenerate
 interface SendSnapshot {
+  turnId: string;
+  responseMessageIds: Record<ResponseLayer, string>;
   requestId: string;
   conversationId: string;
   sessionId: string;
@@ -118,6 +128,10 @@ interface QueuedMessage {
   // Pre-generated when message is queued, preserved across retries and persistence
   // Backend will use this to detect duplicate requests and return cached responses
   requestId?: string;
+  // EF-104: Queue acceptance creates the logical Turn once. Processing and
+  // queue retry reuse this value rather than deriving it from requestId.
+  turnId?: string;
+  responseMessageIds?: Record<ResponseLayer, string>;
 }
 
 // EM-54: 持久化存储键
@@ -353,6 +367,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   }, [sessions]);
   
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const currentSessionIdRef = useRef<string | null>(null);
   const [currentRole, setCurrentRole] = useState<(typeof roles)[0]>(roles[0]);
   const [thinkingContent, setThinkingContent] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -619,6 +634,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               timestamp: Date.now()
             }));
             
+            currentSessionIdRef.current = persistedSessionId;
             setCurrentSessionId(persistedSessionId);
             // 恢复当前会话的消息（只恢复已完成的消息，不恢复 streaming 状态）
             if (restoredSession && restoredSession.messages.length > 0) {
@@ -709,6 +725,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               session.updatedAt > latest.updatedAt ? session : latest
             );
             diagnosticActiveSessionIdRef.current = mostRecentSession.id;
+            currentSessionIdRef.current = mostRecentSession.id;
             setCurrentSessionId(mostRecentSession.id);
             // 立即修正 AsyncStorage 中的 current_session_id
             AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, mostRecentSession.id).catch(err => {
@@ -1015,6 +1032,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     return `conv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
   }, []);
 
+  const generateResponseMessageIds = useCallback((): Record<ResponseLayer, string> => ({
+    reaction: generateResponseMessageId('reaction'),
+    companion: generateResponseMessageId('companion'),
+    deep: generateResponseMessageId('deep'),
+  }), []);
+
   // 保存会话
   /* sessions persistence skipped */
 
@@ -1029,6 +1052,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       source: 'createNewChat',
       timestamp: Date.now()
     });
+    currentSessionIdRef.current = null;
     setCurrentSessionId(null);
     setError(null);
     setThinkingContent('');
@@ -1050,6 +1074,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           source: 'selectSession',
           timestamp: Date.now()
         });
+        currentSessionIdRef.current = session.id;
         setCurrentSessionId(session.id);
         // EF-59: 立即持久化 current_session_id（不依赖 useEffect）
         AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, session.id).catch(err => {
@@ -1180,10 +1205,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         : session
       );
       sessionsRef.current = updatedSessions;
-      messagesRef.current = recoveredMessages;
       setSessions(updatedSessions);
-      setMessages(recoveredMessages);
-      setChatPhase('idle');
+      if (currentSessionIdRef.current === sessionId) {
+        messagesRef.current = recoveredMessages;
+        setMessages(recoveredMessages);
+        setChatPhase('idle');
+      }
       await persistSessions(
         updatedSessions,
         'ChatContext.markTurnInterrupted',
@@ -1325,6 +1352,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         source: 'sendMessageCore',
         timestamp: Date.now()
       });
+      currentSessionIdRef.current = snapshot.sessionId;
       setCurrentSessionId(snapshot.sessionId);
       // EF-59: 立即持久化 current_session_id（不依赖 useEffect）
       AsyncStorage.setItem(STORAGE_KEY_CURRENT_SESSION_ID, snapshot.sessionId).catch(err => {
@@ -1337,6 +1365,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // For retry, we use the existing pendingTurn.userMessageId to maintain identity
       const existingSession = sessionsRef.current.find(session => session.id === snapshot.sessionId);
       const retryPendingTurn = isRetry ? existingSession?.pendingTurn : undefined;
+      const turnId = retryPendingTurn?.turnId ?? snapshot.turnId;
+      const responseMessageIds: Record<ResponseLayer, string> = {
+        reaction: retryPendingTurn?.responseMessageIds?.reaction
+          ?? snapshot.responseMessageIds.reaction,
+        companion: retryPendingTurn?.responseMessageIds?.companion
+          ?? snapshot.responseMessageIds.companion,
+        deep: retryPendingTurn?.responseMessageIds?.deep
+          ?? snapshot.responseMessageIds.deep,
+      };
       const userMsgId = retryPendingTurn?.userMessageId
         ?? `user_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const existingUserMessage = existingSession?.messages.find(message => message.id === userMsgId);
@@ -1346,6 +1383,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         role: 'user',
         content: userMessage,
         timestamp: existingUserMessage?.timestamp ?? Date.now(),
+        turnId,
       };
 
       // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state (仅首次，retry 不重复创建)
@@ -1361,12 +1399,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       // Creates/updates session + user message + generating state in one operation
       // This replaces the separate setSessions call to avoid race condition
       const pendingTurn: PendingTurn = {
+        turnId,
         requestId: snapshot.requestId,
         userMessageId: userMsgId,  // EF-38: Use same ID as userMsg
         userMessage,
         startedAt: retryPendingTurn?.startedAt ?? Date.now(),
         roleId: snapshot.roleId,
         conversationId: snapshot.conversationId,
+        responseMessageIds,
       };
       
       // EF-38: Mark turn as generating BEFORE chatStart
@@ -1422,25 +1462,69 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // ====== 第二阶段：EmotionFlow V3 动态缓冲引擎 ======
         // Reaction（8s→18s→30s）→ Companion（动态填充，Deep就绪时立即切断接管）
-        const bubbleMsgId = `bubble_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
         // 初始内容：Reaction第一段 或 fallback
         const firstReaction = reactionTimeline?.[0]?.text || reactionLayer || frontFlowText || '';
-        let displayedContent = firstReaction;
         const chatStartTime = Date.now();
         const assistantTimestamp = Date.now();
+        const reactionTarget: ResponseMessageTarget = {
+          turnId,
+          responseLayer: 'reaction',
+          messageId: responseMessageIds.reaction,
+        };
+        const companionTarget: ResponseMessageTarget = {
+          turnId,
+          responseLayer: 'companion',
+          messageId: responseMessageIds.companion,
+        };
+        const deepTarget: ResponseMessageTarget = {
+          turnId,
+          responseLayer: 'deep',
+          messageId: responseMessageIds.deep,
+        };
 
-        // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
-        replaceMessages(prev => [...prev, {
-          id: bubbleMsgId,
-          role: 'assistant',
-          content: firstReaction,
-          timestamp: assistantTimestamp,
-        }]);
+        const hasVisibleSessionAuthority = () =>
+          mountedRef.current && currentSessionIdRef.current === snapshot.sessionId;
+
+        const appendOwnedLayer = (
+          target: ResponseMessageTarget,
+          content: string,
+          createIfMissing = false,
+        ) => {
+          if (!hasVisibleSessionAuthority()) return;
+          replaceMessages(previous => appendOwnedResponseContent(
+            previous,
+            target,
+            content,
+            { createIfMissing, timestamp: assistantTimestamp },
+          ));
+        };
+
+        // EF-104: Reaction is its own client message projection. Companion and
+        // Deep entities are created only when their progressive phase begins.
+        replaceMessages(previous => {
+          if (!isRetry) {
+            return [
+              ...previous,
+              createResponseMessage(reactionTarget, firstReaction, assistantTimestamp),
+            ];
+          }
+
+          // A retry reuses the original Turn and layer IDs. Replace prior
+          // partial projections in place so retry cannot create duplicate or
+          // append stale Deep content to the new attempt.
+          let next = updateOwnedResponseMessage(
+            previous,
+            reactionTarget,
+            firstReaction,
+            { createIfMissing: true, timestamp: assistantTimestamp },
+          );
+          next = updateOwnedResponseMessage(next, companionTarget, '');
+          return updateOwnedResponseMessage(next, deepTarget, '');
+        });
 
 
         // ── 打字机引擎状态（闭包变量）──
-        const textQueue: string[] = [];
+        const textQueue: Array<{ ch: string; target: ResponseMessageTarget }> = [];
         let typingTimer: ReturnType<typeof setTimeout> | null = null;
 
         // 状态标记
@@ -1483,6 +1567,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         // ── Deep 段落化显示：按自然段分批出现，每段1.5s ──
         function showDeepByParagraphs(fullText: string) {
+          if (!hasVisibleSessionAuthority()) return;
           const paragraphs = fullText.split('\n\n').filter(p => p.trim());
           if (paragraphs.length === 0) {
             setChatPhase('done');
@@ -1491,14 +1576,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
           let pIdx = 0;
           function showNextPara() {
-            displayedContent += (pIdx === 0 ? '' : '\n\n') + paragraphs[pIdx];
-            // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
-            replaceMessages(prev =>
-              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
+            if (!hasVisibleSessionAuthority()) return;
+            appendOwnedLayer(
+              deepTarget,
+              (pIdx === 0 ? '' : '\n\n') + paragraphs[pIdx],
+              true,
             );
             pIdx++;
             if (pIdx < paragraphs.length) {
-              setTimeout(showNextPara, 1500);
+              const timer = setTimeout(showNextPara, 1500);
+              timersRef.current.push(timer);
             } else {
               setChatPhase('done');
             }
@@ -1508,28 +1595,33 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         }
 
         // ── 核心：把文本加入队列 ──
-        function pushToQueue(text: string) {
-          for (const ch of text) textQueue.push(ch);
+        function pushToQueue(text: string, target: ResponseMessageTarget) {
+          if (!hasVisibleSessionAuthority()) return;
+          appendOwnedLayer(target, '', true);
+          for (const ch of text) textQueue.push({ ch, target });
           scheduleNext();
         }
 
         // ── 核心：从队列取出一个字渲染 ──
         function scheduleNext() {
+          if (!hasVisibleSessionAuthority()) {
+            textQueue.length = 0;
+            typingTimer = null;
+            return;
+          }
           if (typingTimer) return; // 正在渲染中，新内容已入队
 
-          const ch = textQueue.shift();
+          const item = textQueue.shift();
 
-          if (ch !== undefined) {
-            displayedContent += ch;
-            // EF-59 CTO Fix: 使用 replaceMessages 更新 ref 和 state
-            replaceMessages(prev =>
-              prev.map(m => m.id === bubbleMsgId ? { ...m, content: displayedContent } : m)
-            );
-            const delay = getTypingDelay(ch);
+          if (item !== undefined) {
+            if (!hasVisibleSessionAuthority()) return;
+            appendOwnedLayer(item.target, item.ch);
+            const delay = getTypingDelay(item.ch);
             typingTimer = setTimeout(() => {
               typingTimer = null;
               scheduleNext();
             }, delay);
+            timersRef.current.push(typingTimer);
             return;
           }
 
@@ -1550,9 +1642,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
               const next = remainingCompanionChain.shift()!;
               setChatPhase('companion');
               // 当前段打字完成后，等 0.8s 再开始下一段（自然呼吸感）
-              setTimeout(() => {
-                pushToQueue('\n' + next.text);
+              const timer = setTimeout(() => {
+                pushToQueue(next.text, companionTarget);
               }, next.delay);
+              timersRef.current.push(timer);
               return;
             }
             // 所有companion段都播完了，deep还未到达 → 进入等待deep阶段
@@ -1584,7 +1677,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // 无时间线但有关键词版单句Companion → 2s后备
           if (reactionSegs.length === 0 && companionSegs.length === 0 && companionLayer) {
             timelineSchedules.push(setTimeout(() => {
-              pushToQueue('\n' + companionLayer);
+              if (!hasVisibleSessionAuthority()) return;
+              setChatPhase('companion');
+              pushToQueue(companionLayer, companionTarget);
             }, 2000));
             return;
           }
@@ -1594,7 +1689,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             const elapsed = Date.now() - chatStartTime;
             const delayMs = Math.max(0, seg.displayAt * 1000 - elapsed);
             timelineSchedules.push(setTimeout(() => {
-              pushToQueue('\n' + seg.text);
+              pushToQueue(seg.text, reactionTarget);
             }, delayMs));
           }
 
@@ -1609,8 +1704,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
             // 首个companion通过定时器触发，后续由 scheduleNext 链式触发
             const firstComp = companionSegs.shift()!;
             timelineSchedules.push(setTimeout(() => {
+              if (!hasVisibleSessionAuthority()) return;
               setChatPhase('companion');
-              pushToQueue('\n' + firstComp.text);
+              pushToQueue(firstComp.text, companionTarget);
             }, chainStartDelay));
 
             // 剩余的companion段存入链式队列（每个段之间0.8s间隙）
@@ -1695,7 +1791,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                   }
 
                   // ── 后续 Deep chunk ──
-                  pushToQueue(parsed.content);
+                  pushToQueue(parsed.content, deepTarget);
                 } catch { /* ignore */ }
               },
               onDone: () => {
@@ -1713,7 +1809,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 // EF-59 Phase 4: 持久化助手消息到后端（deep 完成后）
                 const finalDeepContent = receivedDeepContent;
                 if (finalDeepContent) {
-                  persistMessage(conversationIdRef.current, {
+                  // Existing backend wire format remains aggregated; use the
+                  // captured Turn conversation instead of mutable UI refs.
+                  persistMessage(backendConvId || snapshot.conversationId, {
                     role: 'assistant',
                     content: finalDeepContent,
                     status: 'sent',
@@ -1837,6 +1935,16 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           console.log('[EF-38] Provider unmounted, skipping finalization');
           return 'interrupted';
         }
+
+        // EF-104: A selected-session change revokes visible projection
+        // authority for this run. Persist interruption for the original
+        // session without ever writing its layer callbacks into the selected
+        // session's message array.
+        if (currentSessionIdRef.current !== snapshot.sessionId) {
+          transportHasAuthority = false;
+          await markTurnInterrupted(snapshot.sessionId);
+          return 'interrupted';
+        }
         
         // EF-38 CTO Fix: Handle stream error immediately, don't wait for UI completion
         if (streamOutcome === 'stream_error') {
@@ -1922,34 +2030,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 'interrupted';
         }
 
-        // EF-59: UI 完全完成后，构建最终消息数组并原子性持久化
-        // EF-59 CTO Fix: 使用 messagesRef.current 而非捕获的 messages，避免 stale state
-        const finalAssistantMessage: ChatMessage = {
-          id: bubbleMsgId,
-          role: 'assistant',
-          content: displayedContent,
-          timestamp: assistantTimestamp,
-        };
-        
-        // EF-59 CTO Fix: 从 ref 构建最终消息数组，确保使用最新状态
-        const currentMessages = messagesRef.current;
-        const hasAssistantBubble = currentMessages.some(m => m.id === bubbleMsgId);
-        
-        let finalMessages: ChatMessage[];
-        if (hasAssistantBubble) {
-          // 替换占位助手消息为完成的消息
-          finalMessages = currentMessages.map(m => 
-            m.id === bubbleMsgId ? finalAssistantMessage : m
-          );
-        } else {
-          // EF-59 CTO Fix: 如果 bubble 不存在，追加而非静默返回空列表
-          console.warn('[EF-59] Assistant bubble not found in messages, appending');
-          finalMessages = [...currentMessages, finalAssistantMessage];
-        }
-        
-        // 原子性更新 UI 状态和持久化
-        messagesRef.current = finalMessages;
-        setMessages(finalMessages);
+        // EF-104: Each layer has already been updated in-place by its captured
+        // (turnId, responseLayer, messageId) target. Finalization persists that
+        // entity list without reconstructing or merging an assistant bubble.
+        const finalMessages = messagesRef.current;
         setChatPhase('done');
         
         // EF-38: 持久化到 session（使用显式构建的最终消息数组）
@@ -1994,7 +2078,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-59 Phase 4: 持久化失败的助手消息
         if (chatStartSucceeded) {
           const failedContent = receivedDeepContent;
-          persistMessage(conversationIdRef.current, {
+          persistMessage(backendConvId || snapshot.conversationId, {
             role: 'assistant',
             content: failedContent,
             status: 'failed',
@@ -2073,6 +2157,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     }
 
     const nextMessage = messageQueueRef.current[nextIndex];
+    const queuedTurnId = nextMessage.turnId ?? generateTurnId();
+    const queuedResponseMessageIds = nextMessage.responseMessageIds ?? generateResponseMessageIds();
+    const queuedRequestId = nextMessage.requestId || generateRequestId();
     
     // EF-58 Code Review Fix: 设置 currentlyProcessingMessageId
     setCurrentlyProcessingMessageId(nextMessage.id);
@@ -2080,7 +2167,13 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // EF-58 Code Review Fix: 保留 requestId（如果已有），否则生成新的
     // requestId is required for future backend idempotency
     const updatedQueue = messageQueueRef.current.map((m, i) => 
-      i === nextIndex ? { ...m, status: 'processing' as QueuedMessageStatus, requestId: m.requestId || generateRequestId() } : m
+      i === nextIndex ? {
+        ...m,
+        status: 'processing' as QueuedMessageStatus,
+        requestId: queuedRequestId,
+        turnId: queuedTurnId,
+        responseMessageIds: queuedResponseMessageIds,
+      } : m
     );
     
     // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
@@ -2098,7 +2191,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     const sessionIdToUse = currentSessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
 
     const snapshot: SendSnapshot = {
-      requestId: nextMessage.requestId || generateRequestId(),
+      turnId: queuedTurnId,
+      responseMessageIds: queuedResponseMessageIds,
+      requestId: queuedRequestId,
       conversationId: convIdToUse,
       sessionId: sessionIdToUse,
       roleId: currentRole.id,
@@ -2134,7 +2229,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     
     setIsProcessingQueue(false);
     setCurrentlyProcessingMessageId(null);
-  }, [conversationId, currentSessionId, currentRole, generateRequestId, withSendGuard, sendMessageCore, inputText, persistQueue]);
+  }, [conversationId, currentSessionId, currentRole, generateRequestId, generateResponseMessageIds, withSendGuard, sendMessageCore, inputText, persistQueue]);
 
   // EM-53: 将 processNextInQueue 赋值给 ref
   processNextInQueueRef.current = processNextInQueue;
@@ -2162,6 +2257,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // EF-58 Code Review Fix: requestId is required for future backend idempotency
           // Pre-generated here to ensure consistency across retries and persistence
           requestId: generateRequestId(),
+          turnId: generateTurnId(),
+          responseMessageIds: generateResponseMessageIds(),
         };
         const newQueue = [...messageQueueRef.current, queuedMsg];
         // EF-58 Code Review Fix: 使用 persistQueue helper 立即持久化
@@ -2176,6 +2273,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
       // EF-58 Code Review Fix: requestId is required for future backend idempotency
       const snapshot: SendSnapshot = {
+        turnId: generateTurnId(),
+        responseMessageIds: generateResponseMessageIds(),
         requestId: generateRequestId(),
         conversationId: convIdToUse,
         sessionId: sessionIdToUse,
@@ -2186,7 +2285,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       await withSendGuard(() => sendMessageCore(userMessage, snapshot, false));
       return true; // 返回 true 表示消息已发送
     },
-    [currentRole, currentSessionId, conversationId, generateRequestId, withSendGuard, sendMessageCore, persistQueue]
+    [currentRole, currentSessionId, conversationId, generateRequestId, generateResponseMessageIds, withSendGuard, sendMessageCore, persistQueue]
   );
 
   // EM-43: Retry（chatStart 失败时使用，不增加 userTurn）
@@ -2210,6 +2309,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         const pendingTurn = session.pendingTurn;
         snapshot = {
+          turnId: pendingTurn.turnId ?? generateTurnId(),
+          responseMessageIds: {
+            reaction: pendingTurn.responseMessageIds?.reaction ?? generateResponseMessageId('reaction'),
+            companion: pendingTurn.responseMessageIds?.companion ?? generateResponseMessageId('companion'),
+            deep: pendingTurn.responseMessageIds?.deep ?? generateResponseMessageId('deep'),
+          },
           requestId: pendingTurn.requestId,
           conversationId: pendingTurn.conversationId || '',
           sessionId: currentSessionId,
@@ -2264,6 +2369,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       source: 'loadSession',
       timestamp: Date.now()
     });
+    currentSessionIdRef.current = session.id;
     setCurrentSessionId(session.id);
     setMessages(session.messages);
     // EM-43: 恢复会话的 conversationId

@@ -1198,9 +1198,13 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
         await streamCtrl2!.promise;
       });
 
-      // Verify exactly one assistant message
+      // EF-104: Reaction and Deep remain distinct assistant entities.
       const assistantMessages = capturedCtx!.messages.filter((m: any) => m.role === 'assistant');
-      expect(assistantMessages.length).toBe(1);
+      expect(assistantMessages.length).toBe(2);
+      expect(assistantMessages.map((message: any) => message.responseLayer)).toEqual([
+        'reaction',
+        'deep',
+      ]);
 
       await act(async () => {
         renderResultB.unmount();
@@ -1341,9 +1345,13 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
       const userMessages = capturedCtx!.messages.filter((m: any) => m.role === 'user');
       expect(userMessages.length).toBe(1);
 
-      // Verify exactly one assistant message
+      // EF-104: Reaction and Deep remain distinct assistant entities.
       const assistantMessages = capturedCtx!.messages.filter((m: any) => m.role === 'assistant');
-      expect(assistantMessages.length).toBe(1);
+      expect(assistantMessages.length).toBe(2);
+      expect(assistantMessages.map((message: any) => message.responseLayer)).toEqual([
+        'reaction',
+        'deep',
+      ]);
 
       await act(async () => {
         renderResultB.unmount();
