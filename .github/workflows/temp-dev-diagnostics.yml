@@ -1,0 +1,71 @@
+name: Temporary DEV Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emotionflow-temp-dev-diagnostics
+  cancel-in-progress: false
+
+jobs:
+  diagnose:
+    name: Collect sanitized DEV service diagnostics
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Prepare SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEV_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEV_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/dev_diagnostic_key
+          chmod 600 ~/.ssh/dev_diagnostic_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Collect sanitized service state
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/dev_diagnostic_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" 'bash -s' <<'REMOTE'
+          set -uo pipefail
+
+          snapshot() {
+            label="$1"
+            echo "=== SNAPSHOT: $label ==="
+            date -u '+UTC=%Y-%m-%dT%H:%M:%SZ'
+            uptime || true
+            free -m | sed -n '1,3p' || true
+            df -h / /var/www 2>/dev/null | sed -n '1,4p' || true
+
+            echo '--- PM2 sanitized state ---'
+            pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const rows=a.filter(p=>p.name==='chat-server-v2'||p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js').map(p=>({name:p.name,status:p.pm2_env?.status,pid:p.pid,restarts:p.pm2_env?.restart_time,unstableRestarts:p.pm2_env?.unstable_restarts,exitCode:p.pm2_env?.exit_code,uptime:p.pm2_env?.pm_uptime,createdAt:p.pm2_env?.created_at}));console.log(JSON.stringify(rows,null,2))})" || true
+
+            echo '--- Port 9091 ---'
+            ss -ltnp 2>/dev/null | awk 'NR==1 || /:9091[[:space:]]/' || true
+
+            echo '--- Local health ---'
+            curl --max-time 5 --silent --show-error --write-out '\nHTTP=%{http_code}\n' http://127.0.0.1:9091/api/v1/health || true
+            echo '--- Local version ---'
+            curl --max-time 5 --silent --show-error --write-out '\nHTTP=%{http_code}\n' http://127.0.0.1:9091/api/v1/version || true
+
+            echo '--- Nginx service/config ---'
+            systemctl is-active nginx 2>/dev/null || true
+            nginx -t >/dev/null 2>&1 && echo 'nginx_config=valid' || echo 'nginx_config=invalid_or_unavailable'
+          }
+
+          snapshot initial
+          echo 'Waiting 45 seconds to detect post-start decay...'
+          sleep 45
+          snapshot after-45-seconds
+          REMOTE
+
+      - name: Remove local SSH material
+        if: ${{ always() }}
+        run: rm -f ~/.ssh/dev_diagnostic_key ~/.ssh/known_hosts
