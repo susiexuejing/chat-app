@@ -32,6 +32,7 @@ import {
 import { useChat } from './contexts/ChatContext';
 import { DEFAULT_ROLES } from './constants/roles';
 import { shouldRenderChangeSystemCard } from './utils/debugMode';
+import { retryFailedTurn } from './utils/retryFailedTurn';
 
 const STATE_ENTRIES = ['我很累', '我很乱', '我很烦', '我很空', '说不清'];
 
@@ -41,6 +42,7 @@ function ChatContent() {
     messages,
     sessions,
     sendMessage,
+    retryLastMessage,
     isLoading,
     createNewChat,
     setCurrentRole,
@@ -344,13 +346,7 @@ function ChatContent() {
                 <View className="flex-row">
                   <TouchableOpacity
                     className="bg-red-500 px-3 py-1.5 rounded-lg mr-2"
-                    onPress={() => {
-                      clearError();
-                      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-                      if (lastUserMessage) {
-                        sendMessage(lastUserMessage.content);
-                      }
-                    }}
+                    onPress={() => void retryFailedTurn(clearError, retryLastMessage)}
                   >
                     <Text className="text-xs text-white font-medium">重试</Text>
                   </TouchableOpacity>
