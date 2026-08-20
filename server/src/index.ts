@@ -33,6 +33,21 @@ console.log('DASHSCOPE_API_KEY_DEEP:', process.env.DASHSCOPE_API_KEY_DEEP ? 'SET
 
 const app = express();
 const port = process.env.PORT || 9091;
+type SafeDeepErrorCode =
+  | 'provider_key_missing'
+  | 'provider_api_error'
+  | 'stream_reader_missing'
+  | 'stream_timeout'
+  | 'stream_read_error'
+  | 'stream_result_empty'
+  | 'ltu_update_error'
+  | 'flow_analysis_error'
+  | 'deep_analysis_failure'
+  | 'provider_response_unknown';
+
+function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode): void {
+  session.deepError = code;
+}
 
 // Middleware
 app.use(cors());
@@ -179,9 +194,12 @@ async function callDashScope(
 // ============================================================
 async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const apiKey = API_KEY_LIGHT;
-  console.log(`[Deep] startDeepAnalysis called for session ${session.sessionId}, apiKey=${apiKey ? 'SET' : 'NOT SET'}, userTurn=${userTurn}`);
+  console.log('[Deep] startDeepAnalysis called', {
+    userTurn,
+    apiKeyConfigured: Boolean(apiKey),
+  });
   if (!apiKey) {
-    session.deepError = 'API key not configured';
+    setSafeDeepError(session, 'provider_key_missing');
     return;
   }
 
@@ -199,7 +217,7 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
       { role: 'user', content: session.userMessage },
     ];
 
-    console.log(`[Deep] Calling DashScope API... model=${MODELS.DEEP}`);
+    console.log('[Deep] Calling provider', { model: MODELS.DEEP });
     const response = await callDashScope(
       DASHSCOPE_BASE_URL,
       apiKey,
@@ -209,19 +227,20 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
       1200       // max_tokens: 确保有足够空间输出中文回复
     );
 
-    console.log(`[Deep] DashScope response status: ${response.status}`);
+    console.log('[Deep] Provider response status', { status: response.status });
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
-      console.error(`[Deep] DashScope error: ${response.status} - ${errorText}`);
-      session.deepError = `DashScope error: ${response.status} - ${errorText.substring(0, 200)}`;
+      console.error('[Deep] Provider response rejected', { status: response.status });
+      void errorText;
+      setSafeDeepError(session, 'provider_api_error');
       session.deepStreaming = false;
       return;
     }
 
     const reader = response.body?.getReader();
     if (!reader) {
-      console.error(`[Deep] No reader from DashScope response`);
-      session.deepError = 'No response reader';
+      console.error('[Deep] Provider response reader missing');
+      setSafeDeepError(session, 'stream_reader_missing');
       session.deepStreaming = false;
       return;
     }
@@ -231,15 +250,15 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     let firstTokenTime = 0;
     let usedFallback = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
-    console.log(`[Deep] Stream start for session ${session.sessionId}`);
+    console.log('[Deep] Stream start');
 
     // 60秒流读取超时（Deep模型首次token可能需要较长时间）
     const streamReadTimeout = new Promise<void>((_, reject) => {
-      streamTimeout = setTimeout(() => reject(new Error('Stream read timeout (60s)')), 60000);
+      streamTimeout = setTimeout(() => reject(new Error('stream_timeout')), 60000);
     });
 
     const streamReadLoop = (async () => {
-      console.log(`[Deep] Stream start for session ${session.sessionId}`);
+      console.log('[Deep] Stream start loop');
       while (true) {
         const { done, value } = await reader!.read();
         if (done) break;
@@ -262,7 +281,7 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
                 if (content) {
                   if (firstTokenTime === 0) {
                     firstTokenTime = Date.now();
-                    console.log(`[Deep] First token received for session ${session.sessionId} (${firstTokenTime - streamStartTime}ms)`);
+                    console.log('[Deep] First token received', { elapsedMs: firstTokenTime - streamStartTime });
                   }
                   deepContentBuffer += content;
                 } else {
@@ -272,16 +291,16 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
                   if (rc) {
                     reasoningBuffer += rc;
                   } else {
-                    console.log(`[Deep] Raw SSE line (no content): ${data.substring(0, 80)}`);
+                    console.log('[Deep] Raw SSE no content segment');
                   }
                 }
               } catch {
-                console.log(`[Deep] Parse error for line: ${data.substring(0, 80)}`);
+                console.log('[Deep] Parse error in SSE line');
               }
             }
           } else if (line.trim()) {
             // 非标准SSE格式的日志
-            console.log(`[Deep] Non-SSE line: ${line.substring(0, 100)}`);
+            console.log('[Deep] Non-SSE line segment');
           }
         }
       }
@@ -290,8 +309,10 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     try {
       await Promise.race([streamReadLoop, streamReadTimeout]);
     } catch (e) {
-      console.error(`[Deep] Stream error/timeout:`, e);
+      const streamError = e instanceof Error ? e.message : String(e);
+      console.error('[Deep] Stream error/timeout', { streamError: streamError === 'stream_timeout' ? 'timeout' : 'read_error' });
       // 超时或出错时仍然标记完成，让前端能拿到已缓存的chunks
+      setSafeDeepError(session, streamError === 'stream_timeout' ? 'stream_timeout' : 'stream_read_error');
     }
     if (streamTimeout) clearTimeout(streamTimeout);
 
@@ -308,7 +329,10 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
         userMessage: session.userMessage,
         source: 'cleaned',
       }));
-      console.log(`[Deep] Cleaned content: ${cleaned.length} chars (raw: ${deepContentBuffer.length} chars)`);
+      console.log('[Deep] Cleaned content', {
+        cleanedChars: cleaned.length,
+        rawChars: deepContentBuffer.length,
+      });
     } else if (deepContentBuffer.trim()) {
       // 🛡️ 极兜底：清洗返回空但原始内容不为空 → 截取最后300字
       const last300 = deepContentBuffer.slice(-300).trim();
@@ -321,9 +345,13 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
           userMessage: session.userMessage,
           source: 'last-resort',
         }));
-        console.log(`[Deep] Last-resort fallback: ${last300.length} chars (${cjk.length} CJK)`);
+        console.log('[Deep] Last-resort fallback', {
+          fallbackChars: last300.length,
+          cjkCount: cjk.length,
+        });
       } else {
-        console.log(`[Deep] Cleaning returned empty AND no CJK in last 300 chars (raw: ${deepContentBuffer.length} chars)`);
+        console.log('[Deep] Cleaning returned empty', { rawChars: deepContentBuffer.length });
+        setSafeDeepError(session, 'stream_result_empty');
       }
     }
 
@@ -338,7 +366,10 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
         source: 'reasoning',
       }));
       const duration = Date.now() - streamStartTime;
-      console.log(`[Deep] Fallback: used reasoning_content (${reasoningBuffer.length} chars, took ${duration}ms)`);
+      console.log('[Deep] Fallback reasoning used', {
+        reasoningChars: reasoningBuffer.length,
+        durationMs: duration,
+      });
     }
 
     session.deepDone = true;
@@ -346,9 +377,13 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
     const firstTokenDelay = firstTokenTime > 0 ? (firstTokenTime - streamStartTime) : -1;
     const hasContent = session.deepChunks.length > 0;
     const wasFallback = !hasContent && reasoningBuffer.trim().length > 0;
-    console.log(`[Deep] Stream complete for session ${session.sessionId} ` +
-      `(total: ${completionDuration}ms, firstToken: ${firstTokenDelay}ms, ` +
-      `chunks: ${session.deepChunks.length}ch, content: ${(session.deepChunks.join('').length)}ch, fallback: ${wasFallback})`);
+    console.log('[Deep] Stream complete', {
+      totalMs: completionDuration,
+      firstTokenDelayMs: firstTokenDelay,
+      chunkCount: session.deepChunks.length,
+      contentChars: session.deepChunks.join('').length,
+      fallback: wasFallback,
+    });
 
     // ── Step 3: 更新 Long-Term Understanding ──
     try {
@@ -364,7 +399,9 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
         deepSummary: cleaned,
       });
     } catch (ltuErr) {
-      console.error(`[Deep] LTU update error:`, ltuErr instanceof Error ? ltuErr.message : ltuErr);
+      console.error('[Deep] LTU update failed');
+      void ltuErr;
+      setSafeDeepError(session, 'ltu_update_error');
     }
 
     // ── [Dev-Only] Step 4: Personality Evolution 实验 ──
@@ -421,14 +458,15 @@ async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Pr
           trendData,
         });
 
-        console.log(`[Evolution] ${session.roleId}[${session.userId}] weights updated: ${result.trigger.factor} (${result.trigger.detail.slice(0, 80)})`);
+        console.log('[Evolution] Weights updated', { triggerFactor: result.trigger.factor });
       } catch (e) { /* evolution experiment */ }
     }
 
   } catch (error) {
     const errTime = Date.now() - streamStartTime;
-    console.error(`[Deep] Error in startDeepAnalysis (at ${errTime}ms):`, error instanceof Error ? error.message : error);
-    session.deepError = error instanceof Error ? error.message : 'Unknown error';
+    const isStreamTimeout = error instanceof Error && error.message === 'stream_timeout';
+    console.error('[Deep] startDeepAnalysis failed', { stageMs: errTime, errorKind: isStreamTimeout ? 'stream_timeout' : 'analysis_failure' });
+    setSafeDeepError(session, isStreamTimeout ? 'stream_timeout' : 'deep_analysis_failure');
   } finally {
     session.deepStreaming = false;
   }
@@ -835,35 +873,49 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
     // 7. 后台异步调用百炼（normal_chat 跳过深度分析）
     if (normalChat) {
-      console.log(`[Start] Session ${sessionId}: NORMAL_CHAT role=${roleName}, skipped deep analysis`);
+      console.log('[Start] Session mode', { mode: 'normal_chat' });
     } else {
-      console.log(`[Start] Session ${sessionId}: role=${roleName}, emotion=${emotionTag}, event=${eventTag}`);
+      console.log('[Start] Session flow start');
 
       // 7a. Flow System 心理流向分析
       try {
         session.flowResult = analyzeFlow(userId, roleId, message);
-        console.log(`[Flow] Session ${sessionId}: pattern=${session.flowResult.primaryFlow?.flowType || 'none'}, status=${session.flowResult.status}`);
+        console.log('[Flow] FlowResult', {
+          flowType: session.flowResult.primaryFlow?.flowType || 'none',
+          status: session.flowResult.status,
+        });
 
         // 7a'. Change System 用户变化感知
         const changeSnapshot = recordChange(userId, roleId, session.flowResult);
         if (changeSnapshot) {
-          console.log(`[Change] Session ${sessionId}: dir=${changeSnapshot.patternDelta.directionChange}, Δatt=${changeSnapshot.positionDelta.attributionDelta}, Δage=${changeSnapshot.positionDelta.agencyDelta}`);
+          console.log('[Change] Snapshot updated', {
+            direction: changeSnapshot.patternDelta.directionChange,
+            attributionDelta: changeSnapshot.positionDelta.attributionDelta,
+            agencyDelta: changeSnapshot.positionDelta.agencyDelta,
+          });
         } else {
-          console.log(`[Change] Session ${sessionId}: first record (no change snapshot)`);
+          console.log('[Change] Snapshot initialized');
         }
       } catch (flowErr) {
-        console.error(`[Flow] Session ${sessionId} error:`, flowErr);
+        console.error('[Flow] Session flow error');
+        void flowErr;
+        setSafeDeepError(session, 'flow_analysis_error');
         session.flowResult = null;
       }
 
       startDeepAnalysis(session, userTurn).catch(err => {
-        console.error(`[Deep] Session ${sessionId} error:`, err);
-        session.deepError = err instanceof Error ? err.message : 'Unknown error';
+        console.error('[Deep] Async deep analysis error');
+        void err;
+        setSafeDeepError(session, err instanceof Error ? 'provider_response_unknown' : 'deep_analysis_failure');
       });
     }
   } catch (error) {
-    console.error('[Start] Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('[Start] Request handling failed', { endpoint: 'chat.start' });
+    res.status(500).json({
+      error: 'internal_server_error',
+      code: 'chat_start_processing_failed',
+      retryable: true,
+    });
   }
 });
 

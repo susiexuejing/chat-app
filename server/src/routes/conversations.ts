@@ -10,11 +10,71 @@
 
 import { Router } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client.js';
-import { conversations, messages } from '../storage/database/shared/schema.js';
-import { eq, and, lt, desc, asc } from 'drizzle-orm';
 import crypto from 'node:crypto';
 
 const router = Router();
+
+type ConversationServerErrorCode =
+  | 'conversation_storage_error'
+  | 'conversation_lookup_error'
+  | 'messages_query_error'
+  | 'conversation_verify_error'
+  | 'idempotency_guard_error'
+  | 'message_insert_error'
+  | 'conversation_update_error'
+  | 'internal_server_error';
+
+const conversationServerErrorCodes = new Set<ConversationServerErrorCode>([
+  'conversation_storage_error',
+  'conversation_lookup_error',
+  'messages_query_error',
+  'conversation_verify_error',
+  'idempotency_guard_error',
+  'message_insert_error',
+  'conversation_update_error',
+  'internal_server_error',
+]);
+
+const routeSafeErrorCode: Record<string, ConversationServerErrorCode> = {
+  createConversation: 'conversation_storage_error',
+  getConversation: 'conversation_lookup_error',
+  getMessages: 'messages_query_error',
+  verifyConversation: 'conversation_verify_error',
+  idempotency: 'idempotency_guard_error',
+  insertMessage: 'message_insert_error',
+  updateConversation: 'conversation_update_error',
+};
+
+type ErrorResponse = {
+  error: string;
+  code: string;
+  retryable: boolean;
+};
+
+function writeInternalError(
+  res: { status: (code: number) => { json: (body: ErrorResponse) => void } },
+  _err: unknown,
+  code: ConversationServerErrorCode = 'internal_server_error',
+) {
+  res.status(500).json({
+    error: code,
+    code,
+    retryable: true,
+  });
+}
+
+function classifyErrorCode(err: unknown, fallback: ConversationServerErrorCode): ConversationServerErrorCode {
+  if (err instanceof Error && conversationServerErrorCodes.has(err.message as ConversationServerErrorCode)) {
+    return err.message as ConversationServerErrorCode;
+  }
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const typedCode = (err as { code?: string }).code;
+    if (typeof typedCode === 'string' && conversationServerErrorCodes.has(typedCode as ConversationServerErrorCode)) {
+      return typedCode as ConversationServerErrorCode;
+    }
+  }
+  return fallback;
+}
 
 // Types
 interface Conversation {
@@ -39,6 +99,7 @@ interface Message {
 
 // POST /api/v1/conversations - Create conversation
 router.post('/', async (req, res) => {
+  let failureCode = routeSafeErrorCode.createConversation;
   try {
     const { userId, roleId } = req.body;
 
@@ -64,7 +125,10 @@ router.post('/', async (req, res) => {
       .select()
       .single();
 
-    if (error) throw new Error(`Create conversation failed: ${error.message}`);
+    if (error) {
+      failureCode = routeSafeErrorCode.createConversation;
+      throw new Error(routeSafeErrorCode.createConversation);
+    }
 
     res.status(201).json({
       id: data.id,
@@ -76,13 +140,13 @@ router.post('/', async (req, res) => {
       lastMessageAt: data.last_message_at,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    writeInternalError(res, err, classifyErrorCode(err, failureCode));
   }
 });
 
 // GET /api/v1/conversations/:id - Get conversation + messages
 router.get('/:id', async (req, res) => {
+  let failureCode = routeSafeErrorCode.getConversation;
   try {
     const { id } = req.params;
     const client = getSupabaseClient();
@@ -94,7 +158,10 @@ router.get('/:id', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (convError) throw new Error(`Get conversation failed: ${convError.message}`);
+    if (convError) {
+      failureCode = routeSafeErrorCode.getConversation;
+      throw new Error(routeSafeErrorCode.getConversation);
+    }
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
@@ -106,7 +173,10 @@ router.get('/:id', async (req, res) => {
       .eq('conversation_id', id)
       .order('timestamp', { ascending: true });
 
-    if (msgError) throw new Error(`Get messages failed: ${msgError.message}`);
+    if (msgError) {
+      failureCode = routeSafeErrorCode.getMessages;
+      throw new Error(routeSafeErrorCode.getMessages);
+    }
 
     res.json({
       conversation: {
@@ -129,13 +199,13 @@ router.get('/:id', async (req, res) => {
       })),
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    writeInternalError(res, err, classifyErrorCode(err, failureCode));
   }
 });
 
 // POST /api/v1/conversations/:id/messages - Persist message
 router.post('/:id/messages', async (req, res) => {
+  let failureCode = routeSafeErrorCode.insertMessage;
   try {
     const { id } = req.params;
     const { role, content, status, requestId } = req.body;
@@ -153,7 +223,10 @@ router.post('/:id/messages', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (convError) throw new Error(`Verify conversation failed: ${convError.message}`);
+    if (convError) {
+      failureCode = routeSafeErrorCode.verifyConversation;
+      throw new Error(routeSafeErrorCode.verifyConversation);
+    }
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
@@ -166,7 +239,10 @@ router.post('/:id/messages', async (req, res) => {
         .eq('request_id', requestId)
         .maybeSingle();
 
-      if (dupError) throw new Error(`Idempotency check failed: ${dupError.message}`);
+      if (dupError) {
+        failureCode = routeSafeErrorCode.idempotency;
+        throw new Error(routeSafeErrorCode.idempotency);
+      }
       if (existing) {
         // Return existing message (idempotent)
         return res.status(200).json({
@@ -199,7 +275,10 @@ router.post('/:id/messages', async (req, res) => {
       .select()
       .single();
 
-    if (msgError) throw new Error(`Insert message failed: ${msgError.message}`);
+    if (msgError) {
+      failureCode = routeSafeErrorCode.insertMessage;
+      throw new Error(routeSafeErrorCode.insertMessage);
+    }
 
     // Update conversation last_message_at and updated_at
     const { error: updateError } = await client
@@ -207,7 +286,10 @@ router.post('/:id/messages', async (req, res) => {
       .update({ last_message_at: now, updated_at: now })
       .eq('id', id);
 
-    if (updateError) throw new Error(`Update conversation failed: ${updateError.message}`);
+    if (updateError) {
+      failureCode = routeSafeErrorCode.updateConversation;
+      throw new Error(routeSafeErrorCode.updateConversation);
+    }
 
     res.status(201).json({
       id: message.id,
@@ -219,13 +301,13 @@ router.post('/:id/messages', async (req, res) => {
       timestamp: message.timestamp,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    writeInternalError(res, err, classifyErrorCode(err, failureCode));
   }
 });
 
 // GET /api/v1/conversations/:id/messages - Get messages (paginated)
 router.get('/:id/messages', async (req, res) => {
+  let failureCode = routeSafeErrorCode.getMessages;
   try {
     const { id } = req.params;
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
@@ -240,7 +322,10 @@ router.get('/:id/messages', async (req, res) => {
       .eq('id', id)
       .maybeSingle();
 
-    if (convError) throw new Error(`Verify conversation failed: ${convError.message}`);
+    if (convError) {
+      failureCode = routeSafeErrorCode.verifyConversation;
+      throw new Error(routeSafeErrorCode.verifyConversation);
+    }
     if (!conversation) {
       return res.status(404).json({ error: 'Conversation not found' });
     }
@@ -260,7 +345,10 @@ router.get('/:id/messages', async (req, res) => {
       .order('timestamp', { ascending: false })
       .limit(limit + 1);
 
-    if (msgError) throw new Error(`Get messages failed: ${msgError.message}`);
+    if (msgError) {
+      failureCode = routeSafeErrorCode.getMessages;
+      throw new Error(routeSafeErrorCode.getMessages);
+    }
 
     const hasMore = (messageRows?.length || 0) > limit;
     const rows = (messageRows || []).slice(0, limit);
@@ -281,8 +369,7 @@ router.get('/:id/messages', async (req, res) => {
       hasMore,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    res.status(500).json({ error: message });
+    writeInternalError(res, err, classifyErrorCode(err, failureCode));
   }
 });
 
