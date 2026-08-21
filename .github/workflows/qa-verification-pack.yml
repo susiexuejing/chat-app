@@ -1,0 +1,87 @@
+name: QA Verification Pack
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorized_sha:
+        description: Full merged dev SHA authorized for independent QA
+        required: true
+        type: string
+      pack:
+        description: Fixed verification pack to execute
+        required: true
+        default: ef110-code-verification
+        type: choice
+        options:
+          - ef110-code-verification
+
+permissions:
+  contents: read
+
+jobs:
+  qa-verification-pack:
+    name: QA Verification Pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out authorized commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.authorized_sha }}
+          fetch-depth: 0
+
+      - name: Verify immutable QA workspace
+        env:
+          AUTHORIZED_SHA: ${{ inputs.authorized_sha }}
+        run: |
+          printf '%s' "$AUTHORIZED_SHA" | grep -Ex '[0-9a-f]{40}'
+          CHECKED_OUT_SHA=$(git rev-parse HEAD)
+          test "$CHECKED_OUT_SHA" = "$AUTHORIZED_SHA"
+          git merge-base --is-ancestor "$AUTHORIZED_SHA" origin/dev
+          test -z "$(git status --porcelain)"
+          test -f pnpm-lock.yaml
+          printf '%s\n' "$CHECKED_OUT_SHA" > qa-authorized-sha.txt
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install lockfile-pinned dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run EF-110 code verification pack
+        working-directory: server
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: >-
+          ./node_modules/.bin/jest --no-cache --runInBand
+          src/__tests__/ef110-index-runtime-sanitization.test.ts
+          src/__tests__/ef110-security-sanitization.test.ts
+          src/__tests__/ef102-stream-events.test.ts
+
+      - name: Write verification evidence
+        env:
+          AUTHORIZED_SHA: ${{ inputs.authorized_sha }}
+          PACK: ${{ inputs.pack }}
+        run: |
+          node -e "const fs=require('fs');const v={schemaVersion:1,pack:process.env.PACK,authorizedSha:process.env.AUTHORIZED_SHA,checkedOutSha:fs.readFileSync('qa-authorized-sha.txt','utf8').trim(),lockfile:'pnpm-lock.yaml',packageManager:require('./package.json').packageManager,suites:['ef110-index-runtime-sanitization','ef110-security-sanitization','ef102-stream-events'],secretsRequired:'none',runtimeE2E:'not-executed'};if(v.authorizedSha!==v.checkedOutSha)throw new Error('identity mismatch');fs.writeFileSync('qa-verification-evidence.json',JSON.stringify(v,null,2)+'\\n')"
+
+      - name: Upload QA verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-verification-pack-${{ inputs.authorized_sha }}
+          path: |
+            qa-authorized-sha.txt
+            qa-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 30
