@@ -7,6 +7,7 @@
 
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
+import { z } from 'zod';
 import {
   emitEf77Trace,
   getEf77ErrorType,
@@ -63,6 +64,7 @@ const STREAM_API_URL = BACKEND_BASE_URL
   : '/api/v1/chat/stream';
 
 const STREAM_SCHEMA_VERSION = 1 as const;
+const streamTimestampSchema = z.iso.datetime();
 const KNOWN_STREAM_EVENT_TYPES = [
   'turn.started',
   'reaction',
@@ -86,7 +88,7 @@ function isRecord(value: unknown): value is StreamRecord {
 }
 
 function isIsoTimestamp(value: unknown): value is string {
-  return typeof value === 'string' && Number.isNaN(Date.parse(value)) === false;
+  return streamTimestampSchema.safeParse(value).success;
 }
 
 function isPositiveSequence(value: unknown): value is number {
