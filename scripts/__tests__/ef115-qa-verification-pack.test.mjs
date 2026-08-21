@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const workflowUrl = new URL('../../.github/workflows/qa-verification-pack.yml', import.meta.url);
+const immutableActionReference = /^\s*uses:\s*[^\s@]+@[0-9a-f]{40}(?:\s+#\s*[^\n]+)?\s*$/;
 
 test('EF-115 runner is manual, read-only, and accepts only a named verification pack', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');
@@ -16,19 +17,31 @@ test('EF-115 runner is manual, read-only, and accepts only a named verification 
 
 test('EF-115 runner pins every third-party action to a full immutable commit SHA', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');
-  const expectedPins = {
-    'actions/checkout': '11d5960a326750d5838078e36cf38b85af677262',
-    'pnpm/action-setup': 'b906affcce14559ad1aafd4ab0e942779e9f58b1',
-    'actions/setup-node': '49933ea5288caeca8642d1e84afbd3f7d6820020',
-    'actions/upload-artifact': 'ea165f8d65b6e75b540449e92b4886f43607fa02',
-  };
-  for (const [action, sha] of Object.entries(expectedPins)) {
-    assert.match(workflow, new RegExp(`uses: ${action.replace('/', '\\/')}@${sha}`));
+  const usesLines = workflow.match(/^\s*uses:\s*[^\n]+$/gm) ?? [];
+
+  assert.ok(usesLines.length > 0, 'the runner must declare at least one action');
+  for (const line of usesLines) {
+    assert.match(
+      line,
+      immutableActionReference,
+      `mutable or malformed action reference: ${line}`,
+    );
   }
-  assert.doesNotMatch(workflow, /^\s*uses:\s*[^\n@]+@v\d+(?:\.\d+)*\s*$/m);
-  for (const action of Object.keys(expectedPins)) {
-    assert.doesNotMatch(workflow, new RegExp(`uses: ${action.replace('/', '\\/')}@(?:main|master|v\\d+)`));
-  }
+});
+
+test('EF-115 action pin rule rejects every mutable ref, including commented refs', () => {
+  assert.match(
+    'uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4',
+    immutableActionReference,
+  );
+  for (const reference of [
+    'uses: actions/checkout@v4',
+    'uses: actions/checkout@v4 # comment',
+    'uses: actions/checkout@main',
+    'uses: actions/checkout@master',
+    'uses: actions/checkout@11d5960',
+    'uses: actions/checkout@11D5960A326750D5838078E36CF38B85AF677262',
+  ]) assert.doesNotMatch(reference, immutableActionReference);
 });
 
 test('EF-115 runner fails closed on identity, branch ancestry, workspace, and lockfile', async () => {
