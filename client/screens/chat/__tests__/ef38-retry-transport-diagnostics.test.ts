@@ -60,6 +60,24 @@ function responseWithSse(parts: string[], status = 200) {
   };
 }
 
+function versionedFrame(eventType: string, sequence: number, payload: Record<string, unknown>): string {
+  return `data: ${JSON.stringify({
+    schemaVersion: 1,
+    eventType,
+    sequence,
+    timestamp: '2026-08-21T00:00:00.000Z',
+    payload,
+  })}\n\n`;
+}
+
+const startedPayload = {
+  sessionId: sentinels.backendSession,
+  deepReadyAt: 0,
+  reactionLayer: 'fixture reaction',
+  companionLayer: 'fixture companion',
+  flowContext: null,
+};
+
 describe('EF-38 Retry transport diagnostics', () => {
   let infoSpy: jest.SpyInstance;
 
@@ -138,8 +156,8 @@ describe('EF-38 Retry transport diagnostics', () => {
   it('records first event, first content and DONE with summary counts only', async () => {
     installWindow(true);
     fetchMock.mockResolvedValue(responseWithSse([
-      'data: {"type":"timeline"}\n\n',
-      `data: {"type":"deep","content":"${sentinels.modelText}"}\n\n`,
+      versionedFrame('turn.started', 1, startedPayload),
+      versionedFrame('deep.delta', 2, { content: sentinels.modelText }),
       'data: [DONE]\n\n',
     ]));
     const onChunk = jest.fn();
@@ -161,7 +179,7 @@ describe('EF-38 Retry transport diagnostics', () => {
 
   it('records EOF without DONE while preserving the existing onDone completion', async () => {
     installWindow(true);
-    fetchMock.mockResolvedValue(responseWithSse(['data: {"type":"timeline"}\n\n']));
+    fetchMock.mockResolvedValue(responseWithSse([versionedFrame('turn.started', 1, startedPayload)]));
     const onDone = jest.fn();
 
     await chatStream(sentinels.backendSession, { onDone }, createRetryTransportDiagnostics(true));

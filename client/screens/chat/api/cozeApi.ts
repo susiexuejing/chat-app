@@ -62,16 +62,150 @@ const STREAM_API_URL = BACKEND_BASE_URL
   ? `${BACKEND_BASE_URL}/api/v1/chat/stream` 
   : '/api/v1/chat/stream';
 
-function isVersionedTurnTerminal(data: string): boolean {
-  try {
-    const parsed: unknown = JSON.parse(data);
-    if (!parsed || typeof parsed !== 'object') return false;
-    const event = parsed as Record<string, unknown>;
-    return event.schemaVersion === 1
-      && (event.eventType === 'turn.completed' || event.eventType === 'error');
-  } catch {
-    return false;
+const STREAM_SCHEMA_VERSION = 1 as const;
+const KNOWN_STREAM_EVENT_TYPES = [
+  'turn.started',
+  'reaction',
+  'companion',
+  'deep.delta',
+  'deep.completed',
+  'turn.completed',
+  'error',
+] as const;
+
+type KnownStreamEventType = (typeof KNOWN_STREAM_EVENT_TYPES)[number];
+type StreamRecord = Record<string, unknown>;
+
+export type VersionedStreamParseResult =
+  | { kind: 'known'; eventType: KnownStreamEventType; sequence: number; serialized: string; terminal: boolean }
+  | { kind: 'ignored-compatible'; sequence: number }
+  | { kind: 'rejected'; error: Error };
+
+function isRecord(value: unknown): value is StreamRecord {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isNaN(Date.parse(value)) === false;
+}
+
+function isPositiveSequence(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0;
+}
+
+function isNonnegativeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
+function hasExactKeys(value: StreamRecord, keys: readonly string[]): boolean {
+  const actualKeys = Object.keys(value);
+  return actualKeys.length === keys.length && actualKeys.every(key => keys.includes(key));
+}
+
+function rejectStreamEvent(message: string): VersionedStreamParseResult {
+  return { kind: 'rejected', error: new Error(`Unsupported stream event: ${message}`) };
+}
+
+function normalizeKnownStreamEvent(
+  eventType: KnownStreamEventType,
+  envelope: StreamRecord,
+  payload: StreamRecord,
+): StreamRecord | null {
+  const base = {
+    schemaVersion: STREAM_SCHEMA_VERSION,
+    eventType,
+    sequence: envelope.sequence,
+    timestamp: envelope.timestamp,
+    payload,
+  };
+
+  switch (eventType) {
+    case 'turn.started': {
+      const flowContext = payload.flowContext;
+      const flowContextValid = flowContext === null || (isRecord(flowContext)
+        && hasExactKeys(flowContext, ['flowType', 'flowStage', 'flowStrength', 'flowConfidence', 'flowRisk'])
+        && typeof flowContext.flowType === 'string'
+        && typeof flowContext.flowStage === 'string'
+        && typeof flowContext.flowStrength === 'number'
+        && typeof flowContext.flowConfidence === 'number'
+        && (typeof flowContext.flowRisk === 'string' || flowContext.flowRisk === null));
+      if (typeof payload.sessionId !== 'string' || payload.sessionId.length === 0
+        || !hasExactKeys(payload, ['sessionId', 'deepReadyAt', 'reactionLayer', 'companionLayer', 'flowContext'])
+        || !isNonnegativeInteger(payload.deepReadyAt)
+        || typeof payload.reactionLayer !== 'string'
+        || typeof payload.companionLayer !== 'string'
+        || !flowContextValid) return null;
+      return { ...base, type: 'timeline', deepReadyAt: payload.deepReadyAt,
+        reactionLayer: payload.reactionLayer, companionLayer: payload.companionLayer, flowContext };
+    }
+    case 'reaction':
+      return hasExactKeys(payload, ['content']) && typeof payload.content === 'string'
+        ? { ...base, type: 'reaction' } : null;
+    case 'companion':
+      return hasExactKeys(payload, ['content']) && typeof payload.content === 'string'
+        ? { ...base, type: 'companion' } : null;
+    case 'deep.delta':
+      return hasExactKeys(payload, ['content']) && typeof payload.content === 'string' && payload.content.length > 0
+        ? { ...base, type: 'deep', content: payload.content } : null;
+    case 'deep.completed':
+      return Object.keys(payload).length === 0 ? { ...base, type: 'deep', done: true } : null;
+    case 'turn.completed':
+      return payload.status === 'completed' && Object.keys(payload).length === 1
+        ? { ...base, type: 'turn.completed' } : null;
+    case 'error':
+      return (payload.code === 'DEEP_RESPONSE_FAILED' || payload.code === 'STREAM_TIMEOUT')
+        && typeof payload.message === 'string' && payload.message.length > 0
+        && typeof payload.recoverable === 'boolean'
+        && (payload.recoveryAction === 'retry_turn' || payload.recoveryAction === 'restart_turn')
+        && Object.keys(payload).length === 4
+        ? { ...base, type: 'error', ...payload, done: true } : null;
   }
+}
+
+/**
+ * Client-owned projection of the approved EF-102 v1 envelope. This function
+ * never forwards unvalidated raw fields to the chat dispatcher.
+ */
+export function parseVersionedStreamEvent(data: string): VersionedStreamParseResult {
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(data);
+  } catch {
+    return rejectStreamEvent('invalid JSON');
+  }
+  if (!isRecord(envelope)) return rejectStreamEvent('envelope must be an object');
+  if (envelope.schemaVersion !== STREAM_SCHEMA_VERSION) return rejectStreamEvent('unsupported schema version');
+  if (!isPositiveSequence(envelope.sequence) || !isIsoTimestamp(envelope.timestamp)) {
+    return rejectStreamEvent('invalid envelope metadata');
+  }
+  if (typeof envelope.eventType !== 'string' || !isRecord(envelope.payload)) {
+    return rejectStreamEvent('missing event type or payload');
+  }
+  if (!(KNOWN_STREAM_EVENT_TYPES as readonly string[]).includes(envelope.eventType)) {
+    return { kind: 'ignored-compatible', sequence: envelope.sequence };
+  }
+
+  const eventType = envelope.eventType as KnownStreamEventType;
+  const normalized = normalizeKnownStreamEvent(eventType, envelope, envelope.payload);
+  if (!normalized) return rejectStreamEvent(`malformed ${eventType} payload`);
+  return {
+    kind: 'known',
+    eventType,
+    sequence: envelope.sequence,
+    serialized: JSON.stringify(normalized),
+    terminal: eventType === 'turn.completed' || eventType === 'error',
+  };
+}
+
+export function createStreamSequenceValidator(): (sequence: number) => Error | null {
+  let previousSequence = 0;
+  return (sequence: number) => {
+    if (sequence <= previousSequence) {
+      return new Error('Unsupported stream event: non-increasing sequence');
+    }
+    previousSequence = sequence;
+    return null;
+  };
 }
 
 // 组合分析接口（轻量 + 深度）
@@ -369,6 +503,7 @@ export function chatStream(
       'X-EmotionFlow-Conversation-Id': identity.conversationId,
     } : undefined;
     const requestStartedAt = Date.now();
+    const validateSequence = createStreamSequenceValidator();
     emitEf77Trace('stream_request_started', {
       timestamp: requestStartedAt,
       isRetry: diagnostics?.isRetry ?? false,
@@ -476,8 +611,21 @@ export function chatStream(
                 resolve();
                 return;
               }
-              observeProgress(data);
-              callbacks.onChunk?.(data);
+              const parsed = parseVersionedStreamEvent(data);
+              if (parsed.kind === 'rejected') throw parsed.error;
+              const sequenceError = validateSequence(parsed.sequence);
+              if (sequenceError) throw sequenceError;
+              if (parsed.kind === 'ignored-compatible') continue;
+              observeProgress(parsed.serialized);
+              callbacks.onChunk?.(parsed.serialized);
+              if (parsed.terminal) {
+                if (diagnostics) diagnostics.doneObserved = true;
+                void reader.cancel().catch(() => undefined);
+                callbacks.onDone?.();
+                observeTerminal({ doneObserved: true, eofObserved: false, resolved: true, rejected: false });
+                resolve();
+                return;
+              }
             }
           }
           callbacks.onDone?.();
@@ -500,37 +648,68 @@ export function chatStream(
           },
         });
         let versionedTerminalObserved = false;
+        let settled = false;
+        const settleResolved = (eofObserved: boolean) => {
+          if (settled) return;
+          settled = true;
+          callbacks.onDone?.();
+          observeTerminal({
+            doneObserved: diagnostics?.doneObserved ?? versionedTerminalObserved,
+            eofObserved,
+            resolved: true,
+            rejected: false,
+          });
+          resolve();
+        };
+        const settleRejected = (error: Error) => {
+          if (settled) return;
+          settled = true;
+          callbacks.onError?.(error);
+          observeTerminal({
+            doneObserved: diagnostics?.doneObserved ?? false,
+            eofObserved: false,
+            resolved: false,
+            rejected: true,
+            error,
+          });
+          reject(error);
+        };
         signal?.addEventListener('abort', () => sse.close(), { once: true });
         sse.addEventListener('message', (event: any) => {
+          if (settled) return;
           if (event.data === '[DONE]') {
             if (diagnostics) diagnostics.doneObserved = true;
             sse.close();
             return;
           }
-          observeProgress(event.data);
-          callbacks.onChunk?.(event.data);
-          if (isVersionedTurnTerminal(event.data)) {
+          const parsed = parseVersionedStreamEvent(event.data);
+          if (parsed.kind === 'rejected') {
+            settleRejected(parsed.error);
+            sse.close();
+            return;
+          }
+          const sequenceError = validateSequence(parsed.sequence);
+          if (sequenceError) {
+            settleRejected(sequenceError);
+            sse.close();
+            return;
+          }
+          if (parsed.kind === 'ignored-compatible') return;
+          observeProgress(parsed.serialized);
+          callbacks.onChunk?.(parsed.serialized);
+          if (parsed.terminal) {
             versionedTerminalObserved = true;
             if (diagnostics) diagnostics.doneObserved = true;
             sse.close();
           }
         });
         sse.addEventListener('error', (error: any) => {
-          sse.close();
           const err = new Error(error.message || 'stream error');
-          callbacks.onError?.(err);
-          observeTerminal({ doneObserved: diagnostics?.doneObserved ?? false, eofObserved: false, resolved: false, rejected: true, error: err });
-          reject(err);
+          settleRejected(err);
+          sse.close();
         });
         sse.addEventListener('close', () => {
-          callbacks.onDone?.();
-          observeTerminal({
-            doneObserved: diagnostics?.doneObserved ?? versionedTerminalObserved,
-            eofObserved: !versionedTerminalObserved,
-            resolved: true,
-            rejected: false,
-          });
-          resolve();
+          settleResolved(!versionedTerminalObserved);
         });
       });
     }

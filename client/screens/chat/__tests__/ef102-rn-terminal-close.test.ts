@@ -112,13 +112,44 @@ jest.mock('react-native-sse', () => ({
 
 type Scenario = 'success' | 'error' | 'timeout';
 
+function payloadFor(eventType: string, compatibility: Record<string, unknown>): Record<string, unknown> {
+  switch (eventType) {
+    case 'turn.started':
+      return {
+        sessionId: 'session-1',
+        deepReadyAt: 1_700_000_000_000,
+        reactionLayer: 'reaction text',
+        companionLayer: 'companion text',
+        flowContext: null,
+      };
+    case 'reaction':
+    case 'companion':
+      return { content: `${eventType} text` };
+    case 'deep.delta':
+      return { content: compatibility.content };
+    case 'deep.completed':
+      return {};
+    case 'turn.completed':
+      return { status: 'completed' };
+    case 'error':
+      return {
+        code: compatibility.code,
+        message: compatibility.message,
+        recoverable: compatibility.recoverable,
+        recoveryAction: compatibility.recoveryAction,
+      };
+    default:
+      throw new Error(`Unhandled fixture event type: ${eventType}`);
+  }
+}
+
 function envelope(eventType: string, sequence: number, compatibility: Record<string, unknown> = {}): string {
   return `data: ${JSON.stringify({
     schemaVersion: 1,
     eventType,
     sequence,
     timestamp: '2026-08-14T00:00:00.000Z',
-    payload: {},
+    payload: payloadFor(eventType, compatibility),
     ...compatibility,
   })}\n\n`;
 }
