@@ -3,7 +3,25 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 const workflowUrl = new URL('../../.github/workflows/qa-verification-pack.yml', import.meta.url);
+const staticGateUrl = new URL('../../.github/workflows/ef92-static-gate.yml', import.meta.url);
 const immutableActionReference = /^\s*uses:\s*[^\s@]+@[0-9a-f]{40}(?:\s+#\s*[^\n]+)?\s*$/;
+
+test('EF-115 contract runs automatically as a blocking EF-92 PR gate step', async () => {
+  const staticGate = await readFile(staticGateUrl, 'utf8');
+  assert.match(staticGate, /^  pull_request:$/m);
+  assert.match(
+    staticGate,
+    /^      - name: Run EF-115 QA verification-pack contract\n        id: ef115_qa_verification_pack\n        run: node --test scripts\/__tests__\/ef115-qa-verification-pack\.test\.mjs$/m,
+  );
+  assert.doesNotMatch(
+    staticGate,
+    /id: ef115_qa_verification_pack\n\s+continue-on-error:/,
+  );
+  assert.match(
+    staticGate,
+    /test "\$\{\{ steps\.ef115_qa_verification_pack\.outcome \}\}" = success/,
+  );
+});
 
 test('EF-115 runner is manual, read-only, and accepts only a named verification pack', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');

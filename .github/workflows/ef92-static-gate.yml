@@ -51,6 +51,10 @@ jobs:
         continue-on-error: true
         run: pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 
+      - name: Run EF-115 QA verification-pack contract
+        id: ef115_qa_verification_pack
+        run: node --test scripts/__tests__/ef115-qa-verification-pack.test.mjs
+
       - name: Type-check client
         id: client_tsc
         if: always()
@@ -89,6 +93,7 @@ jobs:
             echo "ESLint=$(pnpm --dir client exec eslint --version 2>&1 || echo unavailable)"
             echo "checkout_identity=${{ steps.checkout_identity.outcome }}"
             echo "install=${{ steps.install.outcome }}"
+            echo "ef115_qa_verification_pack=${{ steps.ef115_qa_verification_pack.outcome }}"
             echo "client_tsc=${{ steps.client_tsc.outcome }}"
             echo "client_eslint=${{ steps.client_eslint.outcome }}"
             echo "server_tsc=${{ steps.server_tsc.outcome }}"
@@ -108,6 +113,7 @@ jobs:
         run: |
           test "${{ steps.checkout_identity.outcome }}" = success
           test "${{ steps.install.outcome }}" = success
+          test "${{ steps.ef115_qa_verification_pack.outcome }}" = success
           test "${{ steps.client_tsc.outcome }}" = success
           test "${{ steps.client_eslint.outcome }}" = success
           test "${{ steps.server_tsc.outcome }}" = success
