@@ -74,7 +74,6 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     },
     "extra": {
       "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091',
-      "cozeToken": process.env.EXPO_PUBLIC_COZE_TOKEN,
       "cozeBotId": process.env.EXPO_PUBLIC_COZE_BOT_ID || '7635592039983644682'
     }
   }
