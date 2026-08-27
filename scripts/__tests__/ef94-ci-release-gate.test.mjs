@@ -27,13 +27,15 @@ test('release gate uses minimum permissions and no secrets or external runtime',
   assert.doesNotMatch(workflow, /deploy/i);
 });
 
-test('release gate installs deterministically and delegates suite authority to EF-95', async () => {
+test('release gate installs deterministically, delegates release regression to EF-95, and runs the bounded EF-124 guard', async () => {
   const workflow = await text(workflowUrl);
   assert.match(workflow, /version: 9\.0\.0/);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
-  assert.doesNotMatch(workflow, /release-suite\.manifest\.json|jest|runTestsByPath/);
+  assert.match(workflow, /NODE_OPTIONS='--experimental-vm-modules' pnpm exec jest --no-cache src\/__tests__\/ef124-credential-hardening\.test\.ts/);
+  assert.equal((workflow.match(/ef124-credential-hardening\.test\.ts/g) ?? []).length, 1);
+  assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
