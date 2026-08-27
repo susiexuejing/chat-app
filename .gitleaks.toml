@@ -31,3 +31,9 @@ title = "EmotionFlow Gitleaks Config"
       '''\.env\.example$''',
       '''README\.md$''',
     ]
+
+[[rules]]
+  id = "coze-pat-token"
+  description = "Coze personal access token"
+  regex = '''pat_[a-zA-Z0-9]{20,}'''
+  tags = ["coze", "access-token", "secret"]

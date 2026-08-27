@@ -21,6 +21,7 @@ node-compile-cache/
 !*.env.example
 
 # Deployment files with potential secrets
+/chat-deploy.tar.gz
 deployment/server-env.tar.gz
 deployment/startup.sh
 deployment/*.tar.gz
