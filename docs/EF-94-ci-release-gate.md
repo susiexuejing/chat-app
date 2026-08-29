@@ -2,9 +2,25 @@
 
 ## CI contract
 
-The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, produces an EF-111 review manifest, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
+The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, executes the fail-closed scope contract tests, produces an EF-111 review manifest, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
 
-`scripts/review-manifest.mjs` is fail-closed. For a pull request, it reads the GitHub event payload and verifies the PR number, `dev` base SHA, PR head SHA, and explicit candidate checkout SHA before it writes its sanitized evidence. It also rejects a candidate whose PR diff is outside `scripts/ef111-scope.manifest.json`. For `push` and `workflow_dispatch`, the manifest records only the checked-out `github.sha`; `baseSha` and `prNumber` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+`scripts/review-manifest.mjs` is fail-closed. For a pull request, it reads the GitHub event payload and verifies the PR number, `dev` base SHA, PR head SHA, and explicit candidate checkout SHA before it writes its sanitized evidence. It also rejects a candidate whose PR diff is outside the selected exact scope in `scripts/ef111-scope.manifest.json`. For `push` and `workflow_dispatch`, the manifest records only the checked-out `github.sha`; `baseSha`, `prNumber`, and `scopeId` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+
+## Exact PR scope declarations
+
+The original seven EF-111 gate-maintenance paths remain the implicit legacy scope. A PR with no scope declaration can change only those exact paths. This preserves the original pass/reject behavior for EF-111 maintenance while continuing to reject ordinary application or deployment paths.
+
+A separately approved non-EF-111 candidate must place exactly one declaration on its own line in the PR body:
+
+```text
+Review-Scope: <approved-profile-id>
+```
+
+The ID selects a repository-controlled record; the PR body never supplies paths or identity values. Each approved profile is versioned by ID and binds one exact PR number, `dev` base, full lowercase head SHA, and finite list of exact files. The validator rejects unknown, duplicated, malformed, stale, or mismatched declarations and profiles. It also rejects empty diffs, extra paths, duplicate paths, globs, wildcards, directory prefixes, and checkout/head mismatches. There is no default profile for non-EF-111 files.
+
+Adding, changing, or removing a profile requires an independently reviewed gate-maintenance change to both the manifest and its executable contract. A new commit on the feature PR changes its head SHA and invalidates the old approval. The new SHA must receive a new repository profile before the feature PR can pass again. After a profile change reaches `dev`, generate a fresh `pull_request` event for the feature PR so the workflow evaluates the current declaration and repository manifest; do not treat an older run as evidence.
+
+The initial bounded profile `ef-118-pr-43-f35b3ca` authorizes only PR #43 at head `f35b3ca99fd498b13b530c6c2eed305c5f7688c3` and its five enumerated EF-118 files. It grants no reusable ticket, branch, directory, deployment, or Production authority.
 
 The workflow does not select suites. `scripts/release-suite.manifest.json` remains the sole canonical suite authority. The job has a finite 20-minute timeout, no `continue-on-error`, and no failure-swallowing step. A dependency bootstrap, runner, suite, signal, or cleanup failure therefore produces a non-zero job result. Concurrency cancellation is keyed to the pull-request number or full branch ref, so only an older run for the same PR or branch is cancelled.
 

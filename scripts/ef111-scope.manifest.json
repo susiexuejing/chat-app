@@ -1,6 +1,6 @@
 {
-  "schemaVersion": 1,
-  "allowedPaths": [
+  "schemaVersion": 2,
+  "legacyAllowedPaths": [
     ".github/workflows/release-gate.yml",
     "scripts/ef111-scope.manifest.json",
     "scripts/review-manifest.mjs",
@@ -8,5 +8,20 @@
     "scripts/__tests__/ef94-ci-release-gate.test.mjs",
     "scripts/__tests__/ef111-review-manifest.test.mjs",
     "docs/EF-94-ci-release-gate.md"
+  ],
+  "approvedProfiles": [
+    {
+      "id": "ef-118-pr-43-f35b3ca",
+      "pullRequestNumber": 43,
+      "baseRef": "dev",
+      "headSha": "f35b3ca99fd498b13b530c6c2eed305c5f7688c3",
+      "allowedPaths": [
+        ".github/workflows/deploy-dev.yml",
+        "server/src/__tests__/ef118-runtime-audit.test.ts",
+        "server/src/index.ts",
+        "server/src/observability/ef118RuntimeAudit.ts",
+        "server/src/routes/conversations.ts"
+      ]
+    }
   ]
 }
