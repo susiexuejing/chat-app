@@ -2,9 +2,29 @@
 
 ## CI contract
 
-The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, produces an EF-111 review manifest, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
+The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. A pull request uses fixed sibling `authority` and `candidate` checkouts. Authority is the exact event base SHA and is the only source of scope policy, gate tests, and the review-manifest executable. Candidate is the exact event head SHA and is the only source of the git diff, dependency install, and canonical `pnpm run test:release` execution. Push and dispatch retain one checkout at the event SHA.
 
-`scripts/review-manifest.mjs` is fail-closed. For a pull request, it reads the GitHub event payload and verifies the PR number, `dev` base SHA, PR head SHA, and explicit candidate checkout SHA before it writes its sanitized evidence. It also rejects a candidate whose PR diff is outside `scripts/ef111-scope.manifest.json`. For `push` and `workflow_dispatch`, the manifest records only the checked-out `github.sha`; `baseSha` and `prNumber` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+The EF-111 review manifest produced by `scripts/review-manifest.mjs` is fail-closed. For a pull request, it verifies the fixed real paths, non-symlink directories, authority/base identity, candidate/head identity, exact base commit availability, merge base, PR number, and `dev` base before writing sanitized evidence. Candidate copies of gate policy cannot override authority. For `push` and `workflow_dispatch`, the manifest records the one checked-out `github.sha`; `baseSha`, `mergeBaseSha`, `prNumber`, and `scopeId` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+
+Every pull request requires the fixed dual-checkout layout. Missing, partial, symlinked, noncanonical, or same-directory authority/candidate checkouts fail closed. There is no single-checkout pull-request fallback and candidate code cannot select or replace gate authority.
+
+The CLI remains `node scripts/review-manifest.mjs --output <runner-temp-file>`. It accepts no authority, candidate, scope, base, head, PR, or profile path/identity flags.
+
+## Exact PR scope declarations
+
+The original seven EF-111 gate-maintenance paths remain the implicit legacy scope. A PR with no scope declaration can change only those exact paths. This preserves the original pass/reject behavior for EF-111 maintenance while continuing to reject ordinary application or deployment paths.
+
+A separately approved non-EF-111 candidate must place exactly one declaration on its own line in the PR body:
+
+```text
+Review-Scope: <approved-profile-id>
+```
+
+The ID selects a repository-controlled record; the PR body never supplies paths or identity values. Each approved profile is versioned by ID and binds one exact PR number, `dev` base, full lowercase head SHA, and finite list of exact files. The validator rejects unknown, duplicated, malformed, stale, or mismatched declarations and profiles. It also rejects empty diffs, extra paths, duplicate paths, globs, wildcards, directory prefixes, and checkout/head mismatches. There is no default profile for non-EF-111 files.
+
+Adding, changing, or removing a profile requires an independently reviewed gate-maintenance change to both the manifest and its executable contract. An exact-head profile is invalidated by a new feature commit. A structural profile accepts no arbitrary new commit: the event head must independently satisfy its complete repository-controlled graph, tree, identity, and exact-path proof. After a profile change reaches `dev`, generate a fresh `pull_request` event for the feature PR so the workflow evaluates the current declaration and repository manifest; do not treat an older run as evidence.
+
+The bounded structural profile `ef-118-pr-43-f35b3ca-clean-merge` authorizes only PR #43 targeting `dev`, with exact first parent `f35b3ca99fd498b13b530c6c2eed305c5f7688c3`, exact event-base second parent, exactly two ordered parents, and a merge base equal to that event base. With replacement objects disabled, the candidate tree must equal the conflict-free tree produced by `git merge-tree --write-tree` from those exact parents. The candidate diff from event base must be exactly all five enumerated EF-118 paths. It grants no reusable ancestor, range, prefix, branch, directory, merge policy, deployment, or Production authority. Current GitHub API values are never validator inputs.
 
 The workflow does not select suites. `scripts/release-suite.manifest.json` remains the sole canonical suite authority. The job has a finite 20-minute timeout, no `continue-on-error`, and no failure-swallowing step. A dependency bootstrap, runner, suite, signal, or cleanup failure therefore produces a non-zero job result. Concurrency cancellation is keyed to the pull-request number or full branch ref, so only an older run for the same PR or branch is cancelled.
 

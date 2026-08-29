@@ -28,24 +28,60 @@ test('release gate uses minimum permissions and no secrets or external runtime',
   assert.doesNotMatch(workflow, /deploy/i);
 });
 
-test('release gate emits an EF-111 review manifest before the deterministic release regression', async () => {
+test('pull requests use exact fixed authority and candidate checkouts', async () => {
+  const workflow = await text(workflowUrl);
+  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}[\s\S]*path: authority/);
+  assert.match(workflow, /name: Checkout pull request candidate[\s\S]*ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}[\s\S]*path: candidate/);
+  assert.match(workflow, /git -C authority rev-parse HEAD/);
+  assert.match(workflow, /git -C candidate rev-parse HEAD/);
+  assert.match(workflow, /git -C candidate cat-file -e/);
+  assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
+  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
+  assert.deepEqual(workflow.match(/GATE_ROOT="[^"]+"/g), [
+    'GATE_ROOT="$GITHUB_WORKSPACE"',
+    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
+    'GATE_ROOT="$GITHUB_WORKSPACE"',
+    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
+  ]);
+});
+
+test('scope authority runs before candidate-only install and release regression', async () => {
   const workflow = await text(workflowUrl);
   assert.match(workflow, /version: 9\.0\.0/);
+  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs" --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /review_scope_id=\$SCOPE_ID/);
+  assert.ok(workflow.indexOf('Verify fail-closed review scope contract') < workflow.indexOf('Produce fail-closed review manifest'));
+  assert.match(workflow, /name: Verify proposed gate-maintenance contract[\s\S]*working-directory: candidate/);
+  assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
+  assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 2);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
-  assert.match(workflow, /node scripts\/review-manifest\.mjs --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
   assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
   assert.doesNotMatch(workflow, /ef124|credential hardening/i);
 });
 
-test('EF-111 scope manifest is a seven-path allowlist with no deploy or runtime entries', async () => {
+test('scope manifest preserves exact legacy and EF-118 profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 1);
-  assert.equal(manifest.allowedPaths.length, 7);
-  assert.ok(manifest.allowedPaths.includes('.github/workflows/release-gate.yml'));
-  assert.ok(manifest.allowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
+  assert.equal(manifest.schemaVersion, 3);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
+  assert.equal(manifest.legacyAllowedPaths.length, 7);
+  assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
+  assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
+  assert.deepEqual(manifest.approvedProfiles, [{
+    id: 'ef-118-pr-43-f35b3ca-clean-merge',
+    kind: 'exact-clean-merge',
+    pullRequestNumber: 43,
+    baseRef: 'dev',
+    approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
+    allowedPaths: [
+      '.github/workflows/deploy-dev.yml',
+      'server/src/__tests__/ef118-runtime-audit.test.ts',
+      'server/src/index.ts',
+      'server/src/observability/ef118RuntimeAudit.ts',
+      'server/src/routes/conversations.ts',
+    ],
+  }]);
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
@@ -54,6 +90,7 @@ test('release gate fails closed and scopes concurrency to one PR or branch', asy
   assert.match(workflow, /group: ef94-release-gate-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
   assert.match(workflow, /cancel-in-progress: true/);
   assert.doesNotMatch(workflow, /continue-on-error|\|\| true|if:\s*always\(\)/);
+  assert.doesNotMatch(workflow, /secrets\.|curl|ssh|rsync|deploy/i);
 });
 
 test('branch-protection and rollback documentation preserves independent gates', async () => {
@@ -66,6 +103,10 @@ test('branch-protection and rollback documentation preserves independent gates',
   assert.match(docs, /No branch protection or ruleset is changed by this PR/);
   assert.match(docs, /EF-111 review manifest/);
   assert.match(docs, /does not require EF-124/);
+  assert.match(docs, /exact first parent `f35b3ca99fd498b13b530c6c2eed305c5f7688c3`/);
+  assert.match(docs, /exact event-base second parent/);
+  assert.match(docs, /`git merge-tree --write-tree`/);
+  assert.match(docs, /Current GitHub API values are never validator inputs/);
 });
 
 test('existing secret scan and deployment checks remain independently named', async () => {
