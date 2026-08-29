@@ -6,6 +6,12 @@ import { fileURLToPath } from 'node:url';
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCOPE_PATH = path.join(REPO_ROOT, 'scripts/ef111-scope.manifest.json');
 const SHA = /^[0-9a-f]{40}$/;
+const EXACT_ALLOWED_PATHS = new Set([
+  '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
+]);
 
 function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
 function sha(value, label) {
@@ -20,8 +26,11 @@ function command(args, execFile = execFileSync) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  if (parsed?.schemaVersion !== 1 || !Array.isArray(parsed.allowedPaths) || parsed.allowedPaths.length !== 7 || parsed.allowedPaths.some(entry => typeof entry !== 'string')) fail('scope manifest is malformed');
-  return new Set(parsed.allowedPaths);
+  const paths = parsed?.allowedPaths;
+  if (parsed?.schemaVersion !== 1 || !Array.isArray(paths) || paths.length !== EXACT_ALLOWED_PATHS.size
+    || new Set(paths).size !== EXACT_ALLOWED_PATHS.size
+    || paths.some(entry => typeof entry !== 'string' || !EXACT_ALLOWED_PATHS.has(entry))) fail('scope manifest is malformed');
+  return EXACT_ALLOWED_PATHS;
 }
 export function verifyPrScope(baseSha, headSha, allowedPaths, execFile = execFileSync) {
   const changed = command(['diff', '--name-only', `${baseSha}...${headSha}`], execFile).split('\n').filter(Boolean);

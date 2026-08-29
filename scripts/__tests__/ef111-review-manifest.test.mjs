@@ -25,3 +25,8 @@ test('PR fails closed for a mismatched checkout or out-of-scope diff', async t =
   await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(BASE) }), /head SHA.*checked-out candidate/);
   await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(HEAD), read: async target => target === file ? readFile(target, 'utf8') : scope, execFile: () => 'client/app/index.tsx\n' }), /out-of-scope path/);
 });
+test('PR rejects a seven-entry scope manifest with an unauthorized replacement', async t => {
+  const { root, file } = await eventFile({ number: 2, pull_request: { base: { ref: 'dev', sha: BASE }, head: { sha: HEAD } } }); t.after(() => rm(root, { recursive: true, force: true }));
+  const altered = JSON.stringify({ schemaVersion: 1, allowedPaths: JSON.parse(scope).allowedPaths.slice(0, 6).concat('client/app/index.tsx') });
+  await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(HEAD), read: async target => target === file ? readFile(target, 'utf8') : altered }), /scope manifest is malformed/);
+});
