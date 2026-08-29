@@ -2,7 +2,9 @@
 
 ## CI contract
 
-The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
+The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, produces an EF-111 review manifest, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
+
+`scripts/review-manifest.mjs` is fail-closed. For a pull request, it reads the GitHub event payload and verifies the PR number, `dev` base SHA, PR head SHA, and explicit candidate checkout SHA before it writes its sanitized evidence. It also rejects a candidate whose PR diff is outside `scripts/ef111-scope.manifest.json`. For `push` and `workflow_dispatch`, the manifest records only the checked-out `github.sha`; `baseSha` and `prNumber` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
 
 The workflow does not select suites. `scripts/release-suite.manifest.json` remains the sole canonical suite authority. The job has a finite 20-minute timeout, no `continue-on-error`, and no failure-swallowing step. A dependency bootstrap, runner, suite, signal, or cleanup failure therefore produces a non-zero job result. Concurrency cancellation is keyed to the pull-request number or full branch ref, so only an older run for the same PR or branch is cancelled.
 

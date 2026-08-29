@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "allowedPaths": [
+    ".github/workflows/release-gate.yml",
+    "scripts/ef111-scope.manifest.json",
+    "scripts/review-manifest.mjs",
+    "scripts/release-suite.manifest.json",
+    "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+    "scripts/__tests__/ef111-review-manifest.test.mjs",
+    "docs/EF-94-ci-release-gate.md"
+  ]
+}

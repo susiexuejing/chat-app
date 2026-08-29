@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const workflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
 const docsUrl = new URL('../../docs/EF-94-ci-release-gate.md', import.meta.url);
+const scopeManifestUrl = new URL('../ef111-scope.manifest.json', import.meta.url);
 const secretScanUrl = new URL('../../.github/workflows/secret-scan.yml', import.meta.url);
 const deployDevUrl = new URL('../../.github/workflows/deploy-dev.yml', import.meta.url);
 
@@ -27,15 +28,24 @@ test('release gate uses minimum permissions and no secrets or external runtime',
   assert.doesNotMatch(workflow, /deploy/i);
 });
 
-test('release gate installs deterministically, delegates release regression to EF-95, and runs the bounded EF-124 guard', async () => {
+test('release gate emits an EF-111 review manifest before the deterministic release regression', async () => {
   const workflow = await text(workflowUrl);
   assert.match(workflow, /version: 9\.0\.0/);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
+  assert.match(workflow, /node scripts\/review-manifest\.mjs --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
-  assert.match(workflow, /NODE_OPTIONS='--experimental-vm-modules' pnpm exec jest --no-cache src\/__tests__\/ef124-credential-hardening\.test\.ts/);
-  assert.equal((workflow.match(/ef124-credential-hardening\.test\.ts/g) ?? []).length, 1);
   assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
+  assert.doesNotMatch(workflow, /ef124|credential hardening/i);
+});
+
+test('EF-111 scope manifest is a seven-path allowlist with no deploy or runtime entries', async () => {
+  const manifest = JSON.parse(await text(scopeManifestUrl));
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(manifest.allowedPaths.length, 7);
+  assert.ok(manifest.allowedPaths.includes('.github/workflows/release-gate.yml'));
+  assert.ok(manifest.allowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
@@ -54,6 +64,8 @@ test('branch-protection and rollback documentation preserves independent gates',
   assert.match(docs, /Remove only `EF-94 Release Gate`/);
   assert.match(docs, /must not create a push to `dev`/);
   assert.match(docs, /No branch protection or ruleset is changed by this PR/);
+  assert.match(docs, /EF-111 review manifest/);
+  assert.match(docs, /does not require EF-124/);
 });
 
 test('existing secret scan and deployment checks remain independently named', async () => {
