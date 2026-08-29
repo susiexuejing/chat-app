@@ -1,19 +1,30 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync, lstatSync, realpathSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const SCOPE_PATH = path.join(REPO_ROOT, 'scripts/ef111-scope.manifest.json');
+const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCOPE_PATH = path.join(SCRIPT_ROOT, 'scripts/ef111-scope.manifest.json');
 const SHA = /^[0-9a-f]{40}$/;
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
+const BOOTSTRAP_SCOPE_ID = 'ef-111-bootstrap-7bba833e-exact-six';
+const BOOTSTRAP_BASE_SHA = '7bba833e3612b0c9d21b3dc71002387d2cb9b31c';
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
   'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
+];
+const EXACT_BOOTSTRAP_PATHS = [
+  '.github/workflows/release-gate.yml',
+  'docs/EF-94-ci-release-gate.md',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs',
 ];
 const EXACT_APPROVED_PROFILES = [{
   id: 'ef-118-pr-43-f35b3ca',
@@ -34,9 +45,9 @@ function sha(value, label) {
   if (typeof value !== 'string' || !SHA.test(value)) fail(`${label} must be a 40-character lowercase SHA`);
   return value;
 }
-function command(args, execFile = execFileSync) {
-  try { return String(execFile('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })).trim(); }
-  catch { fail(`git ${args.join(' ')} failed`); }
+function commandAt(root, args, execFile = execFileSync) {
+  try { return String(execFile('git', ['-C', root, ...args], { encoding: 'utf8' })).trim(); }
+  catch { fail(`git ${args.join(' ')} failed in ${path.basename(root) || 'workspace'}`); }
 }
 function exactKeys(value, expected, label) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} is malformed`);
@@ -58,12 +69,57 @@ function exactPathList(value, expected, label) {
     }
   }
 }
+function safeDirectory(target, label) {
+  if (!existsSync(target)) fail(`${label} checkout is missing`);
+  const stat = lstatSync(target);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) fail(`${label} checkout is unsafe`);
+  const expected = path.resolve(target);
+  const actual = realpathSync(target);
+  if (actual !== expected) fail(`${label} checkout path is not canonical`);
+  return actual;
+}
+
+export function resolveLayout(env = process.env, options = {}) {
+  if (options.layout) return options.layout;
+  const eventName = env.GITHUB_EVENT_NAME;
+  const workspaceValue = env.GITHUB_WORKSPACE;
+  if (typeof workspaceValue !== 'string' || workspaceValue.length === 0) fail('GITHUB_WORKSPACE is required');
+  if (workspaceValue !== path.resolve(workspaceValue)) fail('GITHUB_WORKSPACE path is not canonical');
+  const workspace = safeDirectory(workspaceValue, 'workspace');
+  const scriptRoot = realpathSync(options.scriptRoot ?? SCRIPT_ROOT);
+  if (eventName !== 'pull_request') {
+    if (scriptRoot !== workspace) fail('non-PR gate must execute from the single checkout');
+    return { mode: 'single', authorityRoot: workspace, candidateRoot: workspace };
+  }
+
+  const authorityPath = path.join(workspace, 'authority');
+  const candidatePath = path.join(workspace, 'candidate');
+  const authorityExists = existsSync(authorityPath);
+  const candidateExists = existsSync(candidatePath);
+  if (authorityExists !== candidateExists) fail('partial authority/candidate checkout layout');
+  if (!authorityExists) {
+    if (scriptRoot !== workspace) fail('bootstrap gate must execute from the single checkout');
+    return { mode: 'bootstrap', authorityRoot: null, candidateRoot: workspace };
+  }
+
+  const authorityRoot = safeDirectory(authorityPath, 'authority');
+  const candidateRoot = safeDirectory(candidatePath, 'candidate');
+  if (authorityRoot === candidateRoot) fail('authority and candidate checkouts must be distinct');
+  if (scriptRoot !== authorityRoot) fail('PR gate policy must execute from authority checkout');
+  return { mode: 'dual', authorityRoot, candidateRoot };
+}
 
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 2) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'bootstrap', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
+  if (parsed.schemaVersion !== 3) fail('scope manifest is malformed');
+  exactKeys(parsed.bootstrap, ['id', 'baseSha', 'allowedPaths'], 'bootstrap scope');
+  if (parsed.bootstrap.id !== BOOTSTRAP_SCOPE_ID || parsed.bootstrap.baseSha !== BOOTSTRAP_BASE_SHA) {
+    fail('bootstrap scope identity is malformed');
+  }
+  sha(parsed.bootstrap.baseSha, 'bootstrap baseSha');
+  exactPathList(parsed.bootstrap.allowedPaths, EXACT_BOOTSTRAP_PATHS, 'bootstrap scope paths');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
@@ -80,7 +136,7 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
+  return { bootstrap: parsed.bootstrap, legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
 }
 
 export function declaredScopeId(body) {
@@ -94,17 +150,33 @@ export function declaredScopeId(body) {
   return match[1];
 }
 
-export function verifyPrScope(baseSha, headSha, allowedPaths, execFile = execFileSync) {
-  const changed = command(['diff', '--name-only', `${baseSha}...${headSha}`], execFile).split('\n').filter(Boolean);
+function changedPaths(baseSha, headSha, candidateRoot, git) {
+  git(candidateRoot, ['cat-file', '-e', `${baseSha}^{commit}`]);
+  const mergeBaseSha = sha(git(candidateRoot, ['merge-base', baseSha, headSha]), 'merge-base SHA');
+  const changed = git(candidateRoot, ['diff', '--name-only', `${baseSha}...${headSha}`]).split('\n').filter(Boolean);
   if (changed.length === 0) fail('pull request candidate has no changed paths');
+  return { changed, mergeBaseSha };
+}
+function verifyAllowedPaths(changed, allowedPaths) {
   for (const entry of changed) if (!allowedPaths.has(entry)) fail(`out-of-scope path: ${entry}`);
-  return changed;
+}
+function verifyBootstrapPaths(changed) {
+  if (changed.length !== EXACT_BOOTSTRAP_PATHS.length || new Set(changed).size !== changed.length
+    || changed.some(entry => !EXACT_BOOTSTRAP_PATHS.includes(entry))) {
+    fail('bootstrap diff must equal the exact six-file maintenance set');
+  }
 }
 
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
-  const checkedOutSha = sha(options.git?.(['rev-parse', 'HEAD']) ?? command(['rev-parse', 'HEAD'], options.execFile), 'checked-out SHA');
+  const layout = resolveLayout(env, options);
+  const git = options.git ?? ((root, args) => commandAt(root, args, options.execFile));
+  const checkedOutSha = sha(git(layout.candidateRoot, ['rev-parse', 'HEAD']), 'checked-out SHA');
+
   if (eventName === 'pull_request') {
+    if (layout.mode === 'dual' && layout.authorityRoot === layout.candidateRoot) {
+      fail('authority and candidate checkouts must be distinct');
+    }
     if (!env.GITHUB_EVENT_PATH) fail('GITHUB_EVENT_PATH is required for pull_request');
     let event;
     try { event = JSON.parse(await (options.read ?? readFile)(env.GITHUB_EVENT_PATH, 'utf8')); } catch { fail('pull request event payload is unreadable'); }
@@ -114,7 +186,24 @@ export async function createReviewManifest(env = process.env, options = {}) {
     const headSha = sha(event?.pull_request?.head?.sha, 'pull_request.head.sha');
     if (!Number.isInteger(prNumber) || prNumber < 1) fail('pull_request.number must be a positive integer');
     if (baseRef !== 'dev') fail('pull request base ref must be dev');
-    if (headSha !== checkedOutSha) fail('pull request head SHA does not match the checked-out candidate');
+    if (headSha !== checkedOutSha) fail('pull request head SHA does not match the candidate checkout');
+    const { changed, mergeBaseSha } = changedPaths(baseSha, headSha, layout.candidateRoot, git);
+
+    if (layout.mode === 'bootstrap') {
+      if (baseSha !== BOOTSTRAP_BASE_SHA) fail('bootstrap base SHA is no longer authorized');
+      if (declaredScopeId(event?.pull_request?.body) !== null) fail('bootstrap cannot use a scope declaration');
+      await loadScope(options.read ?? readFile);
+      verifyBootstrapPaths(changed);
+      return {
+        schemaVersion: 3, eventName, mode: 'gate-maintenance-bootstrap', authoritySha: null,
+        bootstrapBaseSha: BOOTSTRAP_BASE_SHA, checkedOutSha, baseSha, headSha, mergeBaseSha,
+        prNumber, scopeId: BOOTSTRAP_SCOPE_ID, changedPaths: changed,
+      };
+    }
+    if (layout.mode !== 'dual' || !layout.authorityRoot) fail('pull request requires dual checkout authority');
+    const authoritySha = sha(git(layout.authorityRoot, ['rev-parse', 'HEAD']), 'authority SHA');
+    if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
+
     const scope = await loadScope(options.read ?? readFile);
     const requestedScopeId = declaredScopeId(event?.pull_request?.body);
     let scopeId = LEGACY_SCOPE_ID;
@@ -129,13 +218,25 @@ export async function createReviewManifest(env = process.env, options = {}) {
       scopeId = profile.id;
       allowedPaths = profile.allowedPaths;
     }
-    const changedPaths = verifyPrScope(baseSha, headSha, allowedPaths, options.execFile);
-    return { schemaVersion: 2, eventName, checkedOutSha, baseSha, headSha, prNumber, scopeId, changedPaths };
+    verifyAllowedPaths(changed, allowedPaths);
+    return {
+      schemaVersion: 3, eventName, mode: 'authority-candidate', authoritySha,
+      bootstrapBaseSha: null, checkedOutSha, baseSha, headSha, mergeBaseSha,
+      prNumber, scopeId, changedPaths: changed,
+    };
   }
+
   if (eventName === 'push' || eventName === 'workflow_dispatch') {
+    if (layout.mode !== 'single' || layout.authorityRoot !== layout.candidateRoot) {
+      fail('non-PR event requires one checkout');
+    }
     const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
     if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
-    return { schemaVersion: 2, eventName, checkedOutSha, baseSha: null, headSha: githubSha, prNumber: null, scopeId: null, changedPaths: null };
+    return {
+      schemaVersion: 3, eventName, mode: 'single', authoritySha: checkedOutSha,
+      bootstrapBaseSha: null, checkedOutSha, baseSha: null, headSha: githubSha,
+      mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
+    };
   }
   fail(`unsupported event: ${String(eventName)}`);
 }

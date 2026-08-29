@@ -2,9 +2,17 @@
 
 ## CI contract
 
-The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. The job checks out the candidate, executes the fail-closed scope contract tests, produces an EF-111 review manifest, installs the repository-declared pnpm 9.0.0 dependencies with `pnpm install --frozen-lockfile`, and executes the canonical `pnpm run test:release` command.
+The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. A pull request uses fixed sibling `authority` and `candidate` checkouts. Authority is the exact event base SHA and is the only source of scope policy, gate tests, and the review-manifest executable. Candidate is the exact event head SHA and is the only source of the git diff, dependency install, and canonical `pnpm run test:release` execution. Push and dispatch retain one checkout at the event SHA.
 
-`scripts/review-manifest.mjs` is fail-closed. For a pull request, it reads the GitHub event payload and verifies the PR number, `dev` base SHA, PR head SHA, and explicit candidate checkout SHA before it writes its sanitized evidence. It also rejects a candidate whose PR diff is outside the selected exact scope in `scripts/ef111-scope.manifest.json`. For `push` and `workflow_dispatch`, the manifest records only the checked-out `github.sha`; `baseSha`, `prNumber`, and `scopeId` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+The EF-111 review manifest produced by `scripts/review-manifest.mjs` is fail-closed. For a pull request, it verifies the fixed real paths, non-symlink directories, authority/base identity, candidate/head identity, exact base commit availability, merge base, PR number, and `dev` base before writing sanitized evidence. Candidate copies of gate policy cannot override authority. For `push` and `workflow_dispatch`, the manifest records the one checked-out `github.sha`; `baseSha`, `mergeBaseSha`, `prNumber`, and `scopeId` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
+
+## Phase A one-time bootstrap
+
+The workflow that evaluates the Phase A introduction PR predates the dual-checkout layout and executes the candidate gate from one checkout. A one-time bootstrap exists solely for that transition. It requires a `pull_request` targeting `dev`, exact base `7bba833e3612b0c9d21b3dc71002387d2cb9b31c`, no scope declaration, exact candidate/event-head identity, and a diff equal to the six approved gate-maintenance files. Missing or additional files, the seventh legacy file, feature or deployment paths, any declaration, a different base, partial dual layout, or caller-selected paths are rejected.
+
+Bootstrap evidence uses mode `gate-maintenance-bootstrap`, sets `authoritySha` to `null`, and records the exact `bootstrapBaseSha`; it never represents candidate code as base authority. Once `dev` advances, the exact-base condition becomes false. A separately reviewed Phase B cleanup removes the inactive bootstrap code before any fresh EF-118 PR event.
+
+The CLI remains `node scripts/review-manifest.mjs --output <runner-temp-file>`. It accepts no authority, candidate, scope, base, head, PR, or profile path/identity flags.
 
 ## Exact PR scope declarations
 
