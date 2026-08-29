@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "suiteId": "ef-95-isolated-release-regression",
+  "suiteId": "ef-111-isolated-release-regression",
   "included": [
     {
       "id": "client-approved-jest",
