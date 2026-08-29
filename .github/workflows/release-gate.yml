@@ -23,7 +23,24 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout candidate
+      - name: Checkout pull request authority
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          path: authority
+
+      - name: Checkout pull request candidate
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          path: candidate
+
+      - name: Checkout push or dispatch commit
+        if: ${{ github.event_name != 'pull_request' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -32,18 +49,48 @@ jobs:
       - name: Verify checked-out identity
         shell: bash
         run: |
-          EXPECTED_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-          ACTUAL_SHA="$(git rev-parse HEAD)"
-          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "$(git -C authority rev-parse HEAD)" = "${{ github.event.pull_request.base.sha }}"
+            test "$(git -C candidate rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
+            git -C candidate cat-file -e "${{ github.event.pull_request.base.sha }}^{commit}"
+          else
+            EXPECTED_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
+            ACTUAL_SHA="$(git rev-parse HEAD)"
+            test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          fi
 
       - name: Verify fail-closed review scope contract
+        shell: bash
+        run: |
+          GATE_ROOT="$GITHUB_WORKSPACE"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            GATE_ROOT="$GITHUB_WORKSPACE/authority"
+          fi
+          cd "$GATE_ROOT"
+          node --test \
+            scripts/__tests__/ef111-review-manifest.test.mjs \
+            scripts/__tests__/ef94-ci-release-gate.test.mjs
+
+      - name: Produce fail-closed review manifest
+        id: review_manifest
+        shell: bash
+        run: |
+          GATE_ROOT="$GITHUB_WORKSPACE"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            GATE_ROOT="$GITHUB_WORKSPACE/authority"
+          fi
+          node "$GATE_ROOT/scripts/review-manifest.mjs" --output "$RUNNER_TEMP/ef111-review-manifest.json"
+          SCOPE_ID="$(node -e "const m=require(process.argv[1]); process.stdout.write(m.scopeId || 'none')" "$RUNNER_TEMP/ef111-review-manifest.json")"
+          echo "scope_id=$SCOPE_ID" >> "$GITHUB_OUTPUT"
+          echo "review_scope_id=$SCOPE_ID"
+
+      - name: Verify proposed gate-maintenance contract
+        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-111-legacy-seven-path' }}
+        working-directory: candidate
         run: >-
           node --test
           scripts/__tests__/ef111-review-manifest.test.mjs
           scripts/__tests__/ef94-ci-release-gate.test.mjs
-
-      - name: Produce fail-closed review manifest
-        run: node scripts/review-manifest.mjs --output "$RUNNER_TEMP/ef111-review-manifest.json"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
@@ -56,10 +103,12 @@ jobs:
         with:
           node-version: 20
           cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          cache-dependency-path: ${{ github.event_name == 'pull_request' && 'candidate/pnpm-lock.yaml' || 'pnpm-lock.yaml' }}
 
       - name: Install dependencies
+        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm install --frozen-lockfile
 
       - name: Run approved release regression
+        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm run test:release
