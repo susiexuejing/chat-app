@@ -26,6 +26,7 @@ import { incrementConversationTurn, incrementConversationTurnIdempotent, getConv
 import conversationsRouter from './routes/conversations';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
+import { writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -77,6 +78,8 @@ const MODELS = {
   LIGHT: process.env.MODEL_LIGHT || 'qwen-flash-character-2026-02-26',
   DEEP: process.env.MODEL_DEEP || 'qwen3.6-plus',
 };
+
+writeEf118RuntimeAudit({ dbSessionCategory: 'runtime_started' });
 
 // ============================================================
 // Session 管理（内存）
@@ -191,11 +194,13 @@ async function callDashScope(
 // ============================================================
 export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const apiKey = API_KEY_LIGHT;
+  writeEf118RuntimeAudit({ providerCategory: 'request_reached' });
   console.log('[Deep] Analysis requested', {
     userTurn,
     apiKeyConfigured: Boolean(apiKey),
   });
   if (!apiKey) {
+    writeEf118RuntimeAudit({ providerCategory: 'key_missing' });
     setSafeDeepError(session, 'provider_key_missing');
     return;
   }
@@ -215,6 +220,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     ];
 
     console.log('[Deep] Provider request started', { modelClass: 'deep' });
+    writeEf118RuntimeAudit({ providerCategory: 'request_started' });
     const response = await callDashScope(
       DASHSCOPE_BASE_URL,
       apiKey,
@@ -226,6 +232,13 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     console.log('[Deep] Provider response received', {
       statusClass: response.status >= 500 ? 'server_error' : response.status >= 400 ? 'client_error' : 'success',
+    });
+    writeEf118RuntimeAudit({
+      providerCategory: response.status >= 500
+        ? 'response_server_error'
+        : response.status >= 400
+          ? 'response_client_error'
+          : 'response_success',
     });
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -242,6 +255,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     const reader = response.body?.getReader();
     if (!reader) {
+      writeEf118RuntimeAudit({ providerCategory: 'reader_missing' });
       console.error('[Deep] Provider response reader missing', {
         code: 'stream_reader_missing',
         retryable: true,
@@ -255,6 +269,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let deepContentBuffer = '';  // 累积所有content（含推理过程），流结束后清洗再推送
     let firstTokenTime = 0;
     let usedFallback = false;
+    let providerFirstEventAudited = false;
+    let providerTerminalFailure = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
     console.log('[Deep] Stream started');
 
@@ -285,6 +301,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
                 const content = parsed.choices?.[0]?.delta?.content ||
                                 parsed.output?.choices?.[0]?.delta?.content || '';
                 if (content) {
+                  if (!providerFirstEventAudited) {
+                    providerFirstEventAudited = true;
+                    writeEf118RuntimeAudit({ providerCategory: 'first_event' });
+                  }
                   if (firstTokenTime === 0) {
                     firstTokenTime = Date.now();
                     console.log('[Deep] First token received', {
@@ -297,6 +317,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
                   const rc = parsed.choices?.[0]?.delta?.reasoning_content ||
                              parsed.output?.choices?.[0]?.delta?.reasoning_content || '';
                   if (rc) {
+                    if (!providerFirstEventAudited) {
+                      providerFirstEventAudited = true;
+                      writeEf118RuntimeAudit({ providerCategory: 'first_event' });
+                    }
                     reasoningBuffer += rc;
                   } else {
                     console.log('[Deep] SSE segment contained no supported content', {
@@ -324,6 +348,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       await Promise.race([streamReadLoop, streamReadTimeout]);
     } catch (e) {
       const timedOut = e instanceof Error && e.message === 'stream_timeout';
+      providerTerminalFailure = true;
+      writeEf118RuntimeAudit({
+        providerCategory: timedOut ? 'stream_timeout' : 'stream_read_error',
+      });
       console.error('[Deep] Stream processing failed', {
         code: timedOut ? 'stream_timeout' : 'stream_read_error',
         retryable: true,
@@ -390,6 +418,9 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
     session.deepDone = true;
+    if (!providerTerminalFailure) {
+      writeEf118RuntimeAudit({ providerCategory: 'stream_completed' });
+    }
     const completionDuration = Date.now() - streamStartTime;
     const firstTokenDelay = firstTokenTime > 0 ? (firstTokenTime - streamStartTime) : -1;
     const hasContent = session.deepChunks.length > 0;
@@ -484,6 +515,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
   } catch (error) {
+    writeEf118RuntimeAudit({ providerCategory: 'analysis_failure' });
     const errTime = Date.now() - streamStartTime;
     console.error('[Deep] Analysis failed', {
       code: 'deep_analysis_failure',
@@ -766,12 +798,20 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
     if (!roleId || !message) {
+      writeEf118RuntimeAudit({
+        dbSessionCategory: 'request_invalid',
+        frontendErrorMappingCategory: 'chat_start_retry',
+      });
       return res.status(400).json({ error: 'roleId and message are required' });
     }
 
     // EM-43: 验证 conversationId 格式
     if (conversationId !== undefined) {
       if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(conversationId)) {
+        writeEf118RuntimeAudit({
+          dbSessionCategory: 'request_invalid',
+          frontendErrorMappingCategory: 'chat_start_retry',
+        });
         return res.status(400).json({ error: 'Invalid conversationId: must be 1-100 alphanumeric/underscore/hyphen characters' });
       }
     }
@@ -872,6 +912,11 @@ app.post('/api/v1/chat/start', async (req, res) => {
       eventSequencer: new TurnEventSequencer(),
     };
     sessions.set(sessionId, session);
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'session_created',
+      providerCategory: normalChat ? 'not_reached' : undefined,
+      frontendErrorMappingCategory: 'none',
+    });
 
     // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
     res.json({
@@ -944,6 +989,12 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
     }
   } catch (error) {
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'chat_start_processing_error',
+      providerCategory: 'not_reached',
+      sseCategory: 'not_established',
+      frontendErrorMappingCategory: 'chat_start_retry',
+    });
     void error;
     console.error('[Start] Request handling failed', {
       code: 'chat_start_processing_failed',
@@ -967,11 +1018,21 @@ app.get('/api/v1/chat/stream', (req, res) => {
   const { sessionId } = req.query;
 
   if (!sessionId || typeof sessionId !== 'string') {
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'request_invalid',
+      sseCategory: 'not_established',
+      frontendErrorMappingCategory: 'safe_connection_retry',
+    });
     return res.status(400).json({ error: 'sessionId is required' });
   }
 
   const session = sessions.get(sessionId);
   if (!session) {
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'session_missing',
+      sseCategory: 'not_established',
+      frontendErrorMappingCategory: 'safe_connection_retry',
+    });
     return res.status(404).json({ error: 'Session not found or expired' });
   }
 
@@ -980,6 +1041,10 @@ app.get('/api/v1/chat/stream', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
+  writeEf118RuntimeAudit({ sseCategory: 'connection_established' });
+
+  let firstSseEventAudited = false;
+  let sseTerminated = false;
 
   const emit = <T extends StreamEventType>(
     eventType: T,
@@ -987,6 +1052,10 @@ app.get('/api/v1/chat/stream', (req, res) => {
   ) => {
     const event = session.eventSequencer.next(eventType, payload);
     res.write(serializeStreamEvent(event));
+    if (!firstSseEventAudited) {
+      firstSseEventAudited = true;
+      writeEf118RuntimeAudit({ sseCategory: 'first_event' });
+    }
   };
 
   emit('turn.started', {
@@ -1036,6 +1105,11 @@ app.get('/api/v1/chat/stream', (req, res) => {
       clearTimeout(timeout);
       emit('deep.completed', {});
       emit('turn.completed', { status: 'completed' });
+      sseTerminated = true;
+      writeEf118RuntimeAudit({
+        sseCategory: 'completed',
+        frontendErrorMappingCategory: 'none',
+      });
       res.end();
       return;
     }
@@ -1045,6 +1119,14 @@ app.get('/api/v1/chat/stream', (req, res) => {
       clearInterval(pollInterval);
       clearTimeout(timeout);
       emit('error', mapSafeStreamError('deep_response_failed'));
+      sseTerminated = true;
+      writeEf118RuntimeAudit({
+        providerCategory: session.deepError === 'provider_key_missing'
+          ? 'key_missing'
+          : 'analysis_failure',
+        sseCategory: 'deep_failure',
+        frontendErrorMappingCategory: 'deep_response_retry',
+      });
       res.end();
       return;
     }
@@ -1054,12 +1136,21 @@ app.get('/api/v1/chat/stream', (req, res) => {
   const timeout = setTimeout(() => {
     clearInterval(pollInterval);
     emit('error', mapSafeStreamError('stream_timeout'));
+    sseTerminated = true;
+    writeEf118RuntimeAudit({
+      sseCategory: 'timeout',
+      frontendErrorMappingCategory: 'stream_timeout_retry',
+    });
     res.end();
   }, 150000);
 
   req.on('close', () => {
     clearInterval(pollInterval);
     clearTimeout(timeout);
+    if (!sseTerminated) {
+      sseTerminated = true;
+      writeEf118RuntimeAudit({ sseCategory: 'client_closed' });
+    }
     // 保存用户神经档案
     try {
       if (session.userId && session.neuralProfile) {
