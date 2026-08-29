@@ -36,6 +36,12 @@ jobs:
           ACTUAL_SHA="$(git rev-parse HEAD)"
           test "$ACTUAL_SHA" = "$EXPECTED_SHA"
 
+      - name: Verify fail-closed review scope contract
+        run: >-
+          node --test
+          scripts/__tests__/ef111-review-manifest.test.mjs
+          scripts/__tests__/ef94-ci-release-gate.test.mjs
+
       - name: Produce fail-closed review manifest
         run: node scripts/review-manifest.mjs --output "$RUNNER_TEMP/ef111-review-manifest.json"
 
