@@ -1,0 +1,70 @@
+import { execFileSync } from 'node:child_process';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SCOPE_PATH = path.join(REPO_ROOT, 'scripts/ef111-scope.manifest.json');
+const SHA = /^[0-9a-f]{40}$/;
+const EXACT_ALLOWED_PATHS = new Set([
+  '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
+]);
+
+function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
+function sha(value, label) {
+  if (typeof value !== 'string' || !SHA.test(value)) fail(`${label} must be a 40-character lowercase SHA`);
+  return value;
+}
+function command(args, execFile = execFileSync) {
+  try { return String(execFile('git', args, { cwd: REPO_ROOT, encoding: 'utf8' })).trim(); }
+  catch { fail(`git ${args.join(' ')} failed`); }
+}
+
+export async function loadScope(read = readFile) {
+  let parsed;
+  try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
+  const paths = parsed?.allowedPaths;
+  if (parsed?.schemaVersion !== 1 || !Array.isArray(paths) || paths.length !== EXACT_ALLOWED_PATHS.size
+    || new Set(paths).size !== EXACT_ALLOWED_PATHS.size
+    || paths.some(entry => typeof entry !== 'string' || !EXACT_ALLOWED_PATHS.has(entry))) fail('scope manifest is malformed');
+  return EXACT_ALLOWED_PATHS;
+}
+export function verifyPrScope(baseSha, headSha, allowedPaths, execFile = execFileSync) {
+  const changed = command(['diff', '--name-only', `${baseSha}...${headSha}`], execFile).split('\n').filter(Boolean);
+  if (changed.length === 0) fail('pull request candidate has no changed paths');
+  for (const entry of changed) if (!allowedPaths.has(entry)) fail(`out-of-scope path: ${entry}`);
+  return changed;
+}
+export async function createReviewManifest(env = process.env, options = {}) {
+  const eventName = env.GITHUB_EVENT_NAME;
+  const checkedOutSha = sha(options.git?.(['rev-parse', 'HEAD']) ?? command(['rev-parse', 'HEAD'], options.execFile), 'checked-out SHA');
+  if (eventName === 'pull_request') {
+    if (!env.GITHUB_EVENT_PATH) fail('GITHUB_EVENT_PATH is required for pull_request');
+    let event;
+    try { event = JSON.parse(await (options.read ?? readFile)(env.GITHUB_EVENT_PATH, 'utf8')); } catch { fail('pull request event payload is unreadable'); }
+    const prNumber = event?.pull_request?.number ?? event?.number;
+    const baseSha = sha(event?.pull_request?.base?.sha, 'pull_request.base.sha');
+    const headSha = sha(event?.pull_request?.head?.sha, 'pull_request.head.sha');
+    if (!Number.isInteger(prNumber) || prNumber < 1) fail('pull_request.number must be a positive integer');
+    if (event?.pull_request?.base?.ref !== 'dev') fail('pull request base ref must be dev');
+    if (headSha !== checkedOutSha) fail('pull request head SHA does not match the checked-out candidate');
+    const changedPaths = verifyPrScope(baseSha, headSha, await loadScope(options.read ?? readFile), options.execFile);
+    return { schemaVersion: 1, eventName, checkedOutSha, baseSha, headSha, prNumber, changedPaths };
+  }
+  if (eventName === 'push' || eventName === 'workflow_dispatch') {
+    const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
+    if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
+    return { schemaVersion: 1, eventName, checkedOutSha, baseSha: null, headSha: githubSha, prNumber: null, changedPaths: null };
+  }
+  fail(`unsupported event: ${String(eventName)}`);
+}
+async function main() {
+  const index = process.argv.indexOf('--output');
+  if (index === -1 || !process.argv[index + 1] || process.argv.length !== 4) fail('usage: --output <path>');
+  const manifest = await createReviewManifest();
+  await writeFile(path.resolve(process.argv[index + 1]), `${JSON.stringify(manifest, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+}
+if (process.argv[1] === fileURLToPath(import.meta.url)) main().catch(error => { process.stderr.write(`${error.message}\n`); process.exitCode = 1; });
