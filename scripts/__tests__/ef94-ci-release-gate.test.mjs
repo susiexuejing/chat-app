@@ -36,9 +36,13 @@ test('pull requests use exact fixed authority and candidate checkouts', async ()
   assert.match(workflow, /git -C candidate rev-parse HEAD/);
   assert.match(workflow, /git -C candidate cat-file -e/);
   assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
-  assert.match(workflow, /if \[ "\$\{\{ github\.event\.pull_request\.base\.sha \}\}" = "7bba833e3612b0c9d21b3dc71002387d2cb9b31c" \]; then[\s\S]*GATE_ROOT="\$GITHUB_WORKSPACE\/candidate"/);
-  assert.match(workflow, /MANIFEST_WORKSPACE="\$GITHUB_WORKSPACE\/candidate"/);
-  assert.match(workflow, /GITHUB_WORKSPACE="\$MANIFEST_WORKSPACE" node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
+  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
+  assert.deepEqual(workflow.match(/GATE_ROOT="[^"]+"/g), [
+    'GATE_ROOT="$GITHUB_WORKSPACE"',
+    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
+    'GATE_ROOT="$GITHUB_WORKSPACE"',
+    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
+  ]);
 });
 
 test('scope authority runs before candidate-only install and release regression', async () => {
@@ -57,22 +61,10 @@ test('scope authority runs before candidate-only install and release regression'
   assert.doesNotMatch(workflow, /ef124|credential hardening/i);
 });
 
-test('scope manifest preserves exact bootstrap, legacy, and EF-118 profile boundaries', async () => {
+test('scope manifest preserves exact legacy and EF-118 profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
   assert.equal(manifest.schemaVersion, 3);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'bootstrap', 'legacyAllowedPaths', 'schemaVersion']);
-  assert.deepEqual(manifest.bootstrap, {
-    id: 'ef-111-bootstrap-7bba833e-exact-six',
-    baseSha: '7bba833e3612b0c9d21b3dc71002387d2cb9b31c',
-    allowedPaths: [
-      '.github/workflows/release-gate.yml',
-      'docs/EF-94-ci-release-gate.md',
-      'scripts/__tests__/ef111-review-manifest.test.mjs',
-      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-      'scripts/ef111-scope.manifest.json',
-      'scripts/review-manifest.mjs',
-    ],
-  });
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
   assert.equal(manifest.legacyAllowedPaths.length, 7);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));

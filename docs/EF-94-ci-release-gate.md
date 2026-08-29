@@ -6,11 +6,7 @@ The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `R
 
 The EF-111 review manifest produced by `scripts/review-manifest.mjs` is fail-closed. For a pull request, it verifies the fixed real paths, non-symlink directories, authority/base identity, candidate/head identity, exact base commit availability, merge base, PR number, and `dev` base before writing sanitized evidence. Candidate copies of gate policy cannot override authority. For `push` and `workflow_dispatch`, the manifest records the one checked-out `github.sha`; `baseSha`, `mergeBaseSha`, `prNumber`, and `scopeId` are `null`, and it makes no PR-consistency claim. The release gate does not require EF-124.
 
-## Phase A one-time bootstrap
-
-The workflow that evaluates the Phase A introduction PR predates the dual-checkout layout and executes the candidate gate from one checkout. A one-time bootstrap exists solely for that transition. It requires a `pull_request` targeting `dev`, exact base `7bba833e3612b0c9d21b3dc71002387d2cb9b31c`, no scope declaration, exact candidate/event-head identity, and a diff equal to the six approved gate-maintenance files. Missing or additional files, the seventh legacy file, feature or deployment paths, any declaration, a different base, partial dual layout, or caller-selected paths are rejected.
-
-Bootstrap evidence uses mode `gate-maintenance-bootstrap`, sets `authoritySha` to `null`, and records the exact `bootstrapBaseSha`; it never represents candidate code as base authority. Once `dev` advances, the exact-base condition becomes false. A separately reviewed Phase B cleanup removes the inactive bootstrap code before any fresh EF-118 PR event.
+Every pull request requires the fixed dual-checkout layout. Missing, partial, symlinked, noncanonical, or same-directory authority/candidate checkouts fail closed. There is no single-checkout pull-request fallback and candidate code cannot select or replace gate authority.
 
 The CLI remains `node scripts/review-manifest.mjs --output <runner-temp-file>`. It accepts no authority, candidate, scope, base, head, PR, or profile path/identity flags.
 
