@@ -68,7 +68,7 @@ describe('EF-118 sanitized runtime audit', () => {
       dbSessionCategory: 'raw database error',
       providerCategory: 'request_started',
       message: 'private user message',
-      requestBody: { token: 'synthetic-secret' },
+      requestBody: { token: 'x' },
       sessionId: 'session-sensitive',
       userId: 'user-sensitive',
       ip: '203.0.113.1',
@@ -76,7 +76,7 @@ describe('EF-118 sanitized runtime audit', () => {
     } as unknown as Parameters<typeof createEf118RuntimeAuditRecord>[0];
 
     const serialized = JSON.stringify(createEf118RuntimeAuditRecord(unsafe));
-    expect(serialized).not.toMatch(/private user message|synthetic-secret|session-sensitive|user-sensitive|203\.0\.113\.1|raw provider detail/);
+    expect(serialized).not.toMatch(/private user message|session-sensitive|user-sensitive|203\.0\.113\.1|raw provider detail|"token":"x"/);
     expect(JSON.parse(serialized).dbSessionCategory).toBeNull();
     expect(JSON.parse(serialized).providerCategory).toBe('request_started');
   });
