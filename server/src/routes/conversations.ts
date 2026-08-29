@@ -11,6 +11,7 @@
 import { Router } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client';
 import crypto from 'node:crypto';
+import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 const router = Router();
 
@@ -27,6 +28,10 @@ function writeSafeInternalError(
   res: { status: (status: number) => { json: (body: unknown) => unknown } },
   code: ConversationFailureCode,
 ): unknown {
+  writeEf118RuntimeAudit({
+    dbSessionCategory: code,
+    frontendErrorMappingCategory: 'safe_connection_retry',
+  });
   return res.status(500).json({
     error: 'internal_server_error',
     code,
@@ -62,6 +67,7 @@ router.post('/', async (req, res) => {
     const { userId, roleId } = req.body;
 
     if (!userId || !roleId) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
       return res.status(400).json({ error: 'Missing userId or roleId' });
     }
 
@@ -88,6 +94,10 @@ router.post('/', async (req, res) => {
       throw error;
     }
 
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'conversation_created',
+      frontendErrorMappingCategory: 'none',
+    });
     res.status(201).json({
       id: data.id,
       userId: data.user_id,
@@ -122,6 +132,7 @@ router.get('/:id', async (req, res) => {
       throw convError;
     }
     if (!conversation) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -137,6 +148,7 @@ router.get('/:id', async (req, res) => {
       throw msgError;
     }
 
+    writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_loaded' });
     res.json({
       conversation: {
         id: conversation.id,
@@ -171,6 +183,7 @@ router.post('/:id/messages', async (req, res) => {
     const { role, content, status, requestId } = req.body;
 
     if (!role || content === undefined) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
       return res.status(400).json({ error: 'Missing role or content' });
     }
 
@@ -188,6 +201,7 @@ router.post('/:id/messages', async (req, res) => {
       throw convError;
     }
     if (!conversation) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -204,6 +218,7 @@ router.post('/:id/messages', async (req, res) => {
         throw dupError;
       }
       if (existing) {
+        writeEf118RuntimeAudit({ dbSessionCategory: 'idempotent_replay' });
         // Return existing message (idempotent)
         return res.status(200).json({
           id: existing.id,
@@ -251,6 +266,7 @@ router.post('/:id/messages', async (req, res) => {
       throw updateError;
     }
 
+    writeEf118RuntimeAudit({ dbSessionCategory: 'message_persisted' });
     res.status(201).json({
       id: message.id,
       conversationId: message.conversation_id,
@@ -288,6 +304,7 @@ router.get('/:id/messages', async (req, res) => {
       throw convError;
     }
     if (!conversation) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
       return res.status(404).json({ error: 'Conversation not found' });
     }
 
@@ -317,6 +334,7 @@ router.get('/:id/messages', async (req, res) => {
     // Reverse to ascending order
     rows.reverse();
 
+    writeEf118RuntimeAudit({ dbSessionCategory: 'messages_loaded' });
     res.json({
       messages: rows.map((m) => ({
         id: m.id,

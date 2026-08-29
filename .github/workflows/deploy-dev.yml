@@ -240,6 +240,15 @@ jobs:
           echo "DEV deployment verification failed."
           exit 1
 
+      - name: Verify DEV sanitized runtime audit file
+        env:
+          SSH_HOST: ${{ secrets.DEV_SSH_HOST }}
+          SSH_PORT: ${{ secrets.DEV_SSH_PORT }}
+          SSH_USER: ${{ secrets.DEV_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/dev_deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "test -f /var/log/emotionflow/ef118-runtime-sanitized.jsonl && stat --format='path=%n type=%F mode=%a owner=%U group=%G size=%s bytes mtime=%y' /var/log/emotionflow/ef118-runtime-sanitized.jsonl"
+
       - name: Roll back failed activation
         if: ${{ failure() && steps.activate.outcome == 'success' }}
         env:
