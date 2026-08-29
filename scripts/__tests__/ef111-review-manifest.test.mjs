@@ -17,11 +17,11 @@ test('workflow dispatch has the same non-PR identity contract', async () => {
 });
 test('PR requires dev base, matching head/candidate, and allowlisted paths', async t => {
   const { root, file } = await eventFile({ number: 17, pull_request: { number: 17, base: { ref: 'dev', sha: BASE }, head: { sha: HEAD } } }); t.after(() => rm(root, { recursive: true, force: true }));
-  const manifest = await createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(HEAD), read: async target => target === file ? readFile(target, 'utf8') : scope, execFile: (_bin, args) => { assert.deepEqual(args, ['diff', '--name-only', `${BASE}...${HEAD}`]); return '.github/workflows/release-gate.yml\n'; } });
+  const manifest = await createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: 'c'.repeat(40), GITHUB_EVENT_PATH: file }, { git: gitAt(HEAD), read: async target => target === file ? readFile(target, 'utf8') : scope, execFile: (_bin, args) => { assert.deepEqual(args, ['diff', '--name-only', `${BASE}...${HEAD}`]); return '.github/workflows/release-gate.yml\n'; } });
   assert.equal(manifest.prNumber, 17); assert.deepEqual(manifest.changedPaths, ['.github/workflows/release-gate.yml']);
 });
 test('PR fails closed for a mismatched checkout or out-of-scope diff', async t => {
   const { root, file } = await eventFile({ number: 1, pull_request: { base: { ref: 'dev', sha: BASE }, head: { sha: HEAD } } }); t.after(() => rm(root, { recursive: true, force: true }));
-  await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(BASE) }), /checked-out SHA/);
+  await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(BASE) }), /head SHA.*checked-out candidate/);
   await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_SHA: HEAD, GITHUB_EVENT_PATH: file }, { git: gitAt(HEAD), read: async target => target === file ? readFile(target, 'utf8') : scope, execFile: () => 'client/app/index.tsx\n' }), /out-of-scope path/);
 });

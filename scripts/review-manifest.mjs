@@ -32,8 +32,6 @@ export function verifyPrScope(baseSha, headSha, allowedPaths, execFile = execFil
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
   const checkedOutSha = sha(options.git?.(['rev-parse', 'HEAD']) ?? command(['rev-parse', 'HEAD'], options.execFile), 'checked-out SHA');
-  const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
-  if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
   if (eventName === 'pull_request') {
     if (!env.GITHUB_EVENT_PATH) fail('GITHUB_EVENT_PATH is required for pull_request');
     let event;
@@ -43,11 +41,15 @@ export async function createReviewManifest(env = process.env, options = {}) {
     const headSha = sha(event?.pull_request?.head?.sha, 'pull_request.head.sha');
     if (!Number.isInteger(prNumber) || prNumber < 1) fail('pull_request.number must be a positive integer');
     if (event?.pull_request?.base?.ref !== 'dev') fail('pull request base ref must be dev');
-    if (headSha !== githubSha) fail('pull request head SHA does not match GITHUB_SHA');
+    if (headSha !== checkedOutSha) fail('pull request head SHA does not match the checked-out candidate');
     const changedPaths = verifyPrScope(baseSha, headSha, await loadScope(options.read ?? readFile), options.execFile);
     return { schemaVersion: 1, eventName, checkedOutSha, baseSha, headSha, prNumber, changedPaths };
   }
-  if (eventName === 'push' || eventName === 'workflow_dispatch') return { schemaVersion: 1, eventName, checkedOutSha, baseSha: null, headSha: githubSha, prNumber: null, changedPaths: null };
+  if (eventName === 'push' || eventName === 'workflow_dispatch') {
+    const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
+    if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
+    return { schemaVersion: 1, eventName, checkedOutSha, baseSha: null, headSha: githubSha, prNumber: null, changedPaths: null };
+  }
   fail(`unsupported event: ${String(eventName)}`);
 }
 async function main() {
