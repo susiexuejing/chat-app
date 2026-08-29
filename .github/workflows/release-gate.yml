@@ -65,6 +65,9 @@ jobs:
           GATE_ROOT="$GITHUB_WORKSPACE"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             GATE_ROOT="$GITHUB_WORKSPACE/authority"
+            if [ "${{ github.event.pull_request.base.sha }}" = "7bba833e3612b0c9d21b3dc71002387d2cb9b31c" ]; then
+              GATE_ROOT="$GITHUB_WORKSPACE/candidate"
+            fi
           fi
           cd "$GATE_ROOT"
           node --test \
@@ -76,10 +79,15 @@ jobs:
         shell: bash
         run: |
           GATE_ROOT="$GITHUB_WORKSPACE"
+          MANIFEST_WORKSPACE="$GITHUB_WORKSPACE"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             GATE_ROOT="$GITHUB_WORKSPACE/authority"
+            if [ "${{ github.event.pull_request.base.sha }}" = "7bba833e3612b0c9d21b3dc71002387d2cb9b31c" ]; then
+              GATE_ROOT="$GITHUB_WORKSPACE/candidate"
+              MANIFEST_WORKSPACE="$GITHUB_WORKSPACE/candidate"
+            fi
           fi
-          node "$GATE_ROOT/scripts/review-manifest.mjs" --output "$RUNNER_TEMP/ef111-review-manifest.json"
+          GITHUB_WORKSPACE="$MANIFEST_WORKSPACE" node "$GATE_ROOT/scripts/review-manifest.mjs" --output "$RUNNER_TEMP/ef111-review-manifest.json"
           SCOPE_ID="$(node -e "const m=require(process.argv[1]); process.stdout.write(m.scopeId || 'none')" "$RUNNER_TEMP/ef111-review-manifest.json")"
           echo "scope_id=$SCOPE_ID" >> "$GITHUB_OUTPUT"
           echo "review_scope_id=$SCOPE_ID"

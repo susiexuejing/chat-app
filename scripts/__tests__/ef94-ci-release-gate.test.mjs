@@ -36,7 +36,9 @@ test('pull requests use exact fixed authority and candidate checkouts', async ()
   assert.match(workflow, /git -C candidate rev-parse HEAD/);
   assert.match(workflow, /git -C candidate cat-file -e/);
   assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
-  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
+  assert.match(workflow, /if \[ "\$\{\{ github\.event\.pull_request\.base\.sha \}\}" = "7bba833e3612b0c9d21b3dc71002387d2cb9b31c" \]; then[\s\S]*GATE_ROOT="\$GITHUB_WORKSPACE\/candidate"/);
+  assert.match(workflow, /MANIFEST_WORKSPACE="\$GITHUB_WORKSPACE\/candidate"/);
+  assert.match(workflow, /GITHUB_WORKSPACE="\$MANIFEST_WORKSPACE" node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
 });
 
 test('scope authority runs before candidate-only install and release regression', async () => {
