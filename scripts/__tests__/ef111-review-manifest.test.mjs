@@ -10,7 +10,6 @@ import { createReviewManifest, declaredScopeId, loadScope, resolveLayout } from 
 const BASE = 'a'.repeat(40);
 const HEAD = 'b'.repeat(40);
 const MERGE_BASE = 'c'.repeat(40);
-const BOOTSTRAP_BASE = '7bba833e3612b0c9d21b3dc71002387d2cb9b31c';
 const EF118_HEAD = 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3';
 const LEGACY_PATHS = [
   '.github/workflows/release-gate.yml',
@@ -21,14 +20,6 @@ const LEGACY_PATHS = [
   'scripts/__tests__/ef111-review-manifest.test.mjs',
   'docs/EF-94-ci-release-gate.md',
 ];
-const BOOTSTRAP_PATHS = [
-  '.github/workflows/release-gate.yml',
-  'docs/EF-94-ci-release-gate.md',
-  'scripts/__tests__/ef111-review-manifest.test.mjs',
-  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-  'scripts/ef111-scope.manifest.json',
-  'scripts/review-manifest.mjs',
-];
 const EF118_PATHS = [
   '.github/workflows/deploy-dev.yml',
   'server/src/__tests__/ef118-runtime-audit.test.ts',
@@ -38,11 +29,6 @@ const EF118_PATHS = [
 ];
 const scopeObject = {
   schemaVersion: 3,
-  bootstrap: {
-    id: 'ef-111-bootstrap-7bba833e-exact-six',
-    baseSha: BOOTSTRAP_BASE,
-    allowedPaths: BOOTSTRAP_PATHS,
-  },
   legacyAllowedPaths: LEGACY_PATHS,
   approvedProfiles: [{
     id: 'ef-118-pr-43-f35b3ca', pullRequestNumber: 43, baseRef: 'dev',
@@ -90,48 +76,9 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
     );
     assert.deepEqual(manifest, {
       schemaVersion: 3, eventName, mode: 'single', authoritySha: HEAD,
-      bootstrapBaseSha: null, checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
+      checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
     });
-  }
-});
-
-test('one-time bootstrap passes only the exact old base and exact six-file set', async t => {
-  const { root, file } = await eventFixture({ base: BOOTSTRAP_BASE });
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const layout = { mode: 'bootstrap', authorityRoot: null, candidateRoot: '/single' };
-  const manifest = await createReviewManifest(
-    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
-    optionsFor(file, layout, gitFixture({ candidateRoot: '/single', head: HEAD, changed: BOOTSTRAP_PATHS })),
-  );
-  assert.equal(manifest.mode, 'gate-maintenance-bootstrap');
-  assert.equal(manifest.authoritySha, null);
-  assert.equal(manifest.bootstrapBaseSha, BOOTSTRAP_BASE);
-  assert.equal(manifest.scopeId, 'ef-111-bootstrap-7bba833e-exact-six');
-  assert.deepEqual(manifest.changedPaths, BOOTSTRAP_PATHS);
-});
-
-test('bootstrap rejects a changed base, any declaration, and every non-exact diff', async t => {
-  const variants = [
-    { base: BASE, body: null, changed: BOOTSTRAP_PATHS, error: /base SHA is no longer authorized/ },
-    { base: BOOTSTRAP_BASE, body: 'Review-Scope: ef-118-pr-43-f35b3ca', changed: BOOTSTRAP_PATHS, error: /cannot use a scope declaration/ },
-    { base: BOOTSTRAP_BASE, body: ' review-scope: malformed', changed: BOOTSTRAP_PATHS, error: /scope declaration is malformed/ },
-    { base: BOOTSTRAP_BASE, body: null, changed: BOOTSTRAP_PATHS.slice(0, 5), error: /exact six-file/ },
-    { base: BOOTSTRAP_BASE, body: null, changed: [...BOOTSTRAP_PATHS, LEGACY_PATHS[3]], error: /exact six-file/ },
-    { base: BOOTSTRAP_BASE, body: null, changed: [...BOOTSTRAP_PATHS.slice(0, 5), 'server/src/index.ts'], error: /exact six-file/ },
-    { base: BOOTSTRAP_BASE, body: null, changed: [], error: /no changed paths/ },
-  ];
-  for (const variant of variants) {
-    const { root, file } = await eventFixture({ base: variant.base, body: variant.body });
-    t.after(() => rm(root, { recursive: true, force: true }));
-    await assert.rejects(createReviewManifest(
-      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
-      optionsFor(
-        file,
-        { mode: 'bootstrap', authorityRoot: null, candidateRoot: '/single' },
-        gitFixture({ candidateRoot: '/single', head: HEAD, changed: variant.changed }),
-      ),
-    ), variant.error);
   }
 });
 
@@ -218,6 +165,10 @@ test('fixed production layout rejects partial, symlinked, same, and non-authorit
   t.after(() => rm(root, { recursive: true, force: true }));
   const authority = path.join(root, 'authority');
   const candidate = path.join(root, 'candidate');
+  assert.throws(() => resolveLayout(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKSPACE: root },
+    { scriptRoot: root },
+  ), /requires fixed authority and candidate checkouts/);
   await mkdir(authority);
   assert.throws(() => resolveLayout(
     { GITHUB_EVENT_NAME: 'pull_request', GITHUB_WORKSPACE: `${root}/child/..` },
@@ -253,8 +204,6 @@ test('declarations and repository-controlled scope remain fail-closed', async ()
   const mutations = [
     { ...scopeObject, legacyAllowedPaths: [...LEGACY_PATHS.slice(0, 6), 'client/app/index.tsx'] },
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], allowedPaths: [...EF118_PATHS.slice(0, 4), 'server/src/**'] }] },
-    { ...scopeObject, bootstrap: { ...scopeObject.bootstrap, baseSha: BASE } },
-    { ...scopeObject, bootstrap: { ...scopeObject.bootstrap, allowedPaths: [...BOOTSTRAP_PATHS.slice(0, 5), 'server/src/index.ts'] } },
     { ...scopeObject, unexpected: true },
   ];
   for (const mutation of mutations) {

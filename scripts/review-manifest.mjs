@@ -10,21 +10,11 @@ const SHA = /^[0-9a-f]{40}$/;
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
-const BOOTSTRAP_SCOPE_ID = 'ef-111-bootstrap-7bba833e-exact-six';
-const BOOTSTRAP_BASE_SHA = '7bba833e3612b0c9d21b3dc71002387d2cb9b31c';
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
   'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
-];
-const EXACT_BOOTSTRAP_PATHS = [
-  '.github/workflows/release-gate.yml',
-  'docs/EF-94-ci-release-gate.md',
-  'scripts/__tests__/ef111-review-manifest.test.mjs',
-  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-  'scripts/ef111-scope.manifest.json',
-  'scripts/review-manifest.mjs',
 ];
 const EXACT_APPROVED_PROFILES = [{
   id: 'ef-118-pr-43-f35b3ca',
@@ -97,10 +87,7 @@ export function resolveLayout(env = process.env, options = {}) {
   const authorityExists = existsSync(authorityPath);
   const candidateExists = existsSync(candidatePath);
   if (authorityExists !== candidateExists) fail('partial authority/candidate checkout layout');
-  if (!authorityExists) {
-    if (scriptRoot !== workspace) fail('bootstrap gate must execute from the single checkout');
-    return { mode: 'bootstrap', authorityRoot: null, candidateRoot: workspace };
-  }
+  if (!authorityExists) fail('pull request requires fixed authority and candidate checkouts');
 
   const authorityRoot = safeDirectory(authorityPath, 'authority');
   const candidateRoot = safeDirectory(candidatePath, 'candidate');
@@ -112,14 +99,8 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'bootstrap', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
   if (parsed.schemaVersion !== 3) fail('scope manifest is malformed');
-  exactKeys(parsed.bootstrap, ['id', 'baseSha', 'allowedPaths'], 'bootstrap scope');
-  if (parsed.bootstrap.id !== BOOTSTRAP_SCOPE_ID || parsed.bootstrap.baseSha !== BOOTSTRAP_BASE_SHA) {
-    fail('bootstrap scope identity is malformed');
-  }
-  sha(parsed.bootstrap.baseSha, 'bootstrap baseSha');
-  exactPathList(parsed.bootstrap.allowedPaths, EXACT_BOOTSTRAP_PATHS, 'bootstrap scope paths');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
@@ -136,7 +117,7 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { bootstrap: parsed.bootstrap, legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
+  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
 }
 
 export function declaredScopeId(body) {
@@ -160,13 +141,6 @@ function changedPaths(baseSha, headSha, candidateRoot, git) {
 function verifyAllowedPaths(changed, allowedPaths) {
   for (const entry of changed) if (!allowedPaths.has(entry)) fail(`out-of-scope path: ${entry}`);
 }
-function verifyBootstrapPaths(changed) {
-  if (changed.length !== EXACT_BOOTSTRAP_PATHS.length || new Set(changed).size !== changed.length
-    || changed.some(entry => !EXACT_BOOTSTRAP_PATHS.includes(entry))) {
-    fail('bootstrap diff must equal the exact six-file maintenance set');
-  }
-}
-
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
   const layout = resolveLayout(env, options);
@@ -189,17 +163,6 @@ export async function createReviewManifest(env = process.env, options = {}) {
     if (headSha !== checkedOutSha) fail('pull request head SHA does not match the candidate checkout');
     const { changed, mergeBaseSha } = changedPaths(baseSha, headSha, layout.candidateRoot, git);
 
-    if (layout.mode === 'bootstrap') {
-      if (baseSha !== BOOTSTRAP_BASE_SHA) fail('bootstrap base SHA is no longer authorized');
-      if (declaredScopeId(event?.pull_request?.body) !== null) fail('bootstrap cannot use a scope declaration');
-      await loadScope(options.read ?? readFile);
-      verifyBootstrapPaths(changed);
-      return {
-        schemaVersion: 3, eventName, mode: 'gate-maintenance-bootstrap', authoritySha: null,
-        bootstrapBaseSha: BOOTSTRAP_BASE_SHA, checkedOutSha, baseSha, headSha, mergeBaseSha,
-        prNumber, scopeId: BOOTSTRAP_SCOPE_ID, changedPaths: changed,
-      };
-    }
     if (layout.mode !== 'dual' || !layout.authorityRoot) fail('pull request requires dual checkout authority');
     const authoritySha = sha(git(layout.authorityRoot, ['rev-parse', 'HEAD']), 'authority SHA');
     if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
@@ -221,7 +184,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
     verifyAllowedPaths(changed, allowedPaths);
     return {
       schemaVersion: 3, eventName, mode: 'authority-candidate', authoritySha,
-      bootstrapBaseSha: null, checkedOutSha, baseSha, headSha, mergeBaseSha,
+      checkedOutSha, baseSha, headSha, mergeBaseSha,
       prNumber, scopeId, changedPaths: changed,
     };
   }
@@ -234,7 +197,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
     if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
     return {
       schemaVersion: 3, eventName, mode: 'single', authoritySha: checkedOutSha,
-      bootstrapBaseSha: null, checkedOutSha, baseSha: null, headSha: githubSha,
+      checkedOutSha, baseSha: null, headSha: githubSha,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
     };
   }
