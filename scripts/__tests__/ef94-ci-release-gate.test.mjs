@@ -69,10 +69,11 @@ test('scope manifest preserves exact legacy and EF-118 profile boundaries', asyn
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
   assert.deepEqual(manifest.approvedProfiles, [{
-    id: 'ef-118-pr-43-f35b3ca',
+    id: 'ef-118-pr-43-f35b3ca-clean-merge',
+    kind: 'exact-clean-merge',
     pullRequestNumber: 43,
     baseRef: 'dev',
-    headSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
+    approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
     allowedPaths: [
       '.github/workflows/deploy-dev.yml',
       'server/src/__tests__/ef118-runtime-audit.test.ts',
@@ -102,6 +103,10 @@ test('branch-protection and rollback documentation preserves independent gates',
   assert.match(docs, /No branch protection or ruleset is changed by this PR/);
   assert.match(docs, /EF-111 review manifest/);
   assert.match(docs, /does not require EF-124/);
+  assert.match(docs, /exact first parent `f35b3ca99fd498b13b530c6c2eed305c5f7688c3`/);
+  assert.match(docs, /exact event-base second parent/);
+  assert.match(docs, /`git merge-tree --write-tree`/);
+  assert.match(docs, /Current GitHub API values are never validator inputs/);
 });
 
 test('existing secret scan and deployment checks remain independently named', async () => {

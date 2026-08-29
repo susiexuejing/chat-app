@@ -17,10 +17,11 @@ const EXACT_LEGACY_PATHS = [
   'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
 ];
 const EXACT_APPROVED_PROFILES = [{
-  id: 'ef-118-pr-43-f35b3ca',
+  id: 'ef-118-pr-43-f35b3ca-clean-merge',
+  kind: 'exact-clean-merge',
   pullRequestNumber: 43,
   baseRef: 'dev',
-  headSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
+  approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
   allowedPaths: [
     '.github/workflows/deploy-dev.yml',
     'server/src/__tests__/ef118-runtime-audit.test.ts',
@@ -36,7 +37,12 @@ function sha(value, label) {
   return value;
 }
 function commandAt(root, args, execFile = execFileSync) {
-  try { return String(execFile('git', ['-C', root, ...args], { encoding: 'utf8' })).trim(); }
+  try {
+    return String(execFile('git', ['-C', root, ...args], {
+      encoding: 'utf8',
+      env: { ...process.env, GIT_NO_REPLACE_OBJECTS: '1' },
+    })).trim();
+  }
   catch { fail(`git ${args.join(' ')} failed in ${path.basename(root) || 'workspace'}`); }
 }
 function exactKeys(value, expected, label) {
@@ -108,12 +114,13 @@ export async function loadScope(read = readFile) {
   for (let index = 0; index < EXACT_APPROVED_PROFILES.length; index += 1) {
     const actual = parsed.approvedProfiles[index];
     const expected = EXACT_APPROVED_PROFILES[index];
-    exactKeys(actual, ['id', 'pullRequestNumber', 'baseRef', 'headSha', 'allowedPaths'], 'approved profile');
+    exactKeys(actual, ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths'], 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
-      || actual.baseRef !== expected.baseRef || actual.headSha !== expected.headSha || profiles.has(actual.id)) {
+      || actual.kind !== expected.kind || actual.baseRef !== expected.baseRef
+      || actual.approvedFirstParentSha !== expected.approvedFirstParentSha || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
     }
-    sha(actual.headSha, 'approved profile headSha');
+    sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
@@ -140,6 +147,62 @@ function changedPaths(baseSha, headSha, candidateRoot, git) {
 }
 function verifyAllowedPaths(changed, allowedPaths) {
   for (const entry of changed) if (!allowedPaths.has(entry)) fail(`out-of-scope path: ${entry}`);
+}
+function verifyExactPaths(changed, allowedPaths) {
+  if (changed.length !== allowedPaths.size || new Set(changed).size !== changed.length
+    || changed.some(entry => !allowedPaths.has(entry))) {
+    fail('structural profile requires the exact approved path set');
+  }
+}
+function rawCommitIdentity(raw, headSha) {
+  const lines = raw.split('\n');
+  const treeLines = lines.filter(line => line.startsWith('tree '));
+  const parentLines = lines.filter(line => line.startsWith('parent '));
+  if (treeLines.length !== 1 || parentLines.length !== 2) {
+    fail('structural candidate must contain exactly one tree and two parents');
+  }
+  return {
+    treeSha: sha(treeLines[0].slice(5), `${headSha} tree SHA`),
+    parents: parentLines.map((line, index) => sha(line.slice(7), `${headSha} parent ${index + 1}`)),
+  };
+}
+function verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git }) {
+  if (profile.kind !== 'exact-clean-merge') fail('approved profile kind is unsupported');
+  if (git(candidateRoot, ['rev-parse', '--show-object-format']) !== 'sha1') {
+    fail('structural profile requires the repository sha1 object format');
+  }
+  if (git(candidateRoot, ['replace', '-l']) !== '') fail('replacement refs are forbidden');
+  git(candidateRoot, ['cat-file', '-e', `${profile.approvedFirstParentSha}^{commit}`]);
+
+  const graph = git(candidateRoot, ['rev-list', '--parents', '-n', '1', headSha]).split(/\s+/);
+  if (graph.length !== 3 || graph[0] !== headSha
+    || graph[1] !== profile.approvedFirstParentSha || graph[2] !== baseSha) {
+    fail('structural candidate must have the exact ordered first parent and event-base second parent');
+  }
+  const raw = rawCommitIdentity(git(candidateRoot, ['cat-file', '-p', headSha]), headSha);
+  if (raw.parents[0] !== profile.approvedFirstParentSha || raw.parents[1] !== baseSha) {
+    fail('raw candidate parents do not match the approved structural graph');
+  }
+  if (mergeBaseSha !== baseSha) fail('structural candidate merge-base must equal the event base');
+
+  const candidateTreeSha = sha(git(candidateRoot, ['rev-parse', `${headSha}^{tree}`]), 'candidate tree SHA');
+  if (candidateTreeSha !== raw.treeSha) fail('raw candidate tree does not match the candidate commit');
+  const recomputedTreeSha = sha(
+    git(candidateRoot, ['merge-tree', '--write-tree', profile.approvedFirstParentSha, baseSha]),
+    'recomputed merge tree SHA',
+  );
+  if (git(candidateRoot, ['cat-file', '-t', recomputedTreeSha]) !== 'tree') {
+    fail('recomputed merge object is not a tree');
+  }
+  if (candidateTreeSha !== recomputedTreeSha) fail('candidate tree does not equal the clean recomputed merge tree');
+  verifyExactPaths(changed, profile.allowedPaths);
+  return {
+    kind: profile.kind,
+    approvedFirstParentSha: profile.approvedFirstParentSha,
+    eventBaseSecondParentSha: baseSha,
+    candidateTreeSha,
+    recomputedTreeSha,
+  };
 }
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
@@ -171,21 +234,24 @@ export async function createReviewManifest(env = process.env, options = {}) {
     const requestedScopeId = declaredScopeId(event?.pull_request?.body);
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
+    let structuralProof = null;
     if (requestedScopeId !== null) {
       const profile = scope.profiles.get(requestedScopeId);
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
-      if (profile.pullRequestNumber !== prNumber || profile.baseRef !== baseRef
-        || profile.headSha !== headSha || profile.headSha !== checkedOutSha) {
+      if (profile.pullRequestNumber !== prNumber || profile.baseRef !== baseRef) {
         fail('approved profile does not match PR identity');
       }
       scopeId = profile.id;
       allowedPaths = profile.allowedPaths;
+      structuralProof = verifyStructuralProfile({
+        profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot: layout.candidateRoot, git,
+      });
     }
-    verifyAllowedPaths(changed, allowedPaths);
+    if (structuralProof === null) verifyAllowedPaths(changed, allowedPaths);
     return {
       schemaVersion: 3, eventName, mode: 'authority-candidate', authoritySha,
       checkedOutSha, baseSha, headSha, mergeBaseSha,
-      prNumber, scopeId, changedPaths: changed,
+      prNumber, scopeId, changedPaths: changed, structuralProof,
     };
   }
 
