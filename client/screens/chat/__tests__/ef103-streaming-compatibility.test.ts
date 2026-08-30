@@ -5,6 +5,13 @@ import {
   parseVersionedStreamEvent,
 } from '../api/cozeApi';
 
+jest.mock('../stores/anonymousSession', () => ({
+  getAnonymousRequestOptions: jest.fn(async () => ({
+    credentials: 'include',
+    headers: {},
+  })),
+}));
+
 const timestamp = '2026-08-21T00:00:00.000Z';
 
 function event(eventType: string, sequence: number, payload: Record<string, unknown>): string {
@@ -154,5 +161,10 @@ describe('EF-103 typed stream compatibility', () => {
     expect(onChunk.mock.calls[0][0]).toContain('"eventType":"turn.completed"');
     expect(onError).not.toHaveBeenCalled();
     expect(onDone).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][1]).toEqual(expect.objectContaining({
+      credentials: 'include',
+      headers: {},
+    }));
+    expect(fetchMock.mock.calls[0][1]?.headers).not.toHaveProperty('Origin');
   });
 });

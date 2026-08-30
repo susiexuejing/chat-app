@@ -1547,7 +1547,6 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           snapshot.conversationId,
           snapshot.requestId,
           retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined,
-          installationUserId,
         );
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
@@ -1951,10 +1950,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
-            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal, {
-              userId: installationUserId,
-              conversationId: backendConvId,
-            });
+            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal);
             // Some transports resolve during teardown without invoking a terminal
             // callback. Settle the request so an abandoned Provider cannot leave
             // its send Promise and timeout alive.

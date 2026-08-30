@@ -12,8 +12,13 @@ import { Router } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client';
 import crypto from 'node:crypto';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
+import {
+  getVerifiedAnonymousSession,
+  requireAnonymousSession,
+} from '../security/anonymousSession';
 
 const router = Router();
+router.use(requireAnonymousSession);
 
 type ConversationFailureCode =
   | 'conversation_storage_error'
@@ -40,7 +45,6 @@ function writeSafeInternalError(
 // Types
 interface Conversation {
   id: string;
-  user_id: string;
   role_id: string;
   state: string;
   created_at: number;
@@ -62,11 +66,12 @@ interface Message {
 router.post('/', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_storage_error';
   try {
-    const { userId, roleId } = req.body;
+    const { roleId } = req.body;
+    const owner = getVerifiedAnonymousSession(res);
 
-    if (!userId || !roleId) {
+    if (!roleId) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
-      return res.status(400).json({ error: 'Missing userId or roleId' });
+      return res.status(400).json({ error: 'role_id_required' });
     }
 
     const client = getSupabaseClient();
@@ -77,7 +82,9 @@ router.post('/', async (req, res) => {
       .from('conversations')
       .insert({
         id,
-        user_id: userId,
+        // Keep the legacy non-null column populated from server authority only.
+        user_id: owner.id,
+        owner_session_id: owner.id,
         role_id: roleId,
         state: 'active',
         created_at: now,
@@ -98,7 +105,6 @@ router.post('/', async (req, res) => {
     });
     res.status(201).json({
       id: data.id,
-      userId: data.user_id,
       roleId: data.role_id,
       state: data.state,
       createdAt: data.created_at,
@@ -116,13 +122,15 @@ router.get('/:id', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_lookup_error';
   try {
     const { id } = req.params;
+    const owner = getVerifiedAnonymousSession(res);
     const client = getSupabaseClient();
 
     // Get conversation
     const { data: conversation, error: convError } = await client
       .from('conversations')
-      .select('id, user_id, role_id, state, created_at, updated_at, last_message_at')
+      .select('id, role_id, state, created_at, updated_at, last_message_at')
       .eq('id', id)
+      .eq('owner_session_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -131,7 +139,7 @@ router.get('/:id', async (req, res) => {
     }
     if (!conversation) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'resource_not_found' });
     }
 
     // Get messages
@@ -150,7 +158,6 @@ router.get('/:id', async (req, res) => {
     res.json({
       conversation: {
         id: conversation.id,
-        userId: conversation.user_id,
         roleId: conversation.role_id,
         state: conversation.state,
         createdAt: conversation.created_at,
@@ -178,6 +185,7 @@ router.post('/:id/messages', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_verify_error';
   try {
     const { id } = req.params;
+    const owner = getVerifiedAnonymousSession(res);
     const { role, content, status, requestId } = req.body;
 
     if (!role || content === undefined) {
@@ -192,6 +200,7 @@ router.post('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
+      .eq('owner_session_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -200,7 +209,7 @@ router.post('/:id/messages', async (req, res) => {
     }
     if (!conversation) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'resource_not_found' });
     }
 
     // Idempotency check
@@ -209,6 +218,7 @@ router.post('/:id/messages', async (req, res) => {
         .from('messages')
         .select('id, conversation_id, role, content, status, request_id, timestamp')
         .eq('request_id', requestId)
+        .eq('conversation_id', id)
         .maybeSingle();
 
       if (dupError) {
@@ -257,7 +267,8 @@ router.post('/:id/messages', async (req, res) => {
     const { error: updateError } = await client
       .from('conversations')
       .update({ last_message_at: now, updated_at: now })
-      .eq('id', id);
+      .eq('id', id)
+      .eq('owner_session_id', owner.id);
 
     if (updateError) {
       failureCode = 'conversation_update_error';
@@ -285,6 +296,7 @@ router.get('/:id/messages', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_verify_error';
   try {
     const { id } = req.params;
+    const owner = getVerifiedAnonymousSession(res);
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const before = req.query.before ? parseInt(req.query.before as string) : undefined;
 
@@ -295,6 +307,7 @@ router.get('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
+      .eq('owner_session_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -303,7 +316,7 @@ router.get('/:id/messages', async (req, res) => {
     }
     if (!conversation) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
-      return res.status(404).json({ error: 'Conversation not found' });
+      return res.status(404).json({ error: 'resource_not_found' });
     }
 
     // Build query

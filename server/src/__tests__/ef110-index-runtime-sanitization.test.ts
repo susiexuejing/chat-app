@@ -1,10 +1,41 @@
 import { jest } from '@jest/globals';
 import { readFileSync } from 'node:fs';
+import express from 'express';
 import request from 'supertest';
 import type { ChatSession } from '../index';
 
 const originalApiKey = process.env.DASHSCOPE_API_KEY;
 process.env.DASHSCOPE_API_KEY = 'synthetic-ef110-provider-key';
+
+jest.unstable_mockModule('../security/anonymousSession', () => ({
+  EF75_WEB_ORIGIN: 'https://dev.douhaoyu.cn',
+  requireAnonymousSession: (_req: unknown, res: { locals: Record<string, unknown> }, next: () => void) => {
+    res.locals.anonymousSession = {
+      id: '33333333-3333-4333-8333-333333333333',
+      transport: 'native',
+      expiresAt: Date.now() + 60_000,
+      csrfHash: null,
+    };
+    next();
+  },
+  getVerifiedAnonymousSession: (res: { locals: { anonymousSession: unknown } }) =>
+    res.locals.anonymousSession,
+  authenticateAnonymousRequest: jest.fn(async () => ({
+    ok: true,
+    session: {
+      id: '33333333-3333-4333-8333-333333333333',
+      transport: 'native',
+      expiresAt: Date.now() + 60_000,
+      csrfHash: null,
+    },
+  })),
+  sendAnonymousFailure: jest.fn(),
+  verifyOwnedConversation: jest.fn(async () => 'owned'),
+}));
+
+jest.unstable_mockModule('../routes/anonymousSessions', () => ({
+  default: express.Router(),
+}));
 
 const { app, startDeepAnalysis } = await import('../index');
 const { neuralManager } = await import('../flows/neuralProfileManager');
@@ -37,6 +68,7 @@ function sensitiveError(): Error {
 function makeSession(): ChatSession {
   return {
     sessionId: SENTINELS[0],
+    ownerSessionId: '33333333-3333-4333-8333-333333333333',
     userId: SENTINELS[5],
     roleId: 'clever-fox',
     roleName: 'synthetic-role',

@@ -13,6 +13,7 @@ import {
   getEf77ErrorType,
   isEf77DiagnosticEnabled,
 } from '../utils/ef77Diagnostics';
+import { getAnonymousRequestOptions } from '../stores/anonymousSession';
 
 export interface RetryTransportDiagnostics {
   isRetry: boolean;
@@ -440,17 +441,18 @@ export async function chatStart(
   conversationId?: string,
   requestId?: string,
   diagnostics?: RetryTransportDiagnostics,
-  userId?: string,
 ): Promise<ChatStartResponse> {
   const BASE = getBackendUrl();
   const startedAt = Date.now();
   emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
   let httpStatus: number | null = null;
   try {
+    const auth = await getAnonymousRequestOptions(BASE, 'POST');
     const response = await fetch(`${BASE}/api/v1/chat/start`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ roleId, message, userId, conversationId, requestId }),
+      credentials: auth.credentials,
+      headers: { 'Content-Type': 'application/json', ...auth.headers },
+      body: JSON.stringify({ roleId, message, conversationId, requestId }),
     });
     httpStatus = response.status;
     if (!response.ok) {
@@ -486,7 +488,7 @@ export async function chatStart(
  * @param onChunk - 每段文本回调
  * @param onDone - 流结束回调
  */
-export function chatStream(
+export async function chatStream(
   sessionId: string,
   callbacks: {
     onChunk?: (text: string) => void;
@@ -495,15 +497,12 @@ export function chatStream(
   },
   diagnostics?: RetryTransportDiagnostics,
   signal?: AbortSignal,
-  identity?: { userId: string; conversationId: string },
 ): Promise<void> {
+  const BASE = getBackendUrl();
+  const auth = await getAnonymousRequestOptions(BASE, 'GET');
   return new Promise((resolve, reject) => {
-    const BASE = getBackendUrl();
     const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
-    const identityHeaders = identity ? {
-      'X-EmotionFlow-User-Id': identity.userId,
-      'X-EmotionFlow-Conversation-Id': identity.conversationId,
-    } : undefined;
+    const identityHeaders = auth.headers;
     const requestStartedAt = Date.now();
     const validateSequence = createStreamSequenceValidator();
     emitEf77Trace('stream_request_started', {
@@ -574,7 +573,7 @@ export function chatStream(
 
     // Web 端和 RN 端统一使用 fetch SSE
     if (Platform.OS === 'web') {
-      fetch(url, { signal, headers: identityHeaders })
+      fetch(url, { signal, headers: identityHeaders, credentials: auth.credentials })
         .then(async (response) => {
           emitEf77Trace('stream_response_observed', {
             timestamp: Date.now(),

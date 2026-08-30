@@ -24,6 +24,13 @@ import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
 import { validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations';
+import anonymousSessionsRouter from './routes/anonymousSessions';
+import {
+  authenticateAnonymousRequest,
+  EF75_WEB_ORIGIN,
+  sendAnonymousFailure,
+  verifyOwnedConversation,
+} from './security/anonymousSession';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
 import { writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
@@ -36,7 +43,12 @@ export const app = express();
 const port = process.env.PORT || 9091;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: (origin, callback) => callback(null, origin === EF75_WEB_ORIGIN),
+  credentials: true,
+  methods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client'],
+}));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
@@ -65,6 +77,7 @@ app.get('/api/v1/version', (_req, res) => {
 // ============================================================
 // EF-59: Conversation Persistence API
 // ============================================================
+app.use('/api/v1/anonymous-sessions', anonymousSessionsRouter);
 app.use('/api/v1/conversations', conversationsRouter);
 
 // ============================================================
@@ -86,6 +99,7 @@ writeEf118RuntimeAudit({ dbSessionCategory: 'runtime_started' });
 // ============================================================
 export interface ChatSession {
   sessionId: string;
+  ownerSessionId: string;        // EF-75: verified server-issued anonymous owner
   roleId: string;
   roleName: string;
   userMessage: string;
@@ -794,8 +808,11 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // ============================================================
 app.post('/api/v1/chat/start', async (req, res) => {
   try {
-    const { roleId, message, userId: reqUserId, conversationId } = req.body;
-    const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
+    if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
+
+    const { roleId, message, conversationId } = req.body;
+    const userId = authenticated.session.id;
 
     if (!roleId || !message) {
       writeEf118RuntimeAudit({
@@ -813,6 +830,18 @@ app.post('/api/v1/chat/start', async (req, res) => {
           frontendErrorMappingCategory: 'chat_start_retry',
         });
         return res.status(400).json({ error: 'Invalid conversationId: must be 1-100 alphanumeric/underscore/hyphen characters' });
+      }
+      const ownership = await verifyOwnedConversation(authenticated.session.id, conversationId);
+      if (ownership === 'internal') {
+        writeEf118RuntimeAudit({
+          dbSessionCategory: 'conversation_verify_error',
+          frontendErrorMappingCategory: 'safe_connection_retry',
+        });
+        return res.status(500).json({ error: 'internal_server_error' });
+      }
+      if (ownership === 'missing') {
+        writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
+        return res.status(404).json({ error: 'resource_not_found' });
       }
     }
 
@@ -889,6 +918,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const now = Date.now();
     const session: ChatSession = {
       sessionId,
+      ownerSessionId: authenticated.session.id,
       userId,
       neuralProfile,
       roleId,
@@ -1012,7 +1042,10 @@ app.post('/api/v1/chat/start', async (req, res) => {
 // 前端首选展示 Reaction + Companion 时间线，一旦百炼就绪立即接管
 // 不再固定90秒等待，百炼返回多快接管多快
 // ============================================================
-app.get('/api/v1/chat/stream', (req, res) => {
+app.get('/api/v1/chat/stream', async (req, res) => {
+  const authenticated = await authenticateAnonymousRequest(req);
+  if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
+
   const { sessionId } = req.query;
 
   if (!sessionId || typeof sessionId !== 'string') {
@@ -1025,13 +1058,13 @@ app.get('/api/v1/chat/stream', (req, res) => {
   }
 
   const session = sessions.get(sessionId);
-  if (!session) {
+  if (!session || session.ownerSessionId !== authenticated.session.id) {
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_missing',
       sseCategory: 'not_established',
       frontendErrorMappingCategory: 'safe_connection_retry',
     });
-    return res.status(404).json({ error: 'Session not found or expired' });
+    return res.status(404).json({ error: 'resource_not_found' });
   }
 
   // 设置 SSE 响应头
@@ -1158,29 +1191,6 @@ app.get('/api/v1/chat/stream', (req, res) => {
     } catch (e) {
       // 静默失败，不影响用户体验
     }
-  });
-});
-
-// ============================================================
-// 调试端点：查看会话状态
-// ============================================================
-app.get('/api/v1/debug/last-prompt', (_req, res) => {
-  const sessionList = Array.from(sessions.values()).map(s => ({
-    sessionId: s.sessionId,
-    roleName: s.roleName,
-    emotionTag: s.emotionTag,
-    eventTag: s.eventTag,
-    userMessage: s.userMessage.slice(0, 50),
-    hasFlow: !!s.frontFlowText,
-    deepReady: s.deepDone || (s.deepChunks.length > 0),
-    deepStreaming: s.deepStreaming,
-    deepError: s.deepError,
-    age: Math.floor((Date.now() - s.createdAt) / 1000) + 's',
-  }));
-
-  res.json({
-    sessions: sessionList,
-    totalSessions: sessions.size,
   });
 });
 

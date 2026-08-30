@@ -6,6 +6,13 @@ import {
 } from '../api/cozeApi';
 import { EF77_TRACE_PREFIX } from '../utils/ef77Diagnostics';
 
+jest.mock('../stores/anonymousSession', () => ({
+  getAnonymousRequestOptions: jest.fn(async (_baseUrl: string, method: string) => ({
+    credentials: 'include',
+    headers: method === 'POST' ? { 'X-EF-CSRF': 'csrf-proof' } : {},
+  })),
+}));
+
 const fetchMock = jest.fn();
 (globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 
