@@ -3,6 +3,11 @@ import express from 'express';
 import request from 'supertest';
 
 const getSupabaseClient = jest.fn();
+const IDENTITY_USER_ID = '11111111-1111-4111-8111-111111111111';
+
+function withIdentity(test: request.Test): request.Test {
+  return test.set('X-EmotionFlow-User-Id', IDENTITY_USER_ID);
+}
 
 jest.unstable_mockModule('../storage/database/supabase-client', () => ({
   getSupabaseClient,
@@ -127,7 +132,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
 
     const response = await request(makeApp())
       .post('/api/v1/conversations')
-      .send({ userId: SENTINELS[5], roleId: 'clever-fox' });
+      .send({ userId: IDENTITY_USER_ID, roleId: 'clever-fox' });
 
     expectSafe500(response, 'conversation_storage_error');
   });
@@ -137,8 +142,8 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       maybeSingle: { data: null, error: sensitiveError() },
     }));
 
-    const response = await request(makeApp())
-      .get(`/api/v1/conversations/${SENTINELS[3]}`);
+    const response = await withIdentity(request(makeApp())
+      .get(`/api/v1/conversations/${SENTINELS[3]}`));
 
     expectSafe500(response, 'conversation_lookup_error');
   });
@@ -162,8 +167,8 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { terminal: { data: null, error: sensitiveError() } },
     ));
 
-    const response = await request(makeApp())
-      .get(`/api/v1/conversations/${SENTINELS[3]}`);
+    const response = await withIdentity(request(makeApp())
+      .get(`/api/v1/conversations/${SENTINELS[3]}`));
 
     expectSafe500(response, 'messages_query_error');
   });
@@ -173,9 +178,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       maybeSingle: { data: null, error: sensitiveError() },
     }));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
-      .send({ role: 'user', content: SENTINELS[6] });
+      .send({ role: 'user', content: SENTINELS[6] }));
 
     expectSafe500(response, 'conversation_verify_error');
   });
@@ -186,9 +191,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { maybeSingle: { data: null, error: sensitiveError() } },
     ));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
-      .send({ role: 'user', content: SENTINELS[6], requestId: SENTINELS[2] });
+      .send({ role: 'user', content: SENTINELS[6], requestId: SENTINELS[2] }));
 
     expectSafe500(response, 'idempotency_guard_error');
   });
@@ -199,9 +204,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { single: { data: null, error: sensitiveError() } },
     ));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
-      .send({ role: 'user', content: SENTINELS[6] });
+      .send({ role: 'user', content: SENTINELS[6] }));
 
     expectSafe500(response, 'message_insert_error');
   });
@@ -226,9 +231,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { terminal: { data: null, error: sensitiveError() } },
     ));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
-      .send({ role: 'user', content: SENTINELS[6] });
+      .send({ role: 'user', content: SENTINELS[6] }));
 
     expectSafe500(response, 'conversation_update_error');
   });
@@ -238,8 +243,8 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       maybeSingle: { data: null, error: sensitiveError() },
     }));
 
-    const response = await request(makeApp())
-      .get(`/api/v1/conversations/${SENTINELS[3]}/messages`);
+    const response = await withIdentity(request(makeApp())
+      .get(`/api/v1/conversations/${SENTINELS[3]}/messages`));
 
     expectSafe500(response, 'conversation_verify_error');
   });
@@ -250,8 +255,8 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { terminal: { data: null, error: sensitiveError() } },
     ));
 
-    const response = await request(makeApp())
-      .get(`/api/v1/conversations/${SENTINELS[3]}/messages?limit=10`);
+    const response = await withIdentity(request(makeApp())
+      .get(`/api/v1/conversations/${SENTINELS[3]}/messages?limit=10`));
 
     expectSafe500(response, 'messages_query_error');
   });
@@ -259,7 +264,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
   test('successful create response remains byte-for-byte compatible', async () => {
     const stored = {
       id: 'synthetic-conversation-id',
-      user_id: 'synthetic-user-id',
+      user_id: IDENTITY_USER_ID,
       role_id: 'clever-fox',
       state: 'active',
       created_at: 100,
@@ -270,9 +275,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       single: { data: stored, error: null },
     }));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post('/api/v1/conversations')
-      .send({ userId: stored.user_id, roleId: stored.role_id });
+      .send({ userId: stored.user_id, roleId: stored.role_id }));
 
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
@@ -301,9 +306,9 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       { maybeSingle: { data: existing, error: null } },
     ));
 
-    const response = await request(makeApp())
+    const response = await withIdentity(request(makeApp())
       .post(`/api/v1/conversations/${existing.conversation_id}/messages`)
-      .send({ role: 'user', content: existing.content, requestId: existing.request_id });
+      .send({ role: 'user', content: existing.content, requestId: existing.request_id }));
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({

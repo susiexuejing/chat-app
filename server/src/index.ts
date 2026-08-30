@@ -27,6 +27,8 @@ import conversationsRouter from './routes/conversations';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
 import { writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
+import { readBackendIdentity } from './auth/backendIdentity';
+import { getSupabaseClient } from './storage/database/supabase-client';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -103,6 +105,7 @@ export interface ChatSession {
   deepStreaming: boolean;       // 是否正在流式生成
   deepError: string | null;     // 错误信息
   userId: string;               // 用户标识（用于神经档案）
+  conversationId: string;
   neuralProfile: NeuralProfile; // 当前用户神经状态
   flowResult: FlowResult | null; // Flow System 心理流向分析结果
   flowContext: FlowContext | null; // Step1: 结构化 FlowContext（用于 Deep prompt）
@@ -795,25 +798,47 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 app.post('/api/v1/chat/start', async (req, res) => {
   try {
     const { roleId, message, userId: reqUserId, conversationId } = req.body;
-    const userId = reqUserId || `anon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const identityResult = readBackendIdentity(req, { bodyUserId: reqUserId });
 
-    if (!roleId || !message) {
+    if ('failure' in identityResult) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid', frontendErrorMappingCategory: 'chat_start_retry' });
+      return res.status(401).json({ error: 'invalid_identity_context' });
+    }
+    const userId = identityResult.identity.userId;
+
+    if (!roleId || !message || !conversationId) {
       writeEf118RuntimeAudit({
         dbSessionCategory: 'request_invalid',
         frontendErrorMappingCategory: 'chat_start_retry',
       });
-      return res.status(400).json({ error: 'roleId and message are required' });
+      return res.status(400).json({ error: 'roleId, message, userId, and conversationId are required' });
     }
 
     // EM-43: 验证 conversationId 格式
     if (conversationId !== undefined) {
-      if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(conversationId)) {
+      if (typeof conversationId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) {
         writeEf118RuntimeAudit({
           dbSessionCategory: 'request_invalid',
           frontendErrorMappingCategory: 'chat_start_retry',
         });
-        return res.status(400).json({ error: 'Invalid conversationId: must be 1-100 alphanumeric/underscore/hyphen characters' });
+        return res.status(400).json({ error: 'Invalid conversationId' });
       }
+    }
+
+    const client = getSupabaseClient();
+    const { data: ownedConversation, error: conversationError } = await client
+      .from('conversations')
+      .select('id')
+      .eq('id', conversationId)
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (conversationError) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_verify_error', frontendErrorMappingCategory: 'chat_start_retry' });
+      return res.status(500).json({ error: 'internal_server_error', code: 'conversation_verify_error', retryable: true });
+    }
+    if (!ownedConversation) {
+      writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found', frontendErrorMappingCategory: 'chat_start_retry' });
+      return res.status(404).json({ error: 'Conversation not found' });
     }
 
     // EM-43: 递增会话轮数（幂等，支持 requestId）
@@ -890,6 +915,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const session: ChatSession = {
       sessionId,
       userId,
+      conversationId,
       neuralProfile,
       roleId,
       roleName,
@@ -1026,6 +1052,12 @@ app.get('/api/v1/chat/stream', (req, res) => {
     return res.status(400).json({ error: 'sessionId is required' });
   }
 
+  const identityResult = readBackendIdentity(req, { requireConversationHeader: true });
+  if ('failure' in identityResult) {
+    writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid', sseCategory: 'not_established' });
+    return res.status(401).json({ error: 'invalid_identity_context' });
+  }
+
   const session = sessions.get(sessionId);
   if (!session) {
     writeEf118RuntimeAudit({
@@ -1033,6 +1065,11 @@ app.get('/api/v1/chat/stream', (req, res) => {
       sseCategory: 'not_established',
       frontendErrorMappingCategory: 'safe_connection_retry',
     });
+    return res.status(404).json({ error: 'Session not found or expired' });
+  }
+
+  if (session.userId !== identityResult.identity.userId || session.conversationId !== identityResult.identity.conversationId) {
+    writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid', sseCategory: 'not_established' });
     return res.status(404).json({ error: 'Session not found or expired' });
   }
 
@@ -1166,8 +1203,10 @@ app.get('/api/v1/chat/stream', (req, res) => {
 // ============================================================
 // 调试端点：查看会话状态
 // ============================================================
-app.get('/api/v1/debug/last-prompt', (_req, res) => {
-  const sessionList = Array.from(sessions.values()).map(s => ({
+app.get('/api/v1/debug/last-prompt', (req, res) => {
+  const identityResult = readBackendIdentity(req);
+  if ('failure' in identityResult) return res.status(401).json({ error: 'invalid_identity_context' });
+  const sessionList = Array.from(sessions.values()).filter(s => s.userId === identityResult.identity.userId).map(s => ({
     sessionId: s.sessionId,
     roleName: s.roleName,
     emotionTag: s.emotionTag,

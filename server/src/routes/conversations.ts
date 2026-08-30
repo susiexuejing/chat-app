@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client';
 import crypto from 'node:crypto';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
+import { readBackendIdentity } from '../auth/backendIdentity';
 
 const router = Router();
 
@@ -37,6 +38,11 @@ function writeSafeInternalError(
     code,
     retryable: true,
   });
+}
+
+function rejectIdentity(res: { status: (status: number) => { json: (body: unknown) => unknown } }): unknown {
+  writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
+  return res.status(401).json({ error: 'invalid_identity_context' });
 }
 
 // Types
@@ -66,6 +72,9 @@ router.post('/', async (req, res) => {
   try {
     const { userId, roleId } = req.body;
 
+    const identityResult = readBackendIdentity(req, { bodyUserId: userId });
+    if ('failure' in identityResult) return rejectIdentity(res);
+
     if (!userId || !roleId) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
       return res.status(400).json({ error: 'Missing userId or roleId' });
@@ -79,7 +88,7 @@ router.post('/', async (req, res) => {
       .from('conversations')
       .insert({
         id,
-        user_id: userId,
+        user_id: identityResult.identity.userId,
         role_id: roleId,
         state: 'active',
         created_at: now,
@@ -118,6 +127,8 @@ router.get('/:id', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_lookup_error';
   try {
     const { id } = req.params;
+    const identityResult = readBackendIdentity(req);
+    if ('failure' in identityResult) return rejectIdentity(res);
     const client = getSupabaseClient();
 
     // Get conversation
@@ -125,6 +136,7 @@ router.get('/:id', async (req, res) => {
       .from('conversations')
       .select('id, user_id, role_id, state, created_at, updated_at, last_message_at')
       .eq('id', id)
+      .eq('user_id', identityResult.identity.userId)
       .maybeSingle();
 
     if (convError) {
@@ -181,6 +193,8 @@ router.post('/:id/messages', async (req, res) => {
   try {
     const { id } = req.params;
     const { role, content, status, requestId } = req.body;
+    const identityResult = readBackendIdentity(req);
+    if ('failure' in identityResult) return rejectIdentity(res);
 
     if (!role || content === undefined) {
       writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
@@ -194,6 +208,7 @@ router.post('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
+      .eq('user_id', identityResult.identity.userId)
       .maybeSingle();
 
     if (convError) {
@@ -211,6 +226,7 @@ router.post('/:id/messages', async (req, res) => {
         .from('messages')
         .select('id, conversation_id, role, content, status, request_id, timestamp')
         .eq('request_id', requestId)
+        .eq('conversation_id', id)
         .maybeSingle();
 
       if (dupError) {
@@ -287,6 +303,8 @@ router.get('/:id/messages', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_verify_error';
   try {
     const { id } = req.params;
+    const identityResult = readBackendIdentity(req);
+    if ('failure' in identityResult) return rejectIdentity(res);
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const before = req.query.before ? parseInt(req.query.before as string) : undefined;
 
@@ -297,6 +315,7 @@ router.get('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
+      .eq('user_id', identityResult.identity.userId)
       .maybeSingle();
 
     if (convError) {
