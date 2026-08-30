@@ -23,6 +23,19 @@
         "server/src/observability/ef118RuntimeAudit.ts",
         "server/src/routes/conversations.ts"
       ]
+    },
+    {
+      "id": "ef-110-pr-48-b0a5c6f-clean-merge",
+      "kind": "exact-clean-merge",
+      "pullRequestNumber": 48,
+      "baseRef": "dev",
+      "approvedFirstParentSha": "b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874",
+      "allowedPaths": [
+        "server/src/index.ts",
+        "server/src/routes/conversations.ts",
+        "server/src/__tests__/ef110-index-runtime-sanitization.test.ts",
+        "server/src/__tests__/ef110-security-sanitization.test.ts"
+      ]
     }
   ]
 }
