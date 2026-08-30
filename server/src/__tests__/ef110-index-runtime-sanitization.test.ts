@@ -6,6 +6,20 @@ import type { ChatSession } from '../index';
 const originalApiKey = process.env.DASHSCOPE_API_KEY;
 process.env.DASHSCOPE_API_KEY = 'synthetic-ef110-provider-key';
 
+const getSupabaseClient = jest.fn(() => ({
+  from: jest.fn(() => ({
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          maybeSingle: jest.fn(async () => ({ data: { id: '22222222-2222-4222-8222-222222222222' }, error: null })),
+        })),
+      })),
+    })),
+  })),
+}));
+
+jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
+
 const { app, startDeepAnalysis } = await import('../index');
 const { neuralManager } = await import('../flows/neuralProfileManager');
 
@@ -27,6 +41,7 @@ const SENTINELS = [
   '/private/path/sentinel-110',
   'STACK-SENTINEL-110',
 ] as const;
+const IDENTITY_CONVERSATION_ID = '22222222-2222-4222-8222-222222222222';
 
 function sensitiveError(): Error {
   const error = new Error(SENTINELS.join(' '));
@@ -37,7 +52,8 @@ function sensitiveError(): Error {
 function makeSession(): ChatSession {
   return {
     sessionId: SENTINELS[0],
-    userId: SENTINELS[5],
+    userId: '11111111-1111-4111-8111-111111111111',
+    conversationId: IDENTITY_CONVERSATION_ID,
     roleId: 'clever-fox',
     roleName: 'synthetic-role',
     userMessage: SENTINELS[6],
@@ -55,7 +71,8 @@ function makeSession(): ChatSession {
     deepStreaming: false,
     deepError: null,
     neuralProfile: {
-      userId: SENTINELS[5],
+      userId: '11111111-1111-4111-8111-111111111111',
+      conversationId: IDENTITY_CONVERSATION_ID,
       roleId: 'clever-fox',
       attentionBias: 'default',
       valueBias: 'default',
@@ -163,12 +180,15 @@ describe('EF-110 index production-path sanitization', () => {
       .send({
         roleId: 'clever-fox',
         message: SENTINELS[6],
-        userId: SENTINELS[5],
+        userId: '11111111-1111-4111-8111-111111111111',
+        conversationId: IDENTITY_CONVERSATION_ID,
       });
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({
       error: 'internal_server_error',
+      code: 'chat_start_processing_failed',
+      retryable: true,
     });
     expectNoSensitiveData(response.body);
     expect(consoleError).toHaveBeenCalledWith(
