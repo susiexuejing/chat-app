@@ -15,6 +15,8 @@ const TREE = 'd'.repeat(40);
 const STRUCTURAL_SCOPE = 'ef-118-pr-43-f35b3ca-clean-merge';
 const EF110_HEAD = 'b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874';
 const EF110_SCOPE = 'ef-110-pr-48-b0a5c6f-clean-merge';
+const EF75_HEAD = 'b651b0505b236c20e2c32f8d7dadc444865b66a7';
+const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -39,6 +41,35 @@ const EF110_PATHS = [
   'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
   'server/src/__tests__/ef110-security-sanitization.test.ts',
 ];
+const EF75_PATHS = [
+  'client/app.config.ts',
+  'client/package.json',
+  'client/screens/chat/__tests__/chatStart.test.ts',
+  'client/screens/chat/__tests__/ef102-rn-terminal-close.test.ts',
+  'client/screens/chat/__tests__/ef103-streaming-compatibility.test.ts',
+  'client/screens/chat/__tests__/ef105-api-identity.test.ts',
+  'client/screens/chat/__tests__/ef38-retry-transport-diagnostics.test.ts',
+  'client/screens/chat/__tests__/ef75-native-secure-session.test.ts',
+  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+  'client/screens/chat/__tests__/ef75-web-cookie-session.test.ts',
+  'client/screens/chat/api/cozeApi.ts',
+  'client/screens/chat/contexts/ChatContext.tsx',
+  'client/screens/chat/stores/anonymousSession.ts',
+  'client/screens/chat/stores/sessionStore.ts',
+  'pnpm-lock.yaml',
+  'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
+  'server/src/__tests__/ef110-security-sanitization.test.ts',
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/__tests__/ef75-web-session-security.test.ts',
+  'server/src/index.ts',
+  'server/src/routes/anonymousSessions.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/migrations/003_create_anonymous_sessions.sql',
+  'server/src/storage/database/shared/schema.ts',
+];
 const scopeObject = {
   schemaVersion: 3,
   legacyAllowedPaths: LEGACY_PATHS,
@@ -50,6 +81,10 @@ const scopeObject = {
     {
       id: EF110_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 48, baseRef: 'dev',
       approvedFirstParentSha: EF110_HEAD, allowedPaths: EF110_PATHS,
+    },
+    {
+      id: EF75_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 52, baseRef: 'dev',
+      approvedFirstParentSha: EF75_HEAD, allowedPaths: EF75_PATHS,
     },
   ],
 };
@@ -212,6 +247,55 @@ test('EF-110 profile rejects direct F0, wrong PR, and missing or extra paths', a
           firstParent: EF110_HEAD,
           graphParents: entry.head === EF110_HEAD ? [BASE] : [EF110_HEAD, BASE],
           rawParents: [EF110_HEAD, BASE],
+          changed: entry.changed,
+        })),
+    ), entry.error);
+  }
+});
+
+test('dual mode accepts only the exact clean-merge EF-75 PR 52 graph, tree, and paths', async t => {
+  const { root, file } = await eventFixture({
+    number: 52, head: HEAD, body: `Review-Scope: ${EF75_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, structuralGitFixture({
+      firstParent: EF75_HEAD,
+      graphParents: [EF75_HEAD, BASE],
+      rawParents: [EF75_HEAD, BASE],
+      changed: EF75_PATHS,
+    })),
+  );
+  assert.equal(manifest.scopeId, EF75_SCOPE);
+  assert.deepEqual(manifest.changedPaths, EF75_PATHS);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'exact-clean-merge', approvedFirstParentSha: EF75_HEAD,
+    eventBaseSecondParentSha: BASE, candidateTreeSha: TREE, recomputedTreeSha: TREE,
+  });
+});
+
+test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {
+  const cases = [
+    { number: 52, head: EF75_HEAD, changed: EF75_PATHS, error: /exact ordered first parent/ },
+    { number: 53, head: HEAD, changed: EF75_PATHS, error: /profile does not match/ },
+    { number: 52, head: HEAD, changed: EF75_PATHS.slice(0, 26), error: /exact approved path set/ },
+    { number: 52, head: HEAD, changed: [...EF75_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({
+      number: entry.number, head: entry.head, body: `Review-Scope: ${EF75_SCOPE}`,
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        structuralGitFixture({
+          head: entry.head,
+          firstParent: EF75_HEAD,
+          graphParents: entry.head === EF75_HEAD ? [BASE] : [EF75_HEAD, BASE],
+          rawParents: [EF75_HEAD, BASE],
           changed: entry.changed,
         })),
     ), entry.error);
