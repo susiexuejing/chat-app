@@ -13,6 +13,8 @@ const MERGE_BASE = 'c'.repeat(40);
 const EF118_HEAD = 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3';
 const TREE = 'd'.repeat(40);
 const STRUCTURAL_SCOPE = 'ef-118-pr-43-f35b3ca-clean-merge';
+const EF110_HEAD = 'b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874';
+const EF110_SCOPE = 'ef-110-pr-48-b0a5c6f-clean-merge';
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -31,13 +33,25 @@ const EF118_PATHS = [
   'server/src/observability/ef118RuntimeAudit.ts',
   'server/src/routes/conversations.ts',
 ];
+const EF110_PATHS = [
+  'server/src/index.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
+  'server/src/__tests__/ef110-security-sanitization.test.ts',
+];
 const scopeObject = {
   schemaVersion: 3,
   legacyAllowedPaths: LEGACY_PATHS,
-  approvedProfiles: [{
-    id: STRUCTURAL_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 43, baseRef: 'dev',
-    approvedFirstParentSha: EF118_HEAD, allowedPaths: EF118_PATHS,
-  }],
+  approvedProfiles: [
+    {
+      id: STRUCTURAL_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 43, baseRef: 'dev',
+      approvedFirstParentSha: EF118_HEAD, allowedPaths: EF118_PATHS,
+    },
+    {
+      id: EF110_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 48, baseRef: 'dev',
+      approvedFirstParentSha: EF110_HEAD, allowedPaths: EF110_PATHS,
+    },
+  ],
 };
 const scope = JSON.stringify(scopeObject);
 
@@ -153,6 +167,55 @@ test('dual mode accepts only the exact clean-merge EF-118 graph, tree, and paths
     kind: 'exact-clean-merge', approvedFirstParentSha: EF118_HEAD,
     eventBaseSecondParentSha: BASE, candidateTreeSha: TREE, recomputedTreeSha: TREE,
   });
+});
+
+test('dual mode accepts only the exact clean-merge EF-110 PR 48 graph, tree, and paths', async t => {
+  const { root, file } = await eventFixture({
+    number: 48, head: HEAD, body: `Review-Scope: ${EF110_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, structuralGitFixture({
+      firstParent: EF110_HEAD,
+      graphParents: [EF110_HEAD, BASE],
+      rawParents: [EF110_HEAD, BASE],
+      changed: EF110_PATHS,
+    })),
+  );
+  assert.equal(manifest.scopeId, EF110_SCOPE);
+  assert.deepEqual(manifest.changedPaths, EF110_PATHS);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'exact-clean-merge', approvedFirstParentSha: EF110_HEAD,
+    eventBaseSecondParentSha: BASE, candidateTreeSha: TREE, recomputedTreeSha: TREE,
+  });
+});
+
+test('EF-110 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {
+  const cases = [
+    { number: 48, head: EF110_HEAD, changed: EF110_PATHS, error: /exact ordered first parent/ },
+    { number: 49, head: HEAD, changed: EF110_PATHS, error: /profile does not match/ },
+    { number: 48, head: HEAD, changed: EF110_PATHS.slice(0, 3), error: /exact approved path set/ },
+    { number: 48, head: HEAD, changed: [...EF110_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({
+      number: entry.number, head: entry.head, body: `Review-Scope: ${EF110_SCOPE}`,
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        structuralGitFixture({
+          head: entry.head,
+          firstParent: EF110_HEAD,
+          graphParents: entry.head === EF110_HEAD ? [BASE] : [EF110_HEAD, BASE],
+          rawParents: [EF110_HEAD, BASE],
+          changed: entry.changed,
+        })),
+    ), entry.error);
+  }
 });
 
 test('dual mode rejects authority, head, PR, and exact structural path mismatch', async t => {
@@ -344,6 +407,7 @@ test('declarations and repository-controlled scope remain fail-closed', async ()
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], kind: 'ancestor-range' }] },
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], approvedFirstParentSha: HEAD }] },
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], headSha: HEAD }] },
+    { ...scopeObject, approvedProfiles: [...scopeObject.approvedProfiles, scopeObject.approvedProfiles[1]] },
     { ...scopeObject, unexpected: true },
   ];
   for (const mutation of mutations) {
