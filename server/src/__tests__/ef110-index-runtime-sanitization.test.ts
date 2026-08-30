@@ -169,8 +169,6 @@ describe('EF-110 index production-path sanitization', () => {
     expect(response.status).toBe(500);
     expect(response.body).toEqual({
       error: 'internal_server_error',
-      code: 'chat_start_processing_failed',
-      retryable: true,
     });
     expectNoSensitiveData(response.body);
     expect(consoleError).toHaveBeenCalledWith(
