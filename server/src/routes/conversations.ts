@@ -34,8 +34,6 @@ function writeSafeInternalError(
   });
   return res.status(500).json({
     error: 'internal_server_error',
-    code,
-    retryable: true,
   });
 }
 

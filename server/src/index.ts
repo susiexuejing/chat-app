@@ -1002,8 +1002,6 @@ app.post('/api/v1/chat/start', async (req, res) => {
     });
     res.status(500).json({
       error: 'internal_server_error',
-      code: 'chat_start_processing_failed',
-      retryable: true,
     });
   }
 });

@@ -86,12 +86,10 @@ function expectNoSensitiveData(value: unknown): void {
   }
 }
 
-function expectSafe500(response: request.Response, code: string): void {
+function expectSafe500(response: request.Response): void {
   expect(response.status).toBe(500);
   expect(response.body).toEqual({
     error: 'internal_server_error',
-    code,
-    retryable: true,
   });
   expectNoSensitiveData(response.body);
 }
@@ -129,7 +127,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       .post('/api/v1/conversations')
       .send({ userId: SENTINELS[5], roleId: 'clever-fox' });
 
-    expectSafe500(response, 'conversation_storage_error');
+    expectSafe500(response);
   });
 
   test('conversation lookup failure is generic and diagnosable', async () => {
@@ -140,7 +138,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     const response = await request(makeApp())
       .get(`/api/v1/conversations/${SENTINELS[3]}`);
 
-    expectSafe500(response, 'conversation_lookup_error');
+    expectSafe500(response);
   });
 
   test('conversation message-query failure is generic and diagnosable', async () => {
@@ -165,7 +163,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     const response = await request(makeApp())
       .get(`/api/v1/conversations/${SENTINELS[3]}`);
 
-    expectSafe500(response, 'messages_query_error');
+    expectSafe500(response);
   });
 
   test('message conversation-verification failure is generic and diagnosable', async () => {
@@ -177,7 +175,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
       .send({ role: 'user', content: SENTINELS[6] });
 
-    expectSafe500(response, 'conversation_verify_error');
+    expectSafe500(response);
   });
 
   test('idempotency guard failure is generic and diagnosable', async () => {
@@ -190,7 +188,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
       .send({ role: 'user', content: SENTINELS[6], requestId: SENTINELS[2] });
 
-    expectSafe500(response, 'idempotency_guard_error');
+    expectSafe500(response);
   });
 
   test('message insert failure is generic and diagnosable', async () => {
@@ -203,7 +201,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
       .send({ role: 'user', content: SENTINELS[6] });
 
-    expectSafe500(response, 'message_insert_error');
+    expectSafe500(response);
   });
 
   test('conversation update failure is generic and diagnosable', async () => {
@@ -230,7 +228,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
       .post(`/api/v1/conversations/${SENTINELS[3]}/messages`)
       .send({ role: 'user', content: SENTINELS[6] });
 
-    expectSafe500(response, 'conversation_update_error');
+    expectSafe500(response);
   });
 
   test('paginated message verification failure is generic and diagnosable', async () => {
@@ -241,7 +239,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     const response = await request(makeApp())
       .get(`/api/v1/conversations/${SENTINELS[3]}/messages`);
 
-    expectSafe500(response, 'conversation_verify_error');
+    expectSafe500(response);
   });
 
   test('paginated message-query failure is generic and diagnosable', async () => {
@@ -253,7 +251,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     const response = await request(makeApp())
       .get(`/api/v1/conversations/${SENTINELS[3]}/messages?limit=10`);
 
-    expectSafe500(response, 'messages_query_error');
+    expectSafe500(response);
   });
 
   test('successful create response remains byte-for-byte compatible', async () => {
