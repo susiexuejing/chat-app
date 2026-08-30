@@ -8,12 +8,36 @@ export const healthCheck = pgTable("health_check", {
 	updatedAt: timestamp("updated_at", { withTimezone: true, mode: 'string' }).defaultNow(),
 });
 
+// EF-75: Opaque, server-issued anonymous credentials. Only credential hashes
+// are persisted; the raw token is returned once to the supported transport.
+export const anonymousSessions = pgTable(
+  "anonymous_sessions",
+  {
+    id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+    credential_hash: varchar("credential_hash", { length: 64 }).notNull().unique(),
+    transport: varchar("transport", { length: 8 }).notNull(),
+    csrf_hash: varchar("csrf_hash", { length: 64 }),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    expires_at: bigint("expires_at", { mode: "number" }).notNull(),
+    revoked_at: bigint("revoked_at", { mode: "number" }),
+  },
+  (table) => [
+    index("anonymous_sessions_active_idx").on(
+      table.credential_hash,
+      table.transport,
+      table.expires_at,
+    ),
+  ],
+);
+
 // EF-59: Conversations table
 export const conversations = pgTable(
   "conversations",
   {
     id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
     user_id: varchar("user_id", { length: 36 }).notNull(),
+    owner_session_id: varchar("owner_session_id", { length: 36 })
+      .references(() => anonymousSessions.id, { onDelete: "restrict" }),
     role_id: varchar("role_id", { length: 100 }).notNull(),
     state: varchar("state", { length: 20 }).notNull().default("active"),
     created_at: bigint("created_at", { mode: "number" }).notNull(),
@@ -24,6 +48,7 @@ export const conversations = pgTable(
     index("conversations_user_id_idx").on(table.user_id),
     index("conversations_user_state_idx").on(table.user_id, table.state),
     index("conversations_last_message_idx").on(table.user_id, table.last_message_at),
+    index("conversations_owner_session_id_idx").on(table.owner_session_id, table.id),
   ]
 );
 

@@ -8,6 +8,21 @@ jest.unstable_mockModule('../storage/database/supabase-client', () => ({
   getSupabaseClient,
 }));
 
+const VERIFIED_OWNER_ID = '33333333-3333-4333-8333-333333333333';
+jest.unstable_mockModule('../security/anonymousSession', () => ({
+  requireAnonymousSession: (_req: unknown, res: { locals: Record<string, unknown> }, next: () => void) => {
+    res.locals.anonymousSession = {
+      id: VERIFIED_OWNER_ID,
+      transport: 'native',
+      expiresAt: Date.now() + 60_000,
+      csrfHash: null,
+    };
+    next();
+  },
+  getVerifiedAnonymousSession: (res: { locals: { anonymousSession: unknown } }) =>
+    res.locals.anonymousSession,
+}));
+
 const { default: conversationsRouter } = await import('../routes/conversations');
 
 type QueryResult = { data: unknown; error: unknown };
@@ -254,7 +269,7 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     expectSafe500(response);
   });
 
-  test('successful create response remains byte-for-byte compatible', async () => {
+  test('successful create response omits the internal owner identity', async () => {
     const stored = {
       id: 'synthetic-conversation-id',
       user_id: 'synthetic-user-id',
@@ -275,7 +290,6 @@ describe('EF-110 conversation HTTP failure serialization', () => {
     expect(response.status).toBe(201);
     expect(response.body).toEqual({
       id: stored.id,
-      userId: stored.user_id,
       roleId: stored.role_id,
       state: stored.state,
       createdAt: stored.created_at,

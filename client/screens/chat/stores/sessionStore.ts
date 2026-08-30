@@ -11,6 +11,7 @@ import {
   attributedSetItem,
   Ef77WriteAttribution,
 } from '../utils/ef77Diagnostics';
+import { getAnonymousRequestOptions } from './anonymousSession';
 
 const STORAGE_KEY = 'chat_sessions';
 
@@ -221,22 +222,24 @@ export interface PersistedMessage {
 
 // EF-59: 创建对话（如果不存在）
 export async function createConversation(
-  userId: string,
+  _userId: string,
   roleId: string
 ): Promise<{ id: string } | null> {
   const baseUrl = getBackendBaseUrl();
   if (!baseUrl) return null;
 
   try {
+    const auth = await getAnonymousRequestOptions(baseUrl, 'POST');
     const response = await fetch(`${baseUrl}/api/v1/conversations`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, roleId }),
+      credentials: auth.credentials,
+      headers: { 'Content-Type': 'application/json', ...auth.headers },
+      body: JSON.stringify({ roleId }),
     });
     if (!response.ok) return null;
     return await response.json();
-  } catch (error) {
-    console.error('[EF-59] createConversation failed:', error);
+  } catch {
+    console.error('[EF-75] Conversation creation unavailable', { code: 'anonymous_session_unavailable' });
     return null;
   }
 }
@@ -255,18 +258,20 @@ export async function persistMessage(
   if (!baseUrl) return null;
 
   try {
+    const auth = await getAnonymousRequestOptions(baseUrl, 'POST');
     const response = await fetch(
       `${baseUrl}/api/v1/conversations/${conversationId}/messages`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: auth.credentials,
+        headers: { 'Content-Type': 'application/json', ...auth.headers },
         body: JSON.stringify(message),
       }
     );
     if (!response.ok) return null;
     return await response.json();
-  } catch (error) {
-    console.error('[EF-59] persistMessage failed:', error);
+  } catch {
+    console.error('[EF-75] Message persistence unavailable', { code: 'anonymous_session_unavailable' });
     return null;
   }
 }
@@ -279,11 +284,15 @@ export async function fetchConversation(
   if (!baseUrl) return null;
 
   try {
-    const response = await fetch(`${baseUrl}/api/v1/conversations/${conversationId}`);
+    const auth = await getAnonymousRequestOptions(baseUrl, 'GET');
+    const response = await fetch(`${baseUrl}/api/v1/conversations/${conversationId}`, {
+      credentials: auth.credentials,
+      headers: auth.headers,
+    });
     if (!response.ok) return null;
     return await response.json();
-  } catch (error) {
-    console.error('[EF-59] fetchConversation failed:', error);
+  } catch {
+    console.error('[EF-75] Conversation hydration unavailable', { code: 'anonymous_session_unavailable' });
     return null;
   }
 }

@@ -1,6 +1,13 @@
 import { Platform } from 'react-native';
 import { chatStream } from '../api/cozeApi';
 
+const NATIVE_BEARER = 'Bearer native-securestore-fixture';
+jest.mock('../stores/anonymousSession', () => ({
+  getAnonymousRequestOptions: jest.fn(async () => ({
+    headers: { Authorization: NATIVE_BEARER },
+  })),
+}));
+
 class FakeXMLHttpRequest {
   static readonly LOADING = 3;
   static readonly DONE = 4;
@@ -206,8 +213,6 @@ describe.each<Scenario>(['success', 'error', 'timeout'])('EF-102 RN terminal clo
     const onDone = jest.fn(() => {
       expect(observedTypes.at(-1)).toBe(scenario === 'success' ? 'turn.completed' : 'error');
     });
-    const userId = '11111111-1111-4111-8111-111111111111';
-    const conversationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     const stream = chatStream('session-1', {
       onChunk: data => {
         const event = JSON.parse(data) as { eventType: string; content?: string; code?: string };
@@ -216,20 +221,19 @@ describe.each<Scenario>(['success', 'error', 'timeout'])('EF-102 RN terminal clo
         if (event.code) observedCodes.push(event.code);
       },
       onDone,
-    }, undefined, undefined, { userId, conversationId });
+    });
 
     await jest.advanceTimersByTimeAsync(500);
     await stream;
     await jest.advanceTimersByTimeAsync(6_000);
 
     expect(FakeXMLHttpRequest.instances).toHaveLength(1);
-    expect(ReactNativeSseHarness.lastUrl).not.toContain(userId);
-    expect(ReactNativeSseHarness.lastUrl).not.toContain(conversationId);
     expect(ReactNativeSseHarness.lastOptions?.headers).toEqual({
       Accept: 'text/event-stream',
-      'X-EmotionFlow-User-Id': userId,
-      'X-EmotionFlow-Conversation-Id': conversationId,
+      Authorization: NATIVE_BEARER,
     });
+    expect(ReactNativeSseHarness.lastOptions?.headers).not.toHaveProperty('X-EmotionFlow-User-Id');
+    expect(ReactNativeSseHarness.lastOptions?.headers).not.toHaveProperty('X-EmotionFlow-Conversation-Id');
     expect(FakeXMLHttpRequest.instances[0].abortCount).toBe(1);
     expect(onDone).toHaveBeenCalledTimes(1);
     expect(observedTypes).toEqual(scenario === 'success'

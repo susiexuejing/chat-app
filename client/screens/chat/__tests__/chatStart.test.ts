@@ -7,6 +7,13 @@
 
 import { chatStart } from '../api/cozeApi';
 
+jest.mock('../stores/anonymousSession', () => ({
+  getAnonymousRequestOptions: jest.fn(async () => ({
+    credentials: 'include',
+    headers: { 'X-EF-CSRF': 'csrf-proof' },
+  })),
+}));
+
 // Mock global fetch
 const mockFetch = jest.fn();
 (globalThis as any).fetch = mockFetch;
@@ -45,6 +52,8 @@ describe('EM-43: chatStart serialization', () => {
     
     const callArgs = mockFetch.mock.calls[0];
     expect(callArgs[1].headers['Content-Type']).toBe('application/json');
+    expect(callArgs[1].headers['X-EF-CSRF']).toBe('csrf-proof');
+    expect(callArgs[1].credentials).toBe('include');
   });
 
   it('sends roleId in request body', async () => {
@@ -91,5 +100,7 @@ describe('EM-43: chatStart serialization', () => {
       conversationId: 'conv-xyz',
       requestId: 'req-123',
     });
+    expect(JSON.stringify(callArgs)).not.toContain('X-EmotionFlow-User-Id');
+    expect(JSON.stringify(callArgs)).not.toContain('X-EmotionFlow-Conversation-Id');
   });
 });
