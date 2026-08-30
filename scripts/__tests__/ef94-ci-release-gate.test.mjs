@@ -61,27 +61,42 @@ test('scope authority runs before candidate-only install and release regression'
   assert.doesNotMatch(workflow, /ef124|credential hardening/i);
 });
 
-test('scope manifest preserves exact legacy and EF-118 profile boundaries', async () => {
+test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
   assert.equal(manifest.schemaVersion, 3);
   assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
   assert.equal(manifest.legacyAllowedPaths.length, 7);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
-  assert.deepEqual(manifest.approvedProfiles, [{
-    id: 'ef-118-pr-43-f35b3ca-clean-merge',
-    kind: 'exact-clean-merge',
-    pullRequestNumber: 43,
-    baseRef: 'dev',
-    approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
-    allowedPaths: [
-      '.github/workflows/deploy-dev.yml',
-      'server/src/__tests__/ef118-runtime-audit.test.ts',
-      'server/src/index.ts',
-      'server/src/observability/ef118RuntimeAudit.ts',
-      'server/src/routes/conversations.ts',
-    ],
-  }]);
+  assert.deepEqual(manifest.approvedProfiles, [
+    {
+      id: 'ef-118-pr-43-f35b3ca-clean-merge',
+      kind: 'exact-clean-merge',
+      pullRequestNumber: 43,
+      baseRef: 'dev',
+      approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
+      allowedPaths: [
+        '.github/workflows/deploy-dev.yml',
+        'server/src/__tests__/ef118-runtime-audit.test.ts',
+        'server/src/index.ts',
+        'server/src/observability/ef118RuntimeAudit.ts',
+        'server/src/routes/conversations.ts',
+      ],
+    },
+    {
+      id: 'ef-110-pr-48-b0a5c6f-clean-merge',
+      kind: 'exact-clean-merge',
+      pullRequestNumber: 48,
+      baseRef: 'dev',
+      approvedFirstParentSha: 'b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874',
+      allowedPaths: [
+        'server/src/index.ts',
+        'server/src/routes/conversations.ts',
+        'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
+        'server/src/__tests__/ef110-security-sanitization.test.ts',
+      ],
+    },
+  ]);
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
@@ -104,6 +119,7 @@ test('branch-protection and rollback documentation preserves independent gates',
   assert.match(docs, /EF-111 review manifest/);
   assert.match(docs, /does not require EF-124/);
   assert.match(docs, /exact first parent `f35b3ca99fd498b13b530c6c2eed305c5f7688c3`/);
+  assert.match(docs, /exact first parent `b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874`/);
   assert.match(docs, /exact event-base second parent/);
   assert.match(docs, /`git merge-tree --write-tree`/);
   assert.match(docs, /Current GitHub API values are never validator inputs/);
