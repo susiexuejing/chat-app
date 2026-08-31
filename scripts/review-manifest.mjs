@@ -76,6 +76,13 @@ const EXACT_APPROVED_PROFILES = [{
     'server/src/storage/database/migrations/003_create_anonymous_sessions.sql',
     'server/src/storage/database/shared/schema.ts',
   ],
+}, {
+  id: 'ef-146-pr-54-docs-only',
+  kind: 'exact-docs-paths',
+  pullRequestNumber: 54,
+  baseRef: 'dev',
+  approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
+  allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
 }];
 
 function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
@@ -161,13 +168,20 @@ export async function loadScope(read = readFile) {
   for (let index = 0; index < EXACT_APPROVED_PROFILES.length; index += 1) {
     const actual = parsed.approvedProfiles[index];
     const expected = EXACT_APPROVED_PROFILES[index];
-    exactKeys(actual, ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths'], 'approved profile');
+    const profileKeys = expected.kind === 'exact-clean-merge'
+      ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths']
+      : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
+    exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
       || actual.kind !== expected.kind || actual.baseRef !== expected.baseRef
-      || actual.approvedFirstParentSha !== expected.approvedFirstParentSha || profiles.has(actual.id)) {
+      || (expected.kind === 'exact-clean-merge'
+        && actual.approvedFirstParentSha !== expected.approvedFirstParentSha)
+      || (expected.kind === 'exact-docs-paths' && actual.approvedHeadSha !== expected.approvedHeadSha)
+      || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
     }
-    sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
+    if (expected.kind === 'exact-clean-merge') sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
+    if (expected.kind === 'exact-docs-paths') sha(actual.approvedHeadSha, 'approved profile head SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
@@ -251,6 +265,21 @@ function verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, chan
     recomputedTreeSha,
   };
 }
+function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git }) {
+  if (profile.kind === 'exact-clean-merge') {
+    return verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git });
+  }
+  if (profile.kind === 'exact-docs-paths') {
+    if (headSha !== profile.approvedHeadSha) fail('documentation profile head SHA is not approved');
+    verifyExactPaths(changed, profile.allowedPaths);
+    return {
+      kind: profile.kind,
+      approvedPaths: [...profile.allowedPaths],
+      baseSha, approvedHeadSha: profile.approvedHeadSha,
+    };
+  }
+  fail('approved profile kind is unsupported');
+}
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
   const layout = resolveLayout(env, options);
@@ -290,7 +319,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
       }
       scopeId = profile.id;
       allowedPaths = profile.allowedPaths;
-      structuralProof = verifyStructuralProfile({
+      structuralProof = verifyProfile({
         profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot: layout.candidateRoot, git,
       });
     }
