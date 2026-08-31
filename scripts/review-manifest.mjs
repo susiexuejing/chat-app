@@ -81,6 +81,7 @@ const EXACT_APPROVED_PROFILES = [{
   kind: 'exact-docs-paths',
   pullRequestNumber: 54,
   baseRef: 'dev',
+  approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
   allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
 }];
 
@@ -169,15 +170,18 @@ export async function loadScope(read = readFile) {
     const expected = EXACT_APPROVED_PROFILES[index];
     const profileKeys = expected.kind === 'exact-clean-merge'
       ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths']
-      : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'allowedPaths'];
+      : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
       || actual.kind !== expected.kind || actual.baseRef !== expected.baseRef
       || (expected.kind === 'exact-clean-merge'
-        && actual.approvedFirstParentSha !== expected.approvedFirstParentSha) || profiles.has(actual.id)) {
+        && actual.approvedFirstParentSha !== expected.approvedFirstParentSha)
+      || (expected.kind === 'exact-docs-paths' && actual.approvedHeadSha !== expected.approvedHeadSha)
+      || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
     }
     if (expected.kind === 'exact-clean-merge') sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
+    if (expected.kind === 'exact-docs-paths') sha(actual.approvedHeadSha, 'approved profile head SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
@@ -266,12 +270,12 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
     return verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git });
   }
   if (profile.kind === 'exact-docs-paths') {
+    if (headSha !== profile.approvedHeadSha) fail('documentation profile head SHA is not approved');
     verifyExactPaths(changed, profile.allowedPaths);
     return {
       kind: profile.kind,
       approvedPaths: [...profile.allowedPaths],
-      baseSha,
-      headSha,
+      baseSha, approvedHeadSha: profile.approvedHeadSha,
     };
   }
   fail('approved profile kind is unsupported');
