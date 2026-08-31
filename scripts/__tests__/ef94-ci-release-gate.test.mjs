@@ -132,6 +132,13 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
         'server/src/storage/database/shared/schema.ts',
       ],
     },
+    {
+      id: 'ef-146-pr-54-docs-only',
+      kind: 'exact-docs-paths',
+      pullRequestNumber: 54,
+      baseRef: 'dev',
+      allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
+    },
   ]);
 });
 
