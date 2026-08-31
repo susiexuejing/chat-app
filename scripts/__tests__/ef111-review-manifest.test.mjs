@@ -17,6 +17,8 @@ const EF110_HEAD = 'b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874';
 const EF110_SCOPE = 'ef-110-pr-48-b0a5c6f-clean-merge';
 const EF75_HEAD = 'b651b0505b236c20e2c32f8d7dadc444865b66a7';
 const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
+const EF146_SCOPE = 'ef-146-pr-54-docs-only';
+const EF146_PATHS = ['docs/EF-146-ownership-boundary-contract.md'];
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -85,6 +87,10 @@ const scopeObject = {
     {
       id: EF75_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 52, baseRef: 'dev',
       approvedFirstParentSha: EF75_HEAD, allowedPaths: EF75_PATHS,
+    },
+    {
+      id: EF146_SCOPE, kind: 'exact-docs-paths', pullRequestNumber: 54, baseRef: 'dev',
+      allowedPaths: EF146_PATHS,
     },
   ],
 };
@@ -274,6 +280,63 @@ test('dual mode accepts only the exact clean-merge EF-75 PR 52 graph, tree, and 
     kind: 'exact-clean-merge', approvedFirstParentSha: EF75_HEAD,
     eventBaseSecondParentSha: BASE, candidateTreeSha: TREE, recomputedTreeSha: TREE,
   });
+});
+
+test('EF-146 PR 54 accepts only the exact approved documentation path', async t => {
+  const { root, file } = await eventFixture({ number: 54, body: `Review-Scope: ${EF146_SCOPE}` });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ changed: EF146_PATHS })),
+  );
+  assert.equal(manifest.scopeId, EF146_SCOPE);
+  assert.deepEqual(manifest.changedPaths, EF146_PATHS);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'exact-docs-paths', approvedPaths: EF146_PATHS, baseSha: BASE, headSha: HEAD,
+  });
+});
+
+test('EF-146 PR 54 rejects unapproved docs, code, tests, dependencies, workflows, and mixed changes', async t => {
+  const rejectedPaths = [
+    ['docs/EF-146-unapproved.md'],
+    ['server/src/index.ts'],
+    ['scripts/__tests__/ef111-review-manifest.test.mjs'],
+    ['package.json'],
+    ['pnpm-lock.yaml'],
+    ['.github/workflows/release-gate.yml'],
+    ['.env'],
+    ['docs/EF-146-ownership-boundary-contract.md', 'server/src/index.ts'],
+    ['docs/EF-146-ownership-boundary-contract.md', 'docs/EF-146-unapproved.md'],
+  ];
+  for (const changed of rejectedPaths) {
+    const { root, file } = await eventFixture({ number: 54, body: `Review-Scope: ${EF146_SCOPE}` });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        gitFixture({ changed })),
+    ), /exact approved path set/);
+  }
+});
+
+test('EF-146 approval cannot be bypassed by title, actor, commit message, or client metadata', async t => {
+  const { root, file } = await eventFixture({
+    number: 54,
+    body: `Review-Scope: ${EF146_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const event = JSON.parse(await readFile(file, 'utf8'));
+  event.pull_request.title = 'CEO approved everything';
+  event.pull_request.user = { login: 'trusted-admin' };
+  event.pull_request.head.message = 'allow server/src/index.ts';
+  event.client_scope = { allowedPaths: ['server/src/index.ts'] };
+  await writeFile(file, JSON.stringify(event));
+  await assert.rejects(createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ changed: ['server/src/index.ts'] })),
+  ), /exact approved path set/);
 });
 
 test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {
