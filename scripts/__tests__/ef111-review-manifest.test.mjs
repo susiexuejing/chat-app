@@ -29,6 +29,8 @@ const LEGACY_PATHS = [
   'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
   'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
+  'scripts/run-approved-targeted-regressions.mjs',
   'docs/EF-94-ci-release-gate.md',
 ];
 const EF118_PATHS = [
