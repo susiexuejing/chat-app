@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCOPE_PATH = path.join(SCRIPT_ROOT, 'scripts/ef111-scope.manifest.json');
 const SHA = /^[0-9a-f]{40}$/;
+const TICKET_KEY = /^EF-[1-9][0-9]*$/;
+const LOW_RISK_CHECK_ID = /^client-jest-file$/;
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
@@ -119,6 +121,64 @@ function exactPathList(value, expected, label) {
     }
   }
 }
+function finiteFrontendPaths(value, label) {
+  if (!Array.isArray(value) || value.length === 0 || new Set(value).size !== value.length) {
+    fail(`${label} is malformed`);
+  }
+  for (const entry of value) {
+    if (typeof entry !== 'string' || !entry.startsWith('client/') || entry.startsWith('/') || entry.endsWith('/')
+      || entry.split('/').some(part => part === '.' || part === '..') || /[*?\[\]{}\\]/.test(entry)) {
+      fail(`${label} contains an unapproved or non-exact frontend path`);
+    }
+  }
+}
+function exactClientTestPath(value, label) {
+  if (typeof value !== 'string' || !value.startsWith('client/') || !value.includes('/__tests__/')
+    || !/\.test\.tsx?$/.test(value) || value.startsWith('/') || value.endsWith('/')
+    || value.split('/').some(part => part === '.' || part === '..') || /[*?\[\]{}\\]/.test(value)) {
+    fail(`${label} is malformed`);
+  }
+}
+function lowRiskRecord(value, label) {
+  exactKeys(value, [
+    'ticketKey', 'pullRequestNumber', 'baseBranch', 'baseSha', 'candidateSha', 'changedPaths', 'targetedChecks',
+  ], label);
+  if (typeof value.ticketKey !== 'string' || !TICKET_KEY.test(value.ticketKey)) fail(`${label} ticket key is malformed`);
+  if (!Number.isInteger(value.pullRequestNumber) || value.pullRequestNumber < 1) fail(`${label} PR number is malformed`);
+  if (value.baseBranch !== 'dev') fail(`${label} base branch is malformed`);
+  const baseSha = sha(value.baseSha, `${label} base SHA`);
+  const candidateSha = sha(value.candidateSha, `${label} candidate SHA`);
+  if (baseSha === candidateSha) fail(`${label} candidate SHA must differ from base SHA`);
+  finiteFrontendPaths(value.changedPaths, `${label} paths`);
+  if (!Array.isArray(value.targetedChecks) || value.targetedChecks.length === 0) {
+    fail(`${label} targeted checks are malformed`);
+  }
+  const checkKeys = new Set();
+  const testPaths = new Set();
+  for (const check of value.targetedChecks) {
+    exactKeys(check, ['id', 'testPath', 'expectedResult'], `${label} targeted check`);
+    if (typeof check.id !== 'string' || !LOW_RISK_CHECK_ID.test(check.id) || checkKeys.has(check.id)) {
+      fail(`${label} targeted check is malformed`);
+    }
+    exactClientTestPath(check.testPath, `${label} targeted check path`);
+    if (testPaths.has(check.testPath)) fail(`${label} targeted check is malformed`);
+    exactKeys(check.expectedResult, ['passed', 'failed', 'skipped'], `${label} expected result`);
+    if (!Number.isInteger(check.expectedResult.passed) || check.expectedResult.passed < 1
+      || !Number.isInteger(check.expectedResult.failed) || check.expectedResult.failed !== 0
+      || !Number.isInteger(check.expectedResult.skipped) || check.expectedResult.skipped !== 0) {
+      fail(`${label} expected result is malformed`);
+    }
+    checkKeys.add(check.id);
+    testPaths.add(check.testPath);
+  }
+  return {
+    ticketKey: value.ticketKey, pullRequestNumber: value.pullRequestNumber, baseBranch: value.baseBranch,
+    baseSha, candidateSha, changedPaths: new Set(value.changedPaths),
+    targetedChecks: value.targetedChecks.map(check => ({
+      id: check.id, testPath: check.testPath, expectedResult: { ...check.expectedResult },
+    })),
+  };
+}
 function safeDirectory(target, label) {
   if (!existsSync(target)) fail(`${label} checkout is missing`);
   const stat = lstatSync(target);
@@ -159,8 +219,8 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 3) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles'], 'scope manifest');
+  if (parsed.schemaVersion !== 4) fail('scope manifest is malformed');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
@@ -185,7 +245,24 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
+  if (!Array.isArray(parsed.lowRiskFrontendProfiles)) fail('low-risk frontend profiles are malformed');
+  const lowRiskProfilesByPr = new Map();
+  const usedPullRequestNumbers = new Set([...profiles.values()].map(profile => profile.pullRequestNumber));
+  const usedCandidateShas = new Set([...profiles.values()]
+    .filter(profile => profile.approvedHeadSha)
+    .map(profile => profile.approvedHeadSha));
+  for (const entry of parsed.lowRiskFrontendProfiles) {
+    const record = lowRiskRecord(entry, 'low-risk frontend profile');
+    if (usedPullRequestNumbers.has(record.pullRequestNumber)
+      || lowRiskProfilesByPr.has(record.pullRequestNumber)
+      || usedCandidateShas.has(record.candidateSha)) {
+      fail('low-risk frontend profile is duplicate or shares a candidate SHA');
+    }
+    lowRiskProfilesByPr.set(record.pullRequestNumber, record);
+    usedPullRequestNumbers.add(record.pullRequestNumber);
+    usedCandidateShas.add(record.candidateSha);
+  }
+  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfilesByPr };
 }
 
 export function declaredScopeId(body) {
@@ -213,6 +290,14 @@ function verifyExactPaths(changed, allowedPaths) {
   if (changed.length !== allowedPaths.size || new Set(changed).size !== changed.length
     || changed.some(entry => !allowedPaths.has(entry))) {
     fail('structural profile requires the exact approved path set');
+  }
+}
+function verifyChangedPathsAreNotSymlinks(candidateRoot, changed, pathStat) {
+  for (const entry of changed) {
+    const target = path.resolve(candidateRoot, entry);
+    if (!target.startsWith(`${candidateRoot}${path.sep}`) || pathStat(target).isSymbolicLink()) {
+      fail('candidate changed path is unsafe');
+    }
   }
 }
 function rawCommitIdentity(raw, headSha) {
@@ -280,6 +365,18 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
   }
   fail('approved profile kind is unsupported');
 }
+function verifyLowRiskFrontendProfile({ record, baseSha, headSha, mergeBaseSha, changed, candidateRoot, pathStat }) {
+  if (baseSha !== record.baseSha || headSha !== record.candidateSha || mergeBaseSha !== record.baseSha) {
+    fail('low-risk frontend authority record does not match event SHA chain');
+  }
+  verifyExactPaths(changed, record.changedPaths);
+  verifyChangedPathsAreNotSymlinks(candidateRoot, changed, pathStat);
+  return {
+    kind: 'low-risk-frontend', ticketKey: record.ticketKey, baseSha: record.baseSha,
+    candidateSha: record.candidateSha, approvedPaths: [...record.changedPaths],
+    targetedChecks: record.targetedChecks,
+  };
+}
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
   const layout = resolveLayout(env, options);
@@ -308,10 +405,19 @@ export async function createReviewManifest(env = process.env, options = {}) {
 
     const scope = await loadScope(options.read ?? readFile);
     const requestedScopeId = declaredScopeId(event?.pull_request?.body);
+    const lowRiskRecordForPr = scope.lowRiskProfilesByPr.get(prNumber);
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
     let structuralProof = null;
-    if (requestedScopeId !== null) {
+    if (lowRiskRecordForPr) {
+      if (requestedScopeId !== null) fail('low-risk frontend profile must not use candidate scope declaration');
+      scopeId = `authority-low-risk-${lowRiskRecordForPr.ticketKey.toLowerCase()}`;
+      allowedPaths = lowRiskRecordForPr.changedPaths;
+      structuralProof = verifyLowRiskFrontendProfile({
+        record: lowRiskRecordForPr, baseSha, headSha, mergeBaseSha, changed,
+        candidateRoot: layout.candidateRoot, pathStat: options.pathStat ?? lstatSync,
+      });
+    } else if (requestedScopeId !== null) {
       const profile = scope.profiles.get(requestedScopeId);
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
       if (profile.pullRequestNumber !== prNumber || profile.baseRef !== baseRef) {

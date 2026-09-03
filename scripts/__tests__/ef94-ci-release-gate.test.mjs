@@ -61,10 +61,20 @@ test('scope authority runs before candidate-only install and release regression'
   assert.doesNotMatch(workflow, /ef124|credential hardening/i);
 });
 
+test('low-risk targeted regressions run only from the authority checkout after candidate dependency installation', async () => {
+  const workflow = await text(workflowUrl);
+  assert.match(workflow, /name: Run authority-approved low-risk targeted regression[\s\S]*startsWith\(steps\.review_manifest\.outputs\.scope_id, 'authority-low-risk-'\)/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/authority\/scripts\/run-approved-targeted-regressions\.mjs"[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"[\s\S]*--output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
+  assert.match(workflow, /--output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"[\s\S]*cat "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
+  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('Run authority-approved low-risk targeted regression'));
+  assert.ok(workflow.indexOf('Run authority-approved low-risk targeted regression') < workflow.indexOf('Run approved release regression'));
+  assert.doesNotMatch(workflow, /upload-artifact|actions\/upload-artifact|secrets\.|curl|ssh|rsync/i);
+});
+
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 3);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
+  assert.equal(manifest.schemaVersion, 4);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'schemaVersion']);
   assert.equal(manifest.legacyAllowedPaths.length, 7);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
@@ -141,6 +151,7 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
     },
   ]);
+  assert.deepEqual(manifest.lowRiskFrontendProfiles, []);
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
