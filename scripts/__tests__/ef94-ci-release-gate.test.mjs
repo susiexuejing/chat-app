@@ -61,6 +61,14 @@ test('scope authority runs before candidate-only install and release regression'
   assert.doesNotMatch(workflow, /ef124|credential hardening/i);
 });
 
+test('low-risk targeted regressions run only from the authority checkout after candidate dependency installation', async () => {
+  const workflow = await text(workflowUrl);
+  assert.match(workflow, /name: Run authority-approved low-risk targeted regression[\s\S]*startsWith\(steps\.review_manifest\.outputs\.scope_id, 'authority-low-risk-'\)/);
+  assert.match(workflow, /node "\$GITHUB_WORKSPACE\/authority\/scripts\/run-approved-targeted-regressions\.mjs"[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"[\s\S]*--output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
+  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('Run authority-approved low-risk targeted regression'));
+  assert.ok(workflow.indexOf('Run authority-approved low-risk targeted regression') < workflow.indexOf('Run approved release regression'));
+});
+
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
   assert.equal(manifest.schemaVersion, 4);

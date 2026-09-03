@@ -8,7 +8,7 @@ const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const SCOPE_PATH = path.join(SCRIPT_ROOT, 'scripts/ef111-scope.manifest.json');
 const SHA = /^[0-9a-f]{40}$/;
 const TICKET_KEY = /^EF-[1-9][0-9]*$/;
-const SAFE_COMMAND = /^[A-Za-z0-9][A-Za-z0-9 ./_:@=+-]*$/;
+const LOW_RISK_CHECK_ID = /^client-jest-file$/;
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
@@ -132,10 +132,16 @@ function finiteFrontendPaths(value, label) {
     }
   }
 }
+function exactClientTestPath(value, label) {
+  if (typeof value !== 'string' || !value.startsWith('client/') || !value.includes('/__tests__/')
+    || !/\.test\.tsx?$/.test(value) || value.startsWith('/') || value.endsWith('/')
+    || value.split('/').some(part => part === '.' || part === '..') || /[*?\[\]{}\\]/.test(value)) {
+    fail(`${label} is malformed`);
+  }
+}
 function lowRiskRecord(value, label) {
   exactKeys(value, [
-    'ticketKey', 'pullRequestNumber', 'baseBranch', 'baseSha', 'candidateSha', 'changedPaths',
-    'targetedCommands', 'expectedResults',
+    'ticketKey', 'pullRequestNumber', 'baseBranch', 'baseSha', 'candidateSha', 'changedPaths', 'targetedChecks',
   ], label);
   if (typeof value.ticketKey !== 'string' || !TICKET_KEY.test(value.ticketKey)) fail(`${label} ticket key is malformed`);
   if (!Number.isInteger(value.pullRequestNumber) || value.pullRequestNumber < 1) fail(`${label} PR number is malformed`);
@@ -144,30 +150,33 @@ function lowRiskRecord(value, label) {
   const candidateSha = sha(value.candidateSha, `${label} candidate SHA`);
   if (baseSha === candidateSha) fail(`${label} candidate SHA must differ from base SHA`);
   finiteFrontendPaths(value.changedPaths, `${label} paths`);
-  if (!Array.isArray(value.targetedCommands) || value.targetedCommands.length === 0
-    || new Set(value.targetedCommands).size !== value.targetedCommands.length
-    || value.targetedCommands.some(command => typeof command !== 'string' || !SAFE_COMMAND.test(command))) {
-    fail(`${label} targeted commands are malformed`);
+  if (!Array.isArray(value.targetedChecks) || value.targetedChecks.length === 0) {
+    fail(`${label} targeted checks are malformed`);
   }
-  if (!Array.isArray(value.expectedResults) || value.expectedResults.length !== value.targetedCommands.length) {
-    fail(`${label} expected results are malformed`);
-  }
-  const commands = new Set(value.targetedCommands);
-  const resultCommands = new Set();
-  for (const result of value.expectedResults) {
-    exactKeys(result, ['command', 'exitCode', 'failures', 'skips'], `${label} expected result`);
-    if (typeof result.command !== 'string' || !commands.has(result.command) || resultCommands.has(result.command)
-      || !Number.isInteger(result.exitCode) || result.exitCode !== 0
-      || !Number.isInteger(result.failures) || result.failures !== 0
-      || !Number.isInteger(result.skips) || result.skips !== 0) {
+  const checkKeys = new Set();
+  const testPaths = new Set();
+  for (const check of value.targetedChecks) {
+    exactKeys(check, ['id', 'testPath', 'expectedResult'], `${label} targeted check`);
+    if (typeof check.id !== 'string' || !LOW_RISK_CHECK_ID.test(check.id) || checkKeys.has(check.id)) {
+      fail(`${label} targeted check is malformed`);
+    }
+    exactClientTestPath(check.testPath, `${label} targeted check path`);
+    if (testPaths.has(check.testPath)) fail(`${label} targeted check is malformed`);
+    exactKeys(check.expectedResult, ['passed', 'failed', 'skipped'], `${label} expected result`);
+    if (!Number.isInteger(check.expectedResult.passed) || check.expectedResult.passed < 1
+      || !Number.isInteger(check.expectedResult.failed) || check.expectedResult.failed !== 0
+      || !Number.isInteger(check.expectedResult.skipped) || check.expectedResult.skipped !== 0) {
       fail(`${label} expected result is malformed`);
     }
-    resultCommands.add(result.command);
+    checkKeys.add(check.id);
+    testPaths.add(check.testPath);
   }
   return {
     ticketKey: value.ticketKey, pullRequestNumber: value.pullRequestNumber, baseBranch: value.baseBranch,
     baseSha, candidateSha, changedPaths: new Set(value.changedPaths),
-    targetedCommands: [...value.targetedCommands], expectedResults: value.expectedResults.map(result => ({ ...result })),
+    targetedChecks: value.targetedChecks.map(check => ({
+      id: check.id, testPath: check.testPath, expectedResult: { ...check.expectedResult },
+    })),
   };
 }
 function safeDirectory(target, label) {
@@ -365,7 +374,7 @@ function verifyLowRiskFrontendProfile({ record, baseSha, headSha, mergeBaseSha, 
   return {
     kind: 'low-risk-frontend', ticketKey: record.ticketKey, baseSha: record.baseSha,
     candidateSha: record.candidateSha, approvedPaths: [...record.changedPaths],
-    targetedCommands: record.targetedCommands, expectedResults: record.expectedResults,
+    targetedChecks: record.targetedChecks,
   };
 }
 export async function createReviewManifest(env = process.env, options = {}) {

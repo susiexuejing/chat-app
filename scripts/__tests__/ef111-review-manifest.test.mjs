@@ -25,7 +25,11 @@ const LOW_RISK_PR = 99;
 const LOW_RISK_BASE = BASE;
 const LOW_RISK_CANDIDATE = HEAD;
 const LOW_RISK_PATHS = ['client/screens/chat/components/RoleHeader.tsx'];
-const LOW_RISK_COMMAND = 'pnpm --dir client exec jest --runInBand client/screens/chat/__tests__/roleHeader.test.tsx';
+const LOW_RISK_CHECK = {
+  id: 'client-jest-file',
+  testPath: 'client/screens/chat/__tests__/roleHeader.test.tsx',
+  expectedResult: { passed: 2, failed: 0, skipped: 0 },
+};
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -113,8 +117,7 @@ const lowRiskScopeObject = {
     baseSha: LOW_RISK_BASE,
     candidateSha: LOW_RISK_CANDIDATE,
     changedPaths: LOW_RISK_PATHS,
-    targetedCommands: [LOW_RISK_COMMAND],
-    expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 0, skips: 0 }],
+    targetedChecks: [LOW_RISK_CHECK],
   }],
 };
 const lowRiskScope = JSON.stringify(lowRiskScopeObject);
@@ -385,8 +388,7 @@ test('authority-selected low-risk frontend record accepts only its exact PR, SHA
   assert.deepEqual(manifest.structuralProof, {
     kind: 'low-risk-frontend', ticketKey: LOW_RISK_TICKET, baseSha: LOW_RISK_BASE,
     candidateSha: LOW_RISK_CANDIDATE, approvedPaths: LOW_RISK_PATHS,
-    targetedCommands: [LOW_RISK_COMMAND],
-    expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 0, skips: 0 }],
+    targetedChecks: [LOW_RISK_CHECK],
   });
 });
 
@@ -426,8 +428,9 @@ test('low-risk frontend schema rejects wildcard, non-frontend, duplicate/shared,
     { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], changedPaths: ['server/src/index.ts'] }] },
     { ...lowRiskScopeObject, lowRiskFrontendProfiles: [lowRiskScopeObject.lowRiskFrontendProfiles[0], { ...lowRiskScopeObject.lowRiskFrontendProfiles[0], pullRequestNumber: 100 }] },
     { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], pullRequestNumber: 54, candidateSha: 'e'.repeat(40) }] },
-    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], targetedCommands: ['node --test; curl example.invalid'] }] },
-    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 1, skips: 0 }] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], targetedChecks: [{ ...LOW_RISK_CHECK, id: 'candidate-command' }] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], targetedChecks: [{ ...LOW_RISK_CHECK, testPath: 'server/src/index.ts' }] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], targetedChecks: [{ ...LOW_RISK_CHECK, expectedResult: { passed: 2, failed: 1, skipped: 0 } }] }] },
     { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], candidateSha: EF146_HEAD }] },
   ];
   for (const mutation of mutations) {
