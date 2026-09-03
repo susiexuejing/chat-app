@@ -55,16 +55,6 @@ export function RoleHeader({
           </Text>
         </TouchableOpacity>
 
-        {/* 切换陪伴者 */}
-        <TouchableOpacity
-          onPress={onShowRolePicker}
-          className="flex-row items-center bg-amber-50 dark:bg-amber-900/20 rounded-full px-3 py-1.5 ml-2"
-        >
-          <Ionicons name="swap-horizontal" size={14} color="#D97706" />
-          <Text className="text-xs text-amber-600 dark:text-amber-400 ml-1 font-medium">
-            切换陪伴者
-          </Text>
-        </TouchableOpacity>
       </View>
 
       {/* 操作栏 */}
