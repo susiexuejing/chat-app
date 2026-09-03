@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "legacyAllowedPaths": [
     ".github/workflows/release-gate.yml",
     "scripts/ef111-scope.manifest.json",
@@ -83,5 +83,6 @@
         "docs/EF-146-ownership-boundary-contract.md"
       ]
     }
-  ]
+  ],
+  "lowRiskFrontendProfiles": []
 }

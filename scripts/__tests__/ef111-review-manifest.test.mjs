@@ -20,6 +20,12 @@ const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
 const EF146_SCOPE = 'ef-146-pr-54-docs-only';
 const EF146_PATHS = ['docs/EF-146-ownership-boundary-contract.md'];
 const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
+const LOW_RISK_TICKET = 'EF-999';
+const LOW_RISK_PR = 99;
+const LOW_RISK_BASE = BASE;
+const LOW_RISK_CANDIDATE = HEAD;
+const LOW_RISK_PATHS = ['client/screens/chat/components/RoleHeader.tsx'];
+const LOW_RISK_COMMAND = 'pnpm --dir client exec jest --runInBand client/screens/chat/__tests__/roleHeader.test.tsx';
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -74,7 +80,7 @@ const EF75_PATHS = [
   'server/src/storage/database/shared/schema.ts',
 ];
 const scopeObject = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   legacyAllowedPaths: LEGACY_PATHS,
   approvedProfiles: [
     {
@@ -95,8 +101,23 @@ const scopeObject = {
       allowedPaths: EF146_PATHS,
     },
   ],
+  lowRiskFrontendProfiles: [],
 };
 const scope = JSON.stringify(scopeObject);
+const lowRiskScopeObject = {
+  ...scopeObject,
+  lowRiskFrontendProfiles: [{
+    ticketKey: LOW_RISK_TICKET,
+    pullRequestNumber: LOW_RISK_PR,
+    baseBranch: 'dev',
+    baseSha: LOW_RISK_BASE,
+    candidateSha: LOW_RISK_CANDIDATE,
+    changedPaths: LOW_RISK_PATHS,
+    targetedCommands: [LOW_RISK_COMMAND],
+    expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 0, skips: 0 }],
+  }],
+};
+const lowRiskScope = JSON.stringify(lowRiskScopeObject);
 
 async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'ef111-event-'));
@@ -108,13 +129,13 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : head;
     if (operation === 'cat-file') return '';
-    if (operation === 'merge-base') return MERGE_BASE;
+    if (operation === 'merge-base') return mergeBase;
     if (operation === 'diff') return `${changed.join('\n')}\n`;
     throw new Error(`unexpected git operation: ${args.join(' ')}`);
   };
@@ -153,6 +174,7 @@ function optionsFor(file, layout, git, scopeText = scope) {
   return {
     layout,
     git,
+    pathStat: () => ({ isSymbolicLink: () => false }),
     read: async target => target === file ? readFile(target, 'utf8') : scopeText,
   };
 }
@@ -349,6 +371,83 @@ test('EF-146 PR 54 rejects a correct path and PR number with an unapproved candi
     optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
       gitFixture({ head: HEAD, changed: EF146_PATHS })),
   ), /head SHA is not approved/);
+});
+
+test('authority-selected low-risk frontend record accepts only its exact PR, SHA chain, paths, and evidence inventory', async t => {
+  const { root, file } = await eventFixture({ number: LOW_RISK_PR, head: LOW_RISK_CANDIDATE, base: LOW_RISK_BASE });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ authority: LOW_RISK_BASE, head: LOW_RISK_CANDIDATE, mergeBase: LOW_RISK_BASE, changed: LOW_RISK_PATHS }), lowRiskScope),
+  );
+  assert.equal(manifest.scopeId, 'authority-low-risk-ef-999');
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'low-risk-frontend', ticketKey: LOW_RISK_TICKET, baseSha: LOW_RISK_BASE,
+    candidateSha: LOW_RISK_CANDIDATE, approvedPaths: LOW_RISK_PATHS,
+    targetedCommands: [LOW_RISK_COMMAND],
+    expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 0, skips: 0 }],
+  });
+});
+
+test('low-risk frontend records fail closed for candidate scope claims, wrong SHA chain, and extra or missing paths', async t => {
+  const cases = [
+    { body: 'Review-Scope: fabricated', base: LOW_RISK_BASE, head: LOW_RISK_CANDIDATE, changed: LOW_RISK_PATHS, error: /must not use candidate scope declaration/ },
+    { body: null, base: 'e'.repeat(40), head: LOW_RISK_CANDIDATE, changed: LOW_RISK_PATHS, error: /authority record does not match event SHA chain/ },
+    { body: null, base: LOW_RISK_BASE, head: 'e'.repeat(40), changed: LOW_RISK_PATHS, error: /authority record does not match event SHA chain/ },
+    { body: null, base: LOW_RISK_BASE, head: LOW_RISK_CANDIDATE, changed: [], error: /candidate has no changed paths/ },
+    { body: null, base: LOW_RISK_BASE, head: LOW_RISK_CANDIDATE, changed: [...LOW_RISK_PATHS, 'client/app.config.ts'], error: /exact approved path set/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({ number: LOW_RISK_PR, head: entry.head, base: entry.base, body: entry.body });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        gitFixture({ authority: entry.base, head: entry.head, mergeBase: entry.base, changed: entry.changed }), lowRiskScope),
+    ), entry.error);
+  }
+});
+
+test('low-risk frontend profiles reject a symlinked candidate path', async t => {
+  const { root, file } = await eventFixture({ number: LOW_RISK_PR, head: LOW_RISK_CANDIDATE, base: LOW_RISK_BASE });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const options = optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+    gitFixture({ authority: LOW_RISK_BASE, head: LOW_RISK_CANDIDATE, mergeBase: LOW_RISK_BASE, changed: LOW_RISK_PATHS }), lowRiskScope);
+  options.pathStat = () => ({ isSymbolicLink: () => true });
+  await assert.rejects(createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file }, options,
+  ), /candidate changed path is unsafe/);
+});
+
+test('low-risk frontend schema rejects wildcard, non-frontend, duplicate/shared, malformed evidence, and metadata bypass records', async () => {
+  const mutations = [
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], changedPaths: ['client/screens/**'] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], changedPaths: ['server/src/index.ts'] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [lowRiskScopeObject.lowRiskFrontendProfiles[0], { ...lowRiskScopeObject.lowRiskFrontendProfiles[0], pullRequestNumber: 100 }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], pullRequestNumber: 54, candidateSha: 'e'.repeat(40) }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], targetedCommands: ['node --test; curl example.invalid'] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], expectedResults: [{ command: LOW_RISK_COMMAND, exitCode: 0, failures: 1, skips: 0 }] }] },
+    { ...lowRiskScopeObject, lowRiskFrontendProfiles: [{ ...lowRiskScopeObject.lowRiskFrontendProfiles[0], candidateSha: EF146_HEAD }] },
+  ];
+  for (const mutation of mutations) {
+    await assert.rejects(loadScope(async () => JSON.stringify(mutation)), /malformed|unapproved|duplicate|shares/);
+  }
+});
+
+test('low-risk candidate metadata cannot create or override authority record', async t => {
+  const { root, file } = await eventFixture({ number: 101, head: HEAD, base: BASE });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const event = JSON.parse(await readFile(file, 'utf8'));
+  event.pull_request.title = 'Review-Scope: authority-low-risk-ef-999';
+  event.pull_request.body = 'Review-Scope: authority-low-risk-ef-999';
+  event.lowRiskFrontendProfile = lowRiskScopeObject.lowRiskFrontendProfiles[0];
+  await writeFile(file, JSON.stringify(event));
+  await assert.rejects(createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ changed: LOW_RISK_PATHS }), scope),
+  ), /unknown scope declaration/);
 });
 
 test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {

@@ -63,8 +63,8 @@ test('scope authority runs before candidate-only install and release regression'
 
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 3);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
+  assert.equal(manifest.schemaVersion, 4);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'schemaVersion']);
   assert.equal(manifest.legacyAllowedPaths.length, 7);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
@@ -141,6 +141,7 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
     },
   ]);
+  assert.deepEqual(manifest.lowRiskFrontendProfiles, []);
 });
 
 test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
