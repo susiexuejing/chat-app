@@ -59,7 +59,7 @@ test('executes only the hard-coded authority check and records sanitized actual 
     execute: async (command, cwd) => { seen.push({ command, cwd }); return passingExecutor(command); },
   });
   assert.deepEqual(seen, [{
-    command: ['pnpm', '--dir', 'client', 'exec', 'jest', '--runInBand', '--json', '--outputFile', seen[0].command[8], CHECK.testPath],
+    command: ['pnpm', '--dir', 'client', 'exec', 'jest', '--runInBand', '--json', '--outputFile', seen[0].command[8], 'screens/chat/__tests__/roleHeader.test.tsx'],
     cwd: input.candidate,
   }]);
   assert.deepEqual(evidence.checks[0], {
@@ -73,6 +73,7 @@ test('fails closed for unknown ID, unsafe path, missing expected result, and can
   const cases = [
     { record: record({ targetedChecks: [{ ...CHECK, id: 'unknown' }] }), error: /authority targeted check/ },
     { record: record({ targetedChecks: [{ ...CHECK, testPath: 'client/screens/**' }] }), error: /authority targeted check/ },
+    { record: record({ targetedChecks: [{ ...CHECK, testPath: 'client/../server/src/__tests__/escape.test.ts' }] }), error: /authority targeted check/ },
     { record: record({ targetedChecks: [{ id: CHECK.id, testPath: CHECK.testPath }] }), error: /authority targeted check is malformed/ },
     { manifest: manifest({ structuralProof: { ...manifest().structuralProof, targetedChecks: [{ ...CHECK, command: 'curl example.invalid' }] } }), error: /review manifest proof does not match authority record/ },
   ];

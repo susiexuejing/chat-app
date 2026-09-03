@@ -78,7 +78,11 @@ function validateReviewManifest(manifest, record) {
 }
 function commandFor(check, resultPath) {
   if (check.id !== CHECK_ID) fail(`unknown check ID: ${String(check.id)}`);
-  return ['pnpm', '--dir', 'client', 'exec', 'jest', '--runInBand', '--json', '--outputFile', resultPath, check.testPath];
+  const clientRelativeTestPath = check.testPath.slice('client/'.length);
+  if (!clientRelativeTestPath || clientRelativeTestPath.startsWith('/') || clientRelativeTestPath.split('/').some(part => part === '.' || part === '..')) {
+    fail('authority targeted check path escapes client root');
+  }
+  return ['pnpm', '--dir', 'client', 'exec', 'jest', '--runInBand', '--json', '--outputFile', resultPath, clientRelativeTestPath];
 }
 function testCounts(result) {
   if (!result || typeof result !== 'object') fail('targeted test result is malformed');
