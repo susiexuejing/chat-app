@@ -65,9 +65,20 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
   const manifest = JSON.parse(await text(scopeManifestUrl));
   assert.equal(manifest.schemaVersion, 3);
   assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
-  assert.equal(manifest.legacyAllowedPaths.length, 7);
+  assert.equal(manifest.legacyAllowedPaths.length, 9);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
+  assert.deepEqual(manifest.legacyAllowedPaths, [
+    '.github/workflows/release-gate.yml',
+    'scripts/ef111-scope.manifest.json',
+    'scripts/review-manifest.mjs',
+    'scripts/release-suite.manifest.json',
+    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    'scripts/__tests__/ef111-review-manifest.test.mjs',
+    'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
+    'scripts/run-approved-targeted-regressions.mjs',
+    'docs/EF-94-ci-release-gate.md',
+  ]);
   assert.deepEqual(manifest.approvedProfiles, [
     {
       id: 'ef-118-pr-43-f35b3ca-clean-merge',
