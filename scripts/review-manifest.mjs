@@ -14,7 +14,9 @@ const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-  'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
+  'scripts/run-approved-targeted-regressions.mjs', 'docs/EF-94-ci-release-gate.md',
 ];
 const EXACT_APPROVED_PROFILES = [{
   id: 'ef-118-pr-43-f35b3ca-clean-merge',
