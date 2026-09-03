@@ -22,7 +22,6 @@ interface RoleHeaderProps {
 }
 
 export function RoleHeader({
-  onShowRolePicker,
   onShowRoleDetail,
   onNewChat,
   hasHistory,
