@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url';
 const SCRIPT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCOPE_PATH = path.join(SCRIPT_ROOT, 'scripts/ef111-scope.manifest.json');
 const SHA = /^[0-9a-f]{40}$/;
+const TICKET_KEY = /^EF-[1-9][0-9]*$/;
+const LOW_RISK_CHECK_ID = 'client-jest-file';
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
@@ -14,7 +16,9 @@ const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-  'scripts/__tests__/ef111-review-manifest.test.mjs', 'docs/EF-94-ci-release-gate.md',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
+  'scripts/run-approved-targeted-regressions.mjs', 'docs/EF-94-ci-release-gate.md',
 ];
 const EXACT_APPROVED_PROFILES = [{
   id: 'ef-118-pr-43-f35b3ca-clean-merge',
@@ -119,6 +123,39 @@ function exactPathList(value, expected, label) {
     }
   }
 }
+function frontendPath(value, label) {
+  if (typeof value !== 'string' || !value.startsWith('client/') || value.startsWith('/') || value.endsWith('/')
+    || value.split('/').some(part => part === '.' || part === '..') || /[*?\[\]{}\\]/.test(value)) {
+    fail(`${label} is malformed`);
+  }
+}
+function lowRiskRecord(value) {
+  exactKeys(value, ['ticketKey', 'pullRequestNumber', 'baseBranch', 'baseSha', 'candidateSha', 'changedPaths', 'targetedChecks'], 'low-risk frontend profile');
+  if (typeof value.ticketKey !== 'string' || !TICKET_KEY.test(value.ticketKey)
+    || !Number.isInteger(value.pullRequestNumber) || value.pullRequestNumber < 1 || value.baseBranch !== 'dev') {
+    fail('low-risk frontend profile is malformed');
+  }
+  const baseSha = sha(value.baseSha, 'low-risk frontend base SHA');
+  const candidateSha = sha(value.candidateSha, 'low-risk frontend candidate SHA');
+  if (baseSha === candidateSha || !Array.isArray(value.changedPaths) || value.changedPaths.length === 0
+    || new Set(value.changedPaths).size !== value.changedPaths.length) fail('low-risk frontend profile is malformed');
+  for (const entry of value.changedPaths) frontendPath(entry, 'low-risk frontend changed path');
+  if (!Array.isArray(value.targetedChecks) || value.targetedChecks.length === 0) fail('low-risk frontend profile is malformed');
+  const ids = new Set();
+  const paths = new Set();
+  for (const check of value.targetedChecks) {
+    exactKeys(check, ['id', 'testPath', 'expectedResult'], 'low-risk frontend check');
+    if (check.id !== LOW_RISK_CHECK_ID || ids.has(check.id)) fail('low-risk frontend check is malformed');
+    frontendPath(check.testPath, 'low-risk frontend test path');
+    if (!check.testPath.includes('/__tests__/') || !/\.test\.tsx?$/.test(check.testPath) || paths.has(check.testPath)) fail('low-risk frontend check is malformed');
+    exactKeys(check.expectedResult, ['passed', 'failed', 'skipped'], 'low-risk frontend expected result');
+    if (!Number.isInteger(check.expectedResult.passed) || check.expectedResult.passed < 1
+      || check.expectedResult.failed !== 0 || check.expectedResult.skipped !== 0) fail('low-risk frontend expected result is malformed');
+    ids.add(check.id); paths.add(check.testPath);
+  }
+  return { ticketKey: value.ticketKey, pullRequestNumber: value.pullRequestNumber, baseBranch: value.baseBranch,
+    baseSha, candidateSha, changedPaths: new Set(value.changedPaths), targetedChecks: value.targetedChecks.map(check => ({ ...check, expectedResult: { ...check.expectedResult } })) };
+}
 function safeDirectory(target, label) {
   if (!existsSync(target)) fail(`${label} checkout is missing`);
   const stat = lstatSync(target);
@@ -159,8 +196,8 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 3) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles'], 'scope manifest');
+  if (parsed.schemaVersion !== 4) fail('scope manifest is malformed');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
@@ -185,7 +222,19 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles };
+  if (!Array.isArray(parsed.lowRiskFrontendProfiles)) fail('low-risk frontend profiles are malformed');
+  const lowRiskProfilesByPr = new Map();
+  const existingPrNumbers = new Set([...profiles.values()].map(profile => profile.pullRequestNumber));
+  const candidateShas = new Set([...profiles.values()].filter(profile => profile.approvedHeadSha).map(profile => profile.approvedHeadSha));
+  for (const entry of parsed.lowRiskFrontendProfiles) {
+    const record = lowRiskRecord(entry);
+    if (existingPrNumbers.has(record.pullRequestNumber) || lowRiskProfilesByPr.has(record.pullRequestNumber) || candidateShas.has(record.candidateSha)) {
+      fail('low-risk frontend profile is duplicate or shares a candidate SHA');
+    }
+    lowRiskProfilesByPr.set(record.pullRequestNumber, record);
+    existingPrNumbers.add(record.pullRequestNumber); candidateShas.add(record.candidateSha);
+  }
+  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfilesByPr };
 }
 
 export function declaredScopeId(body) {
@@ -213,6 +262,12 @@ function verifyExactPaths(changed, allowedPaths) {
   if (changed.length !== allowedPaths.size || new Set(changed).size !== changed.length
     || changed.some(entry => !allowedPaths.has(entry))) {
     fail('structural profile requires the exact approved path set');
+  }
+}
+function verifyCandidatePaths(candidateRoot, changed, pathStat) {
+  for (const entry of changed) {
+    const target = path.resolve(candidateRoot, entry);
+    if (!target.startsWith(`${candidateRoot}${path.sep}`) || pathStat(target).isSymbolicLink()) fail('candidate changed path is unsafe');
   }
 }
 function rawCommitIdentity(raw, headSha) {
@@ -280,6 +335,13 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
   }
   fail('approved profile kind is unsupported');
 }
+function verifyLowRiskProfile({ record, baseSha, headSha, mergeBaseSha, changed, candidateRoot, pathStat }) {
+  if (baseSha !== record.baseSha || headSha !== record.candidateSha || mergeBaseSha !== record.baseSha) fail('low-risk frontend authority record does not match event SHA chain');
+  verifyExactPaths(changed, record.changedPaths);
+  verifyCandidatePaths(candidateRoot, changed, pathStat);
+  return { kind: 'low-risk-frontend', ticketKey: record.ticketKey, baseSha: record.baseSha,
+    candidateSha: record.candidateSha, approvedPaths: [...record.changedPaths], targetedChecks: record.targetedChecks };
+}
 export async function createReviewManifest(env = process.env, options = {}) {
   const eventName = env.GITHUB_EVENT_NAME;
   const layout = resolveLayout(env, options);
@@ -308,10 +370,17 @@ export async function createReviewManifest(env = process.env, options = {}) {
 
     const scope = await loadScope(options.read ?? readFile);
     const requestedScopeId = declaredScopeId(event?.pull_request?.body);
+    const lowRiskRecordForPr = scope.lowRiskProfilesByPr.get(prNumber);
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
     let structuralProof = null;
-    if (requestedScopeId !== null) {
+    if (lowRiskRecordForPr) {
+      if (requestedScopeId !== null) fail('low-risk frontend profile must not use candidate scope declaration');
+      scopeId = `authority-low-risk-${lowRiskRecordForPr.ticketKey.toLowerCase()}`;
+      allowedPaths = lowRiskRecordForPr.changedPaths;
+      structuralProof = verifyLowRiskProfile({ record: lowRiskRecordForPr, baseSha, headSha, mergeBaseSha, changed,
+        candidateRoot: layout.candidateRoot, pathStat: options.pathStat ?? lstatSync });
+    } else if (requestedScopeId !== null) {
       const profile = scope.profiles.get(requestedScopeId);
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
       if (profile.pullRequestNumber !== prNumber || profile.baseRef !== baseRef) {

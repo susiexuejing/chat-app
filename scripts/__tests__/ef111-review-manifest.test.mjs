@@ -20,6 +20,10 @@ const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
 const EF146_SCOPE = 'ef-146-pr-54-docs-only';
 const EF146_PATHS = ['docs/EF-146-ownership-boundary-contract.md'];
 const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
+const LOW_TICKET = 'EF-999';
+const LOW_PR = 99;
+const LOW_PATHS = ['client/screens/chat/components/RoleHeader.tsx'];
+const LOW_CHECK = { id: 'client-jest-file', testPath: 'client/screens/chat/__tests__/roleHeader.test.tsx', expectedResult: { passed: 2, failed: 0, skipped: 0 } };
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -29,6 +33,8 @@ const LEGACY_PATHS = [
   'scripts/release-suite.manifest.json',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
   'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
+  'scripts/run-approved-targeted-regressions.mjs',
   'docs/EF-94-ci-release-gate.md',
 ];
 const EF118_PATHS = [
@@ -74,7 +80,7 @@ const EF75_PATHS = [
   'server/src/storage/database/shared/schema.ts',
 ];
 const scopeObject = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   legacyAllowedPaths: LEGACY_PATHS,
   approvedProfiles: [
     {
@@ -95,8 +101,13 @@ const scopeObject = {
       allowedPaths: EF146_PATHS,
     },
   ],
+  lowRiskFrontendProfiles: [],
 };
 const scope = JSON.stringify(scopeObject);
+const lowScope = JSON.stringify({ ...scopeObject, lowRiskFrontendProfiles: [{
+  ticketKey: LOW_TICKET, pullRequestNumber: LOW_PR, baseBranch: 'dev', baseSha: BASE, candidateSha: HEAD,
+  changedPaths: LOW_PATHS, targetedChecks: [LOW_CHECK],
+}] });
 
 async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'ef111-event-'));
@@ -108,13 +119,13 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : head;
     if (operation === 'cat-file') return '';
-    if (operation === 'merge-base') return MERGE_BASE;
+    if (operation === 'merge-base') return mergeBase;
     if (operation === 'diff') return `${changed.join('\n')}\n`;
     throw new Error(`unexpected git operation: ${args.join(' ')}`);
   };
@@ -153,6 +164,7 @@ function optionsFor(file, layout, git, scopeText = scope) {
   return {
     layout,
     git,
+    pathStat: () => ({ isSymbolicLink: () => false }),
     read: async target => target === file ? readFile(target, 'utf8') : scopeText,
   };
 }
@@ -349,6 +361,41 @@ test('EF-146 PR 54 rejects a correct path and PR number with an unapproved candi
     optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
       gitFixture({ head: HEAD, changed: EF146_PATHS })),
   ), /head SHA is not approved/);
+});
+
+test('low-risk admission uses only the authority record selected by event PR number', async t => {
+  const { root, file } = await eventFixture({ number: LOW_PR, head: HEAD, base: BASE });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ authority: BASE, head: HEAD, mergeBase: BASE, changed: LOW_PATHS }), lowScope),
+  );
+  assert.equal(manifest.scopeId, 'authority-low-risk-ef-999');
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'low-risk-frontend', ticketKey: LOW_TICKET, baseSha: BASE, candidateSha: HEAD,
+    approvedPaths: LOW_PATHS, targetedChecks: [LOW_CHECK],
+  });
+});
+
+test('low-risk admission rejects candidate declarations, wrong SHA/path, symlink, and malformed records', async t => {
+  const { root, file } = await eventFixture({ number: LOW_PR, head: HEAD, base: BASE, body: 'Review-Scope: candidate-override' });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await assert.rejects(createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' }, gitFixture({ authority: BASE, head: HEAD, mergeBase: BASE, changed: LOW_PATHS }), lowScope),
+  ), /must not use candidate scope declaration/);
+  const noDeclaration = await eventFixture({ number: LOW_PR, head: HEAD, base: BASE });
+  t.after(() => rm(noDeclaration.root, { recursive: true, force: true }));
+  await assert.rejects(createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: noDeclaration.file },
+    optionsFor(noDeclaration.file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' }, gitFixture({ authority: BASE, head: HEAD, mergeBase: BASE, changed: [...LOW_PATHS, 'client/app.config.ts'] }), lowScope),
+  ), /exact approved path set/);
+  const symlinkOptions = optionsFor(noDeclaration.file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' }, gitFixture({ authority: BASE, head: HEAD, mergeBase: BASE, changed: LOW_PATHS }), lowScope);
+  symlinkOptions.pathStat = () => ({ isSymbolicLink: () => true });
+  await assert.rejects(createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: noDeclaration.file }, symlinkOptions), /candidate changed path is unsafe/);
+  const malformed = { ...scopeObject, lowRiskFrontendProfiles: [{ ticketKey: LOW_TICKET, pullRequestNumber: LOW_PR, baseBranch: 'dev', baseSha: BASE, candidateSha: HEAD, changedPaths: ['client/**'], targetedChecks: [LOW_CHECK] }] };
+  await assert.rejects(loadScope(async () => JSON.stringify(malformed)), /malformed/);
 });
 
 test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {
