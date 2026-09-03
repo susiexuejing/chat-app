@@ -116,6 +116,7 @@ jobs:
           node "$GITHUB_WORKSPACE/authority/scripts/run-approved-targeted-regressions.mjs" \
             --manifest "$RUNNER_TEMP/ef111-review-manifest.json" \
             --output "$RUNNER_TEMP/ef179-approved-targeted-regressions.json"
+          cat "$RUNNER_TEMP/ef179-approved-targeted-regressions.json"
 
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
