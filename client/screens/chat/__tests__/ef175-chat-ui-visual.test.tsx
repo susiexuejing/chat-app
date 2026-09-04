@@ -44,6 +44,6 @@ describe('EF-175 chat product identity', () => {
   it('preserves the existing new-chat action when history exists', async () => {
     const view = await renderHeader(true);
 
-    expect(view.getByText('新建')).toBeTruthy();
+    expect(view.getByText('新对话')).toBeTruthy();
   });
 });
