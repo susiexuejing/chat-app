@@ -101,6 +101,24 @@ const EXACT_APPROVED_PROFILES = [{
   baseRef: 'dev',
   approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
   allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
+}, {
+  id: 'ef-185-pr-70-2fba703-fixed-head',
+  kind: 'exact-fixed-head-paths',
+  pullRequestNumber: 70,
+  baseRef: 'dev',
+  approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
+  approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
+  allowedPaths: [
+    'server/src/__tests__/ef75-anonymous-session.test.ts',
+    'server/src/__tests__/ef75-chat-ownership.test.ts',
+    'server/src/__tests__/ef75-conversation-ownership.test.ts',
+    'server/src/__tests__/ef75-web-session-security.test.ts',
+    'server/src/routes/conversations.ts',
+    'server/src/security/anonymousSession.ts',
+    'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+    'server/src/storage/database/rds-owner-binding-store.ts',
+    'server/src/storage/database/shared/schema.ts',
+  ],
 }];
 
 function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
@@ -259,17 +277,26 @@ export async function loadScope(read = readFile) {
     const expected = EXACT_APPROVED_PROFILES[index];
     const profileKeys = expected.kind === 'exact-clean-merge'
       ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths']
-      : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
+      : expected.kind === 'exact-fixed-head-paths'
+        ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'approvedMergeBaseSha', 'allowedPaths']
+        : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
       || actual.kind !== expected.kind || actual.baseRef !== expected.baseRef
       || (expected.kind === 'exact-clean-merge'
         && actual.approvedFirstParentSha !== expected.approvedFirstParentSha)
+      || (expected.kind === 'exact-fixed-head-paths'
+        && (actual.approvedHeadSha !== expected.approvedHeadSha
+          || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha))
       || (expected.kind === 'exact-docs-paths' && actual.approvedHeadSha !== expected.approvedHeadSha)
       || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
     }
     if (expected.kind === 'exact-clean-merge') sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
+    if (expected.kind === 'exact-fixed-head-paths') {
+      sha(actual.approvedHeadSha, 'approved profile head SHA');
+      sha(actual.approvedMergeBaseSha, 'approved profile merge-base SHA');
+    }
     if (expected.kind === 'exact-docs-paths') sha(actual.approvedHeadSha, 'approved profile head SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
@@ -354,6 +381,18 @@ function verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, chan
     recomputedTreeSha,
   };
 }
+function verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed }) {
+  if (profile.kind !== 'exact-fixed-head-paths') fail('approved profile kind is unsupported');
+  if (headSha !== profile.approvedHeadSha) fail('fixed-head profile head SHA is not approved');
+  if (mergeBaseSha !== profile.approvedMergeBaseSha) fail('fixed-head profile merge-base SHA is not approved');
+  verifyExactPaths(changed, profile.allowedPaths);
+  return {
+    kind: profile.kind,
+    approvedPaths: [...profile.allowedPaths],
+    approvedHeadSha: profile.approvedHeadSha,
+    approvedMergeBaseSha: profile.approvedMergeBaseSha,
+  };
+}
 function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git }) {
   if (profile.kind === 'exact-clean-merge') {
     return verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git });
@@ -366,6 +405,9 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
       approvedPaths: [...profile.allowedPaths],
       baseSha, approvedHeadSha: profile.approvedHeadSha,
     };
+  }
+  if (profile.kind === 'exact-fixed-head-paths') {
+    return verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed });
   }
   fail('approved profile kind is unsupported');
 }
