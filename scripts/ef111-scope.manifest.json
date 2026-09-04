@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "legacyAllowedPaths": [
     ".github/workflows/release-gate.yml",
     "scripts/ef111-scope.manifest.json",
@@ -24,6 +24,24 @@
       "targetIds": [
         "chat-ui-jest-path"
       ]
+    }
+  ],
+  "r1FrontendProfiles": [
+    {
+      "id": "r1-chat-ui-affected-v1",
+      "kind": "r1-frontend-category",
+      "baseRef": "dev",
+      "uiEntryPaths": [
+        "client/screens/chat/index.tsx",
+        "client/screens/chat/SelectCounselorScreen.tsx"
+      ],
+      "uiComponentRoot": "client/screens/chat/components",
+      "testRoot": "client/screens/chat/__tests__",
+      "targetIds": [
+        "chat-ui-jest-path"
+      ],
+      "maxUiPaths": 2,
+      "maxTestPaths": 3
     }
   ],
   "approvedProfiles": [

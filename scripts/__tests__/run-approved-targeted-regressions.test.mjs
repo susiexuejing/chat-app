@@ -43,6 +43,24 @@ test('runner executes the closed UI check only with an authority-supplied path',
   assert.equal(record.outcome, 'passed');
 });
 
+test('runner executes the R1 affected-test inventory as closed argv values', async () => {
+  const calls = [];
+  const targetedTestPaths = [
+    'client/screens/chat/__tests__/r1-ui-affected-a.test.tsx',
+    'client/screens/chat/__tests__/r1-ui-affected-b.test.tsx',
+  ];
+  await runApprovedTargetedRegressions(['chat-ui-jest-path'], {
+    targetedTestPaths,
+    spawnImpl(command, args) {
+      calls.push({ command, args });
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('exit', 0, null));
+      return child;
+    },
+  });
+  assert.deepEqual(calls, [{ command: 'pnpm', args: [...APPROVED_CHECKS['chat-ui-jest-path'].args, ...targetedTestPaths] }]);
+});
+
 test('runner records failures without widening its target set', async () => {
   let index = 0;
   const record = await runApprovedTargetedRegressions(DEFAULT_TARGETS, {
@@ -83,7 +101,15 @@ test('authority manifest rejects malformed and symlinked input and accepts one v
     targetedTestPath: 'client/screens/chat/__tests__/ChatContext.test.tsx',
   }));
   assert.deepEqual(await authorityManifest(manifest), {
-    ids: ['chat-ui-jest-path'], targetedTestPath: 'client/screens/chat/__tests__/ChatContext.test.tsx',
+    ids: ['chat-ui-jest-path'], targetedTestPaths: ['client/screens/chat/__tests__/ChatContext.test.tsx'],
+  });
+  await writeFile(manifest, JSON.stringify({
+    targetedRegressionIds: ['chat-ui-jest-path'], targetedTestPath: null,
+    affectedTestPaths: ['client/screens/chat/__tests__/ChatContext.test.tsx', 'client/screens/chat/__tests__/ef59-runtime-fix.test.tsx'],
+  }));
+  assert.deepEqual(await authorityManifest(manifest), {
+    ids: ['chat-ui-jest-path'],
+    targetedTestPaths: ['client/screens/chat/__tests__/ChatContext.test.tsx', 'client/screens/chat/__tests__/ef59-runtime-fix.test.tsx'],
   });
   const linked = path.join(root, 'linked.json');
   await symlink(manifest, linked);

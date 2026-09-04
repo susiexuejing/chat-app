@@ -18,12 +18,18 @@ function fail(message) { throw new Error(`EF-179 targeted regressions rejected: 
 export async function authorityManifest(file) {
   if (!file || !existsSync(file) || lstatSync(file).isSymbolicLink()) fail('authority manifest is missing or unsafe');
   let manifest; try { manifest = JSON.parse(await readFile(file, 'utf8')); } catch { fail('authority manifest is malformed'); }
-  if (!Array.isArray(manifest.targetedRegressionIds) || manifest.targetedRegressionIds.length !== 1 || manifest.targetedRegressionIds[0] !== 'chat-ui-jest-path'
-    || typeof manifest.targetedTestPath !== 'string' || !/^client\/screens\/chat\/__tests__\/[A-Za-z0-9][A-Za-z0-9._-]*\.test\.(ts|tsx)$/.test(manifest.targetedTestPath)) fail('authority manifest is malformed');
-  const target = path.resolve(REPO_ROOT, manifest.targetedTestPath); const root = await realpath(REPO_ROOT);
-  let actual; try { actual = await realpath(target); } catch { fail('authority test path is missing'); }
-  if (!actual.startsWith(`${root}${path.sep}`) || lstatSync(target).isSymbolicLink()) fail('authority test path is unsafe');
-  return { ids: manifest.targetedRegressionIds, targetedTestPath: manifest.targetedTestPath };
+  if (!Array.isArray(manifest.targetedRegressionIds) || manifest.targetedRegressionIds.length !== 1 || manifest.targetedRegressionIds[0] !== 'chat-ui-jest-path') fail('authority manifest is malformed');
+  const testPaths = manifest.targetedTestPath === null && Array.isArray(manifest.affectedTestPaths)
+    ? manifest.affectedTestPaths : [manifest.targetedTestPath];
+  if (testPaths.length === 0 || testPaths.length > 3 || new Set(testPaths).size !== testPaths.length
+    || testPaths.some(entry => typeof entry !== 'string' || !/^client\/screens\/chat\/__tests__\/[A-Za-z0-9][A-Za-z0-9._-]*\.test\.(ts|tsx)$/.test(entry))) fail('authority manifest is malformed');
+  const root = await realpath(REPO_ROOT);
+  for (const testPath of testPaths) {
+    const target = path.resolve(REPO_ROOT, testPath);
+    let actual; try { actual = await realpath(target); } catch { fail('authority test path is missing'); }
+    if (!actual.startsWith(`${root}${path.sep}`) || lstatSync(target).isSymbolicLink()) fail('authority test path is unsafe');
+  }
+  return { ids: manifest.targetedRegressionIds, targetedTestPaths: testPaths };
 }
 
 export function parseArguments(argv = process.argv.slice(2)) {
@@ -39,10 +45,10 @@ export function parseArguments(argv = process.argv.slice(2)) {
   return { output, ids };
 }
 
-function runTarget(id, targetedTestPath, spawnImpl = spawn) {
+function runTarget(id, targetedTestPaths, spawnImpl = spawn) {
   return new Promise((resolve, reject) => {
     const check = APPROVED_CHECKS[id];
-    const child = spawnImpl(check.command, id === 'chat-ui-jest-path' ? [...check.args, targetedTestPath] : check.args, {
+    const child = spawnImpl(check.command, id === 'chat-ui-jest-path' ? [...check.args, ...targetedTestPaths] : check.args, {
       cwd: REPO_ROOT,
       env: { ...process.env, CI: '1' },
       shell: false,
@@ -56,7 +62,9 @@ function runTarget(id, targetedTestPath, spawnImpl = spawn) {
 export async function runApprovedTargetedRegressions(ids = DEFAULT_TARGETS, options = {}) {
   if (!Array.isArray(ids) || ids.length === 0 || new Set(ids).size !== ids.length || ids.some(id => !Object.hasOwn(APPROVED_CHECKS, id))) fail('invalid approved checks');
   const results = [];
-  for (const id of ids) results.push(await runTarget(id, options.targetedTestPath, options.spawnImpl));
+  const targetedTestPaths = options.targetedTestPaths ?? (options.targetedTestPath ? [options.targetedTestPath] : []);
+  if (ids.includes('chat-ui-jest-path') && targetedTestPaths.length === 0) fail('missing authority test paths');
+  for (const id of ids) results.push(await runTarget(id, targetedTestPaths, options.spawnImpl));
   return {
     schemaVersion: 2,
     runner: 'ef-183-approved-targeted-regressions',
@@ -71,8 +79,8 @@ async function main() {
   if (existsSync(parsed.output)) fail('output path already exists');
   const parent = path.dirname(parsed.output);
   if (!existsSync(parent) || !lstatSync(parent).isDirectory() || lstatSync(parent).isSymbolicLink()) fail('output artifact directory is unsafe or missing');
-  const selected = parsed.manifest ? await authorityManifest(parsed.manifest) : { ids: parsed.ids, targetedTestPath: undefined };
-  const record = await runApprovedTargetedRegressions(selected.ids, { targetedTestPath: selected.targetedTestPath });
+  const selected = parsed.manifest ? await authorityManifest(parsed.manifest) : { ids: parsed.ids, targetedTestPaths: undefined };
+  const record = await runApprovedTargetedRegressions(selected.ids, { targetedTestPaths: selected.targetedTestPaths });
   await writeFile(parsed.output, `${JSON.stringify(record, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
   if (record.outcome !== 'passed') process.exitCode = 1;
 }

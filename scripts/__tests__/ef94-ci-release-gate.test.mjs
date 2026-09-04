@@ -55,6 +55,7 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
   assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
   assert.match(workflow, /name: Run authority-selected R0 UI category regression[\s\S]*scope_id == 'r0-chat-ui-visual-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /name: Run authority-selected R1 frontend regression[\s\S]*scope_id == 'r1-chat-ui-affected-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
@@ -67,8 +68,8 @@ test('scope authority runs before candidate-only install and release regression'
 
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 4);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'schemaVersion']);
+  assert.equal(manifest.schemaVersion, 5);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'r1FrontendProfiles', 'schemaVersion']);
   assert.deepEqual(manifest.lowRiskFrontendProfiles, [{
     id: 'r0-chat-ui-visual-v1',
     kind: 'r0-ui-category',
@@ -77,6 +78,20 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
     uiComponentRoot: 'client/screens/chat/components',
     testRoot: 'client/screens/chat/__tests__',
     targetIds: ['chat-ui-jest-path'],
+  }]);
+  assert.deepEqual(manifest.r1FrontendProfiles, [{
+    id: 'r1-chat-ui-affected-v1',
+    kind: 'r1-frontend-category',
+    baseRef: 'dev',
+    uiEntryPaths: [
+      'client/screens/chat/index.tsx',
+      'client/screens/chat/SelectCounselorScreen.tsx',
+    ],
+    uiComponentRoot: 'client/screens/chat/components',
+    testRoot: 'client/screens/chat/__tests__',
+    targetIds: ['chat-ui-jest-path'],
+    maxUiPaths: 2,
+    maxTestPaths: 3,
   }]);
   assert.equal(manifest.legacyAllowedPaths.length, 9);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
