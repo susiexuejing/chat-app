@@ -1,17 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useChat } from '@/screens/chat/contexts/ChatContext';
-import { roles } from '@/screens/chat/constants/roles';
-
-const ROLE_INITIALS: Record<string, string> = {
-  'clever-fox': '狐',
-  'warm-bear': '熊',
-  'wise-owl': '猫',
-  'emotion-elf': '精',
-  'philosophical-dolphin': '海',
-  'family-elephant': '象',
-};
 
 interface RoleHeaderProps {
   onShowRolePicker: () => void;
@@ -23,37 +12,18 @@ interface RoleHeaderProps {
 
 export function RoleHeader({
   onShowRolePicker,
-  onShowRoleDetail,
   onNewChat,
   hasHistory,
 }: RoleHeaderProps) {
-  const { currentRole } = useChat();
-  const role = currentRole || roles[0];
-  if (!role) return null;
-
   return (
     <View className="px-4 pt-3 pb-2 bg-white dark:bg-gray-900 border-b border-gray-100 dark:border-gray-800">
       <View className="flex-row items-center">
-        {/* 头像 - 彩色文字圆圈 */}
-        <TouchableOpacity onPress={onShowRoleDetail} className="mr-3">
-          <View className="w-10 h-10 rounded-full items-center justify-center overflow-hidden">
-            <View className="absolute inset-0 opacity-20" style={{ backgroundColor: role.themeColor }} />
-            <Text className="text-base font-bold" style={{ color: role.themeColor }}>
-              {ROLE_INITIALS[role.id] || role.name[0]}
-            </Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* 名称 + 描述 */}
-        <TouchableOpacity onPress={onShowRoleDetail} className="flex-1">
+        {/* 产品标识：聊天顶部始终显示同一产品身份。 */}
+        <View className="flex-1">
           <Text className="text-sm font-bold text-gray-900 dark:text-white">
-            {role.name}
-            <Text className="text-xs font-normal text-gray-400 dark:text-gray-500"> 正在陪你</Text>
+            EmotionFlow
           </Text>
-          <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            {role.shortDesc}
-          </Text>
-        </TouchableOpacity>
+        </View>
 
         {/* 切换陪伴者 */}
         <TouchableOpacity
