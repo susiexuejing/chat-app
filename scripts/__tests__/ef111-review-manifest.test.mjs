@@ -20,6 +20,9 @@ const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
 const EF146_SCOPE = 'ef-146-pr-54-docs-only';
 const EF146_PATHS = ['docs/EF-146-ownership-boundary-contract.md'];
 const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
+const LOW_RISK_SCOPE = 'r0-chat-ui-visual-v1';
+const LOW_RISK_UI_PATH = 'client/screens/chat/components/RoleHeader.tsx';
+const LOW_RISK_TEST_PATH = 'client/screens/chat/__tests__/r0-ui-visual.test.tsx';
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -78,7 +81,15 @@ const EF75_PATHS = [
 const scopeObject = {
   schemaVersion: 4,
   legacyAllowedPaths: LEGACY_PATHS,
-  lowRiskFrontendProfiles: [],
+  lowRiskFrontendProfiles: [{
+    id: LOW_RISK_SCOPE,
+    kind: 'r0-ui-category',
+    baseRef: 'dev',
+    uiEntryPaths: ['client/screens/chat/index.tsx'],
+    uiComponentRoot: 'client/screens/chat/components',
+    testRoot: 'client/screens/chat/__tests__',
+    targetIds: ['chat-ui-jest-path'],
+  }],
   approvedProfiles: [
     {
       id: STRUCTURAL_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 43, baseRef: 'dev',
@@ -178,6 +189,7 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
       schemaVersion: 4, eventName, mode: 'single', authoritySha: HEAD,
       checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
+      targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'], targetedTestPath: null,
     });
   }
 });
@@ -195,6 +207,46 @@ test('dual mode executes legacy scope with base authority and candidate diff', a
   assert.equal(manifest.checkedOutSha, HEAD);
   assert.equal(manifest.scopeId, 'ef-111-legacy-seven-path');
   assert.equal(manifest.mergeBaseSha, MERGE_BASE);
+});
+
+test('authority scope accepts only the trusted ticket-neutral R0 UI category', async t => {
+  const { root, file } = await eventFixture({ body: `Review-Scope: ${LOW_RISK_SCOPE}` });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({ changed: [LOW_RISK_UI_PATH, LOW_RISK_TEST_PATH] })),
+  );
+  assert.deepEqual(manifest.targetedRegressionIds, ['chat-ui-jest-path']);
+  assert.equal(manifest.targetedTestPath, LOW_RISK_TEST_PATH);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'trusted-r0-ui-category', authoritySha: BASE,
+    uiPath: LOW_RISK_UI_PATH, targetedTestPath: LOW_RISK_TEST_PATH,
+  });
+  for (const entry of [
+    { changed: [LOW_RISK_UI_PATH], error: /exactly one closed UI path and one closed test path/ },
+    { changed: [LOW_RISK_UI_PATH, LOW_RISK_TEST_PATH, 'client/screens/chat/api/cozeApi.ts'], error: /exactly one closed UI path and one closed test path/ },
+    { changed: ['client/screens/chat/components/../api/cozeApi.ts', LOW_RISK_TEST_PATH], error: /exactly one closed UI path and one closed test path/ },
+  ]) {
+    const fixture = await eventFixture({ body: `Review-Scope: ${LOW_RISK_SCOPE}` });
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: fixture.file },
+      optionsFor(fixture.file, layout, gitFixture({ changed: entry.changed })),
+    ), entry.error);
+  }
+});
+
+test('authority scope rejects malformed or broadened R0 UI category rules', async () => {
+  const profile = scopeObject.lowRiskFrontendProfiles[0];
+  for (const mutation of [
+    { ...profile, id: 'r0-chat-ui-visual-v2' },
+    { ...profile, uiComponentRoot: 'client/screens/chat/**' },
+    { ...profile, uiEntryPaths: ['client/screens/chat/index.tsx', 'client/screens/chat/api/cozeApi.ts'] },
+    { ...profile, targetIds: ['chat-ui-jest-path', 'chat-ui-jest-path'] },
+  ]) {
+    await assert.rejects(loadScope(async () => JSON.stringify({ ...scopeObject, lowRiskFrontendProfiles: [mutation] })), /malformed|targets/);
+  }
 });
 
 test('dual mode accepts only the exact clean-merge EF-118 graph, tree, and paths', async t => {

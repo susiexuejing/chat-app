@@ -11,7 +11,21 @@
     "scripts/run-approved-targeted-regressions.mjs",
     "docs/EF-94-ci-release-gate.md"
   ],
-  "lowRiskFrontendProfiles": [],
+  "lowRiskFrontendProfiles": [
+    {
+      "id": "r0-chat-ui-visual-v1",
+      "kind": "r0-ui-category",
+      "baseRef": "dev",
+      "uiEntryPaths": [
+        "client/screens/chat/index.tsx"
+      ],
+      "uiComponentRoot": "client/screens/chat/components",
+      "testRoot": "client/screens/chat/__tests__",
+      "targetIds": [
+        "chat-ui-jest-path"
+      ]
+    }
+  ],
   "approvedProfiles": [
     {
       "id": "ef-118-pr-43-f35b3ca-clean-merge",
