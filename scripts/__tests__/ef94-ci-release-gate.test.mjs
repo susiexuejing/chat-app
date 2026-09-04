@@ -54,11 +54,11 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /name: Run approved targeted gate regressions[\s\S]*id: targeted_regressions/);
   assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
   assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
-  assert.match(workflow, /name: Run authority-selected low-risk UI regression[\s\S]*startsWith\(steps\.review_manifest\.outputs\.scope_id, 'authority-low-risk-'\)[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /name: Run authority-selected R0 UI category regression[\s\S]*scope_id == 'r0-chat-ui-visual-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
-  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('name: Run authority-selected low-risk UI regression'));
+  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('name: Run authority-selected R0 UI category regression'));
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
   assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
@@ -69,7 +69,15 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
   const manifest = JSON.parse(await text(scopeManifestUrl));
   assert.equal(manifest.schemaVersion, 4);
   assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'schemaVersion']);
-  assert.deepEqual(manifest.lowRiskFrontendProfiles, []);
+  assert.deepEqual(manifest.lowRiskFrontendProfiles, [{
+    id: 'r0-chat-ui-visual-v1',
+    kind: 'r0-ui-category',
+    baseRef: 'dev',
+    uiEntryPaths: ['client/screens/chat/index.tsx'],
+    uiComponentRoot: 'client/screens/chat/components',
+    testRoot: 'client/screens/chat/__tests__',
+    targetIds: ['chat-ui-jest-path'],
+  }]);
   assert.equal(manifest.legacyAllowedPaths.length, 9);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
