@@ -4,6 +4,8 @@ import request from 'supertest';
 
 const getSupabaseClient = jest.fn();
 jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
+const verifyOwnedConversation = jest.fn(async (owner: string, conversation: string) =>
+  owner === 'owner-a' && conversation === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' ? 'owned' : 'missing');
 
 jest.unstable_mockModule('../security/anonymousSession', () => ({
   requireAnonymousSession: (req: { get: (name: string) => string | undefined }, res: { locals: Record<string, unknown> }, next: () => void) => {
@@ -16,6 +18,7 @@ jest.unstable_mockModule('../security/anonymousSession', () => ({
     next();
   },
   getVerifiedAnonymousSession: (res: { locals: { anonymousSession: unknown } }) => res.locals.anonymousSession,
+  verifyOwnedConversation,
 }));
 
 const { default: conversationsRouter } = await import('../routes/conversations');
@@ -69,6 +72,8 @@ function makeApp() {
 }
 
 describe('EF-75 conversation and message ownership', () => {
+  beforeEach(() => verifyOwnedConversation.mockClear());
+
   test('User B direct-id substitution is indistinguishable from a missing or legacy conversation', async () => {
     const client = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(client);
@@ -85,6 +90,7 @@ describe('EF-75 conversation and message ownership', () => {
     expect(b.body).toEqual({ error: 'resource_not_found' });
     expect(missing.body).toEqual(b.body);
     expect(legacy.body).toEqual(b.body);
+    expect(getSupabaseClient).not.toHaveBeenCalled();
   });
 
   test('User A read is owner-filtered before any messages are returned', async () => {
@@ -96,6 +102,7 @@ describe('EF-75 conversation and message ownership', () => {
     expect(response.status).toBe(200);
     expect(response.body.conversation).not.toHaveProperty('userId');
     expect(response.body.messages[0].content).toBe('private-a');
+    expect(verifyOwnedConversation).toHaveBeenCalledWith('owner-a', CONVERSATION);
     expect(client.calls[0].filters).toEqual(expect.arrayContaining([
       ['id', CONVERSATION],
       ['owner_session_id', 'owner-a'],

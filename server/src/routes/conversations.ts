@@ -15,7 +15,9 @@ import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 import {
   getVerifiedAnonymousSession,
   requireAnonymousSession,
+  verifyOwnedConversation,
 } from '../security/anonymousSession';
+import { createOwnerBinding } from '../storage/database/rds-owner-binding-store';
 
 const router = Router();
 router.use(requireAnonymousSession);
@@ -40,6 +42,19 @@ function writeSafeInternalError(
   return res.status(500).json({
     error: 'internal_server_error',
   });
+}
+
+async function requireExactConversationOwner(
+  res: { status: (status: number) => { json: (body: unknown) => unknown } },
+  ownerPrincipalId: string,
+  conversationRef: string,
+): Promise<'owned' | 'missing' | 'internal'> {
+  const result = await verifyOwnedConversation(ownerPrincipalId, conversationRef);
+  if (result === 'missing') {
+    writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
+    res.status(404).json({ error: 'resource_not_found' });
+  }
+  return result;
 }
 
 // Types
@@ -99,6 +114,8 @@ router.post('/', async (req, res) => {
       throw error;
     }
 
+    await createOwnerBinding(data.id, owner.id);
+
     writeEf118RuntimeAudit({
       dbSessionCategory: 'conversation_created',
       frontendErrorMappingCategory: 'none',
@@ -123,6 +140,9 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const owner = getVerifiedAnonymousSession(res);
+    const ownership = await requireExactConversationOwner(res, owner.id, id);
+    if (ownership === 'missing') return;
+    if (ownership === 'internal') throw new Error('owner_binding_lookup_failed');
     const client = getSupabaseClient();
 
     // Get conversation
@@ -192,6 +212,10 @@ router.post('/:id/messages', async (req, res) => {
       writeEf118RuntimeAudit({ dbSessionCategory: 'request_invalid' });
       return res.status(400).json({ error: 'Missing role or content' });
     }
+
+    const ownership = await requireExactConversationOwner(res, owner.id, id);
+    if (ownership === 'missing') return;
+    if (ownership === 'internal') throw new Error('owner_binding_lookup_failed');
 
     const client = getSupabaseClient();
 
@@ -300,6 +324,9 @@ router.get('/:id/messages', async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
     const before = req.query.before ? parseInt(req.query.before as string) : undefined;
 
+    const ownership = await requireExactConversationOwner(res, owner.id, id);
+    if (ownership === 'missing') return;
+    if (ownership === 'internal') throw new Error('owner_binding_lookup_failed');
     const client = getSupabaseClient();
 
     // Verify conversation exists
