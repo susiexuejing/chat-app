@@ -16,6 +16,16 @@ const LOW_RISK_TARGET_IDS = ['chat-ui-jest-path'];
 const LOW_RISK_UI_ENTRY_PATHS = ['client/screens/chat/index.tsx'];
 const LOW_RISK_UI_COMPONENT_ROOT = 'client/screens/chat/components';
 const LOW_RISK_TEST_ROOT = 'client/screens/chat/__tests__';
+const R1_FRONTEND_PROFILE_ID = 'r1-chat-ui-affected-v1';
+const R1_FRONTEND_TARGET_IDS = ['chat-ui-jest-path'];
+const R1_FRONTEND_UI_ENTRY_PATHS = [
+  'client/screens/chat/index.tsx',
+  'client/screens/chat/SelectCounselorScreen.tsx',
+];
+const R1_FRONTEND_UI_COMPONENT_ROOT = 'client/screens/chat/components';
+const R1_FRONTEND_TEST_ROOT = 'client/screens/chat/__tests__';
+const R1_FRONTEND_MAX_UI_PATHS = 2;
+const R1_FRONTEND_MAX_TEST_PATHS = 3;
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -141,6 +151,21 @@ function lowRiskProfile(value) {
   return { ...value, uiEntryPaths: new Set(value.uiEntryPaths), targetIds: [...value.targetIds] };
 }
 
+function r1FrontendProfile(value) {
+  exactKeys(value, ['id', 'kind', 'baseRef', 'uiEntryPaths', 'uiComponentRoot', 'testRoot', 'targetIds', 'maxUiPaths', 'maxTestPaths'], 'R1 frontend profile');
+  if (value.id !== R1_FRONTEND_PROFILE_ID || value.kind !== 'r1-frontend-category' || value.baseRef !== 'dev') {
+    fail('R1 frontend profile identity is malformed');
+  }
+  exactPathList(value.uiEntryPaths, R1_FRONTEND_UI_ENTRY_PATHS, 'R1 frontend entry paths');
+  if (value.uiComponentRoot !== R1_FRONTEND_UI_COMPONENT_ROOT || value.testRoot !== R1_FRONTEND_TEST_ROOT
+    || value.maxUiPaths !== R1_FRONTEND_MAX_UI_PATHS || value.maxTestPaths !== R1_FRONTEND_MAX_TEST_PATHS
+    || /[*?\[\]{}]/.test(value.uiComponentRoot) || /[*?\[\]{}]/.test(value.testRoot)) {
+    fail('R1 frontend profile path class is malformed');
+  }
+  if (!Array.isArray(value.targetIds) || value.targetIds.length !== 1 || value.targetIds[0] !== R1_FRONTEND_TARGET_IDS[0]) fail('R1 frontend profile targets are malformed');
+  return { ...value, uiEntryPaths: new Set(value.uiEntryPaths), targetIds: [...value.targetIds] };
+}
+
 function directChildOf(value, root, suffix) {
   if (typeof value !== 'string' || !value.startsWith(`${root}/`) || !value.endsWith(suffix)
     || /[*?\[\]{}]/.test(value) || value.split('/').some(part => part === '.' || part === '..')) return false;
@@ -157,6 +182,17 @@ function verifyLowRiskCategoryPaths(changed, profile) {
     fail('low-risk UI category requires exactly one closed UI path and one closed test path');
   }
   return { uiPath: ui[0], targetedTestPath: tests[0] };
+}
+
+function verifyR1FrontendCategoryPaths(changed, profile) {
+  const ui = changed.filter(entry => profile.uiEntryPaths.has(entry)
+    || directChildOf(entry, profile.uiComponentRoot, '.tsx'));
+  const tests = changed.filter(entry => directChildOf(entry, profile.testRoot, '.test.tsx'));
+  if (changed.length !== ui.length + tests.length || ui.length === 0 || ui.length > profile.maxUiPaths
+    || tests.length === 0 || tests.length > profile.maxTestPaths || new Set(changed).size !== changed.length) {
+    fail('R1 frontend category requires only closed UI paths and one to three direct test paths');
+  }
+  return { uiPaths: ui, affectedTestPaths: tests };
 }
 function safeDirectory(target, label) {
   if (!existsSync(target)) fail(`${label} checkout is missing`);
@@ -198,8 +234,8 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 4) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles', 'r1FrontendProfiles'], 'scope manifest');
+  if (parsed.schemaVersion !== 5) fail('scope manifest is malformed');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.lowRiskFrontendProfiles) || parsed.lowRiskFrontendProfiles.length > 1) fail('low-risk frontend profiles are malformed');
   const lowRiskProfiles = new Map();
@@ -207,6 +243,13 @@ export async function loadScope(read = readFile) {
     const profile = lowRiskProfile(entry);
     if (lowRiskProfiles.has(profile.id)) fail('low-risk frontend profile is duplicated');
     lowRiskProfiles.set(profile.id, profile);
+  }
+  if (!Array.isArray(parsed.r1FrontendProfiles) || parsed.r1FrontendProfiles.length !== 1) fail('R1 frontend profiles are malformed');
+  const r1FrontendProfiles = new Map();
+  for (const entry of parsed.r1FrontendProfiles) {
+    const profile = r1FrontendProfile(entry);
+    if (r1FrontendProfiles.has(profile.id)) fail('R1 frontend profile is duplicated');
+    r1FrontendProfiles.set(profile.id, profile);
   }
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
@@ -231,7 +274,7 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfiles };
+  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfiles, r1FrontendProfiles };
 }
 
 export function declaredScopeId(body) {
@@ -359,11 +402,14 @@ export async function createReviewManifest(env = process.env, options = {}) {
     let structuralProof = null;
     let targetedRegressionIds = scopeId === LEGACY_SCOPE_ID ? [...DEFAULT_TARGETED_REGRESSION_IDS] : null;
     let targetedTestPath = null;
+    let affectedTestPaths = null;
     if (requestedScopeId !== null) {
-      const profile = scope.profiles.get(requestedScopeId) ?? scope.lowRiskProfiles.get(requestedScopeId);
+      const profile = scope.profiles.get(requestedScopeId)
+        ?? scope.lowRiskProfiles.get(requestedScopeId)
+        ?? scope.r1FrontendProfiles.get(requestedScopeId);
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
       if (profile.baseRef !== baseRef || (!scope.lowRiskProfiles.has(requestedScopeId)
-        && profile.pullRequestNumber !== prNumber)) {
+        && !scope.r1FrontendProfiles.has(requestedScopeId) && profile.pullRequestNumber !== prNumber)) {
         fail('approved profile does not match PR identity');
       }
       scopeId = profile.id;
@@ -377,6 +423,16 @@ export async function createReviewManifest(env = process.env, options = {}) {
         };
         targetedRegressionIds = profile.targetIds;
         targetedTestPath = categoryPaths.targetedTestPath;
+      } else if (scope.r1FrontendProfiles.has(requestedScopeId)) {
+        const categoryPaths = verifyR1FrontendCategoryPaths(changed, profile);
+        structuralProof = {
+          kind: 'trusted-r1-frontend-category',
+          authoritySha,
+          uiPaths: categoryPaths.uiPaths,
+          affectedTestPaths: categoryPaths.affectedTestPaths,
+        };
+        targetedRegressionIds = profile.targetIds;
+        affectedTestPaths = categoryPaths.affectedTestPaths;
       } else {
         allowedPaths = profile.allowedPaths;
         structuralProof = verifyProfile({
@@ -386,10 +442,10 @@ export async function createReviewManifest(env = process.env, options = {}) {
     }
     if (structuralProof === null) verifyAllowedPaths(changed, allowedPaths);
     return {
-      schemaVersion: 4, eventName, mode: 'authority-candidate', authoritySha,
+      schemaVersion: 5, eventName, mode: 'authority-candidate', authoritySha,
       checkedOutSha, baseSha, headSha, mergeBaseSha,
       prNumber, scopeId, changedPaths: changed, structuralProof, targetedRegressionIds,
-      targetedTestPath,
+      targetedTestPath, affectedTestPaths,
     };
   }
 
@@ -400,10 +456,10 @@ export async function createReviewManifest(env = process.env, options = {}) {
     const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
     if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
     return {
-      schemaVersion: 4, eventName, mode: 'single', authoritySha: checkedOutSha,
+      schemaVersion: 5, eventName, mode: 'single', authoritySha: checkedOutSha,
       checkedOutSha, baseSha: null, headSha: githubSha,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
-      targetedRegressionIds: [...DEFAULT_TARGETED_REGRESSION_IDS], targetedTestPath: null,
+      targetedRegressionIds: [...DEFAULT_TARGETED_REGRESSION_IDS], targetedTestPath: null, affectedTestPaths: null,
     };
   }
   fail(`unsupported event: ${String(eventName)}`);

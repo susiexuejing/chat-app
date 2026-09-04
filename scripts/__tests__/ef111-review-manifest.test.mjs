@@ -23,6 +23,12 @@ const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
 const LOW_RISK_SCOPE = 'r0-chat-ui-visual-v1';
 const LOW_RISK_UI_PATH = 'client/screens/chat/components/RoleHeader.tsx';
 const LOW_RISK_TEST_PATH = 'client/screens/chat/__tests__/r0-ui-visual.test.tsx';
+const R1_FRONTEND_SCOPE = 'r1-chat-ui-affected-v1';
+const R1_FRONTEND_UI_PATH = 'client/screens/chat/SelectCounselorScreen.tsx';
+const R1_FRONTEND_TEST_PATHS = [
+  'client/screens/chat/__tests__/r1-ui-affected-a.test.tsx',
+  'client/screens/chat/__tests__/r1-ui-affected-b.test.tsx',
+];
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -79,7 +85,7 @@ const EF75_PATHS = [
   'server/src/storage/database/shared/schema.ts',
 ];
 const scopeObject = {
-  schemaVersion: 4,
+  schemaVersion: 5,
   legacyAllowedPaths: LEGACY_PATHS,
   lowRiskFrontendProfiles: [{
     id: LOW_RISK_SCOPE,
@@ -89,6 +95,20 @@ const scopeObject = {
     uiComponentRoot: 'client/screens/chat/components',
     testRoot: 'client/screens/chat/__tests__',
     targetIds: ['chat-ui-jest-path'],
+  }],
+  r1FrontendProfiles: [{
+    id: R1_FRONTEND_SCOPE,
+    kind: 'r1-frontend-category',
+    baseRef: 'dev',
+    uiEntryPaths: [
+      'client/screens/chat/index.tsx',
+      'client/screens/chat/SelectCounselorScreen.tsx',
+    ],
+    uiComponentRoot: 'client/screens/chat/components',
+    testRoot: 'client/screens/chat/__tests__',
+    targetIds: ['chat-ui-jest-path'],
+    maxUiPaths: 2,
+    maxTestPaths: 3,
   }],
   approvedProfiles: [
     {
@@ -186,10 +206,10 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
       { layout, git: gitFixture({ authorityRoot: '/other', candidateRoot: '/single' }) },
     );
     assert.deepEqual(manifest, {
-      schemaVersion: 4, eventName, mode: 'single', authoritySha: HEAD,
+      schemaVersion: 5, eventName, mode: 'single', authoritySha: HEAD,
       checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
-      targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'], targetedTestPath: null,
+      targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'], targetedTestPath: null, affectedTestPaths: null,
     });
   }
 });
@@ -246,6 +266,53 @@ test('authority scope rejects malformed or broadened R0 UI category rules', asyn
     { ...profile, targetIds: ['chat-ui-jest-path', 'chat-ui-jest-path'] },
   ]) {
     await assert.rejects(loadScope(async () => JSON.stringify({ ...scopeObject, lowRiskFrontendProfiles: [mutation] })), /malformed|targets/);
+  }
+});
+
+test('authority scope accepts the trusted R1 frontend category and records every affected test', async t => {
+  const { root, file } = await eventFixture({ body: `Review-Scope: ${R1_FRONTEND_SCOPE}` });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({ changed: [R1_FRONTEND_UI_PATH, ...R1_FRONTEND_TEST_PATHS] })),
+  );
+  assert.equal(manifest.scopeId, R1_FRONTEND_SCOPE);
+  assert.deepEqual(manifest.targetedRegressionIds, ['chat-ui-jest-path']);
+  assert.equal(manifest.targetedTestPath, null);
+  assert.deepEqual(manifest.affectedTestPaths, R1_FRONTEND_TEST_PATHS);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'trusted-r1-frontend-category', authoritySha: BASE,
+    uiPaths: [R1_FRONTEND_UI_PATH], affectedTestPaths: R1_FRONTEND_TEST_PATHS,
+  });
+});
+
+test('authority scope rejects missing, expanded, or unsafe R1 frontend evidence', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  for (const changed of [
+    [R1_FRONTEND_UI_PATH],
+    [R1_FRONTEND_UI_PATH, ...R1_FRONTEND_TEST_PATHS, 'client/screens/chat/api/cozeApi.ts'],
+    ['client/screens/chat/components/../api/cozeApi.ts', R1_FRONTEND_TEST_PATHS[0]],
+    [R1_FRONTEND_UI_PATH, 'client/screens/chat/__tests__/nested/r1.test.tsx'],
+  ]) {
+    const { root, file } = await eventFixture({ body: `Review-Scope: ${R1_FRONTEND_SCOPE}` });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, layout, gitFixture({ changed })),
+    ), /R1 frontend category/);
+  }
+});
+
+test('authority scope rejects malformed or broadened R1 frontend category rules', async () => {
+  const profile = scopeObject.r1FrontendProfiles[0];
+  for (const mutation of [
+    { ...profile, id: 'r1-chat-ui-affected-v2' },
+    { ...profile, uiComponentRoot: 'client/screens/chat/**' },
+    { ...profile, maxTestPaths: 4 },
+    { ...profile, targetIds: ['chat-ui-jest-path', 'chat-ui-jest-path'] },
+  ]) {
+    await assert.rejects(loadScope(async () => JSON.stringify({ ...scopeObject, r1FrontendProfiles: [mutation] })), /malformed|targets/);
   }
 });
 

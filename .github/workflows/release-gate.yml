@@ -114,6 +114,11 @@ jobs:
         working-directory: candidate
         run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef184-r0-ui-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
 
+      - name: Run authority-selected R1 frontend regression
+        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'r1-chat-ui-affected-v1' }}
+        working-directory: candidate
+        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef186-r1-frontend-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
+
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm run test:release
