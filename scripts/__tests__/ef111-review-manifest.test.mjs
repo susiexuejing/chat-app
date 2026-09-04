@@ -103,9 +103,9 @@ const scope = JSON.stringify(scopeObject);
 const lowRiskScope = JSON.stringify({
   ...scopeObject,
   lowRiskFrontendProfiles: [{
-    id: 'ef-999-pr-17-r0-ui', ticket: 'EF-999', pullRequestNumber: 17, baseRef: 'dev',
+    id: 'authority-low-risk-ef-999-pr-17-r0-ui', ticket: 'EF-999', pullRequestNumber: 17, baseRef: 'dev',
     approvedBaseSha: BASE, approvedHeadSha: HEAD, expiresAt: '2099-01-01T00:00:00Z', allowedPaths: ['client/screens/chat/Header.tsx'],
-    targetIds: ['review-manifest-contract'],
+    targetIds: ['chat-ui-jest-path'], targetedTestPath: 'client/screens/chat/__tests__/chatStart.test.ts',
   }],
 });
 
@@ -186,7 +186,7 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
       schemaVersion: 4, eventName, mode: 'single', authoritySha: HEAD,
       checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
-      targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'],
+      targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'], targetedTestPath: null,
     });
   }
 });
@@ -207,21 +207,22 @@ test('dual mode executes legacy scope with base authority and candidate diff', a
 });
 
 test('authority scope accepts one immutable ticket-bound R0 UI record only at its exact head and paths', async t => {
-  const { root, file } = await eventFixture({ body: 'Review-Scope: ef-999-pr-17-r0-ui' });
+  const { root, file } = await eventFixture({ body: 'Review-Scope: authority-low-risk-ef-999-pr-17-r0-ui' });
   t.after(() => rm(root, { recursive: true, force: true }));
   const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
   const manifest = await createReviewManifest(
     { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
     optionsFor(file, layout, gitFixture({ changed: ['client/screens/chat/Header.tsx'] }), lowRiskScope),
   );
-  assert.deepEqual(manifest.targetedRegressionIds, ['review-manifest-contract']);
+  assert.deepEqual(manifest.targetedRegressionIds, ['chat-ui-jest-path']);
+  assert.equal(manifest.targetedTestPath, 'client/screens/chat/__tests__/chatStart.test.ts');
   assert.deepEqual(manifest.structuralProof, { kind: 'immutable-low-risk-r0-ui', ticket: 'EF-999', approvedHeadSha: HEAD, approvedPaths: ['client/screens/chat/Header.tsx'] });
   for (const entry of [
     { head: 'c'.repeat(40), changed: ['client/screens/chat/Header.tsx'], error: /head SHA/ },
     { base: 'd'.repeat(40), head: HEAD, changed: ['client/screens/chat/Header.tsx'], error: /base SHA/ },
     { head: HEAD, changed: ['client/screens/chat/Header.tsx', 'client/screens/chat/extra.tsx'], error: /exact approved path set/ },
   ]) {
-    const fixture = await eventFixture({ base: entry.base ?? BASE, head: entry.head, body: 'Review-Scope: ef-999-pr-17-r0-ui' });
+    const fixture = await eventFixture({ base: entry.base ?? BASE, head: entry.head, body: 'Review-Scope: authority-low-risk-ef-999-pr-17-r0-ui' });
     t.after(() => rm(fixture.root, { recursive: true, force: true }));
     await assert.rejects(createReviewManifest(
       { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: fixture.file },
@@ -234,8 +235,10 @@ test('authority scope rejects expired and multi-ticket R0 UI records', async () 
   const profile = JSON.parse(lowRiskScope).lowRiskFrontendProfiles[0];
   for (const mutation of [
     { ...profile, expiresAt: '2000-01-01T00:00:00Z' },
+    { ...profile, expiresAt: '2099-02-30T00:00:00Z' },
     { ...profile, ticket: 'EF-1000' },
-    { ...profile, id: 'ef-999-pr-17-r0-ui', targetIds: ['review-manifest-contract', 'review-manifest-contract'] },
+    { ...profile, targetIds: ['chat-ui-jest-path', 'chat-ui-jest-path'] },
+    { ...profile, targetedTestPath: 'client/screens/chat/__tests__/../escape.test.ts' },
   ]) {
     await assert.rejects(loadScope(async () => JSON.stringify({ ...scopeObject, lowRiskFrontendProfiles: [mutation] })), /expired|malformed|targets/);
   }

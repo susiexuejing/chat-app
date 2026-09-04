@@ -109,6 +109,11 @@ jobs:
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm install --frozen-lockfile
 
+      - name: Run authority-selected low-risk UI regression
+        if: ${{ github.event_name == 'pull_request' && startsWith(steps.review_manifest.outputs.scope_id, 'authority-low-risk-') }}
+        working-directory: candidate
+        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef183-low-risk-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
+
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm run test:release

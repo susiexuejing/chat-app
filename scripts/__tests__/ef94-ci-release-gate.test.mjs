@@ -54,9 +54,11 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /name: Run approved targeted gate regressions[\s\S]*id: targeted_regressions/);
   assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
   assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
+  assert.match(workflow, /name: Run authority-selected low-risk UI regression[\s\S]*startsWith\(steps\.review_manifest\.outputs\.scope_id, 'authority-low-risk-'\)[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
+  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('name: Run authority-selected low-risk UI regression'));
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
   assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
