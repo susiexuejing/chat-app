@@ -84,13 +84,13 @@ jobs:
           echo "scope_id=$SCOPE_ID" >> "$GITHUB_OUTPUT"
           echo "review_scope_id=$SCOPE_ID"
 
-      - name: Verify proposed gate-maintenance contract
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-111-legacy-seven-path' }}
-        working-directory: candidate
-        run: >-
-          node --test
-          scripts/__tests__/ef111-review-manifest.test.mjs
-          scripts/__tests__/ef94-ci-release-gate.test.mjs
+      - name: Run approved targeted gate regressions
+        id: targeted_regressions
+        if: ${{ github.event_name != 'pull_request' || steps.review_manifest.outputs.scope_id == 'ef-111-legacy-seven-path' }}
+        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
+        run: |
+          node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef179-approved-targeted-regressions.json"
+          echo "targeted_regression_record=$RUNNER_TEMP/ef179-approved-targeted-regressions.json" >> "$GITHUB_OUTPUT"
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4

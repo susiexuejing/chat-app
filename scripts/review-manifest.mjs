@@ -10,6 +10,7 @@ const SHA = /^[0-9a-f]{40}$/;
 const DECLARATION_PREFIX = /^\s*review-scope\s*:/i;
 const DECLARATION = /^Review-Scope: ([a-z0-9](?:[a-z0-9-]{1,78}[a-z0-9])?)$/;
 const LEGACY_SCOPE_ID = 'ef-111-legacy-seven-path';
+const EXACT_LOW_RISK_FRONTEND_PROFILES = [];
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -161,9 +162,10 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 3) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles'], 'scope manifest');
+  if (parsed.schemaVersion !== 4) fail('scope manifest is malformed');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
+  exactPathList(parsed.lowRiskFrontendProfiles, EXACT_LOW_RISK_FRONTEND_PROFILES, 'low-risk frontend profiles');
   if (!Array.isArray(parsed.approvedProfiles)
     || parsed.approvedProfiles.length !== EXACT_APPROVED_PROFILES.length) fail('approved profiles are malformed');
   const profiles = new Map();
@@ -327,7 +329,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
     }
     if (structuralProof === null) verifyAllowedPaths(changed, allowedPaths);
     return {
-      schemaVersion: 3, eventName, mode: 'authority-candidate', authoritySha,
+      schemaVersion: 4, eventName, mode: 'authority-candidate', authoritySha,
       checkedOutSha, baseSha, headSha, mergeBaseSha,
       prNumber, scopeId, changedPaths: changed, structuralProof,
     };
@@ -340,7 +342,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
     const githubSha = sha(env.GITHUB_SHA, 'GITHUB_SHA');
     if (checkedOutSha !== githubSha) fail('checked-out SHA does not match GITHUB_SHA');
     return {
-      schemaVersion: 3, eventName, mode: 'single', authoritySha: checkedOutSha,
+      schemaVersion: 4, eventName, mode: 'single', authoritySha: checkedOutSha,
       checkedOutSha, baseSha: null, headSha: githubSha,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
     };

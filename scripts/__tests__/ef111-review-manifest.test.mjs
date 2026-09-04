@@ -76,8 +76,9 @@ const EF75_PATHS = [
   'server/src/storage/database/shared/schema.ts',
 ];
 const scopeObject = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   legacyAllowedPaths: LEGACY_PATHS,
+  lowRiskFrontendProfiles: [],
   approvedProfiles: [
     {
       id: STRUCTURAL_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 43, baseRef: 'dev',
@@ -174,7 +175,7 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
       { layout, git: gitFixture({ authorityRoot: '/other', candidateRoot: '/single' }) },
     );
     assert.deepEqual(manifest, {
-      schemaVersion: 3, eventName, mode: 'single', authoritySha: HEAD,
+      schemaVersion: 4, eventName, mode: 'single', authoritySha: HEAD,
       checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
     });
@@ -569,6 +570,7 @@ test('declarations and repository-controlled scope remain fail-closed', async ()
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], approvedFirstParentSha: HEAD }] },
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], headSha: HEAD }] },
     { ...scopeObject, approvedProfiles: [...scopeObject.approvedProfiles, scopeObject.approvedProfiles[1]] },
+    { ...scopeObject, lowRiskFrontendProfiles: ['ef-175-pr-59'] },
     { ...scopeObject, unexpected: true },
   ];
   for (const mutation of mutations) {
