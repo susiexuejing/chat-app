@@ -51,9 +51,11 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs" --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /review_scope_id=\$SCOPE_ID/);
   assert.ok(workflow.indexOf('Verify fail-closed review scope contract') < workflow.indexOf('Produce fail-closed review manifest'));
-  assert.match(workflow, /name: Verify proposed gate-maintenance contract[\s\S]*working-directory: candidate/);
+  assert.match(workflow, /name: Run approved targeted gate regressions[\s\S]*id: targeted_regressions/);
+  assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
+  assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
-  assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 2);
+  assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
   assert.match(workflow, /run: pnpm run test:release/);
   assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
@@ -63,8 +65,9 @@ test('scope authority runs before candidate-only install and release regression'
 
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 3);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'schemaVersion']);
+  assert.equal(manifest.schemaVersion, 4);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'schemaVersion']);
+  assert.deepEqual(manifest.lowRiskFrontendProfiles, []);
   assert.equal(manifest.legacyAllowedPaths.length, 9);
   assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
   assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));

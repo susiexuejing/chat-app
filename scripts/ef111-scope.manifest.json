@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "legacyAllowedPaths": [
     ".github/workflows/release-gate.yml",
     "scripts/ef111-scope.manifest.json",
@@ -11,6 +11,7 @@
     "scripts/run-approved-targeted-regressions.mjs",
     "docs/EF-94-ci-release-gate.md"
   ],
+  "lowRiskFrontendProfiles": [],
   "approvedProfiles": [
     {
       "id": "ef-118-pr-43-f35b3ca-clean-merge",
