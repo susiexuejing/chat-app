@@ -179,6 +179,25 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
       allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
     },
+    {
+      id: 'ef-185-pr-70-2fba703-fixed-head',
+      kind: 'exact-fixed-head-paths',
+      pullRequestNumber: 70,
+      baseRef: 'dev',
+      approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
+      approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
+      allowedPaths: [
+        'server/src/__tests__/ef75-anonymous-session.test.ts',
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/__tests__/ef75-conversation-ownership.test.ts',
+        'server/src/__tests__/ef75-web-session-security.test.ts',
+        'server/src/routes/conversations.ts',
+        'server/src/security/anonymousSession.ts',
+        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+        'server/src/storage/database/rds-owner-binding-store.ts',
+        'server/src/storage/database/shared/schema.ts',
+      ],
+    },
   ]);
 });
 
