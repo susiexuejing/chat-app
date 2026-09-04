@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { render } from '@testing-library/react-native';
 import { RoleHeader } from '../components/RoleHeader';
 
 jest.mock('@expo/vector-icons', () => ({
@@ -27,19 +27,23 @@ describe('EF-175 chat product identity', () => {
     expect(view.queryByText('聪明狐狸')).toBeNull();
   });
 
-  it('preserves the existing companion-switch action', async () => {
-    const onShowRolePicker = jest.fn();
+  it.each([false, true])('hides the companion-switch entry with hasHistory=%s', async (hasHistory) => {
     const view = await render(
       <RoleHeader
-        hasHistory={false}
+        hasHistory={hasHistory}
         onNewChat={jest.fn()}
         onShowHistory={jest.fn()}
         onShowRoleDetail={jest.fn()}
-        onShowRolePicker={onShowRolePicker}
+        onShowRolePicker={jest.fn()}
       />,
     );
 
-    fireEvent.press(view.getByText('切换陪伴者'));
-    expect(onShowRolePicker).toHaveBeenCalledTimes(1);
+    expect(view.queryByText('切换陪伴者')).toBeNull();
+  });
+
+  it('preserves the existing new-chat action when history exists', async () => {
+    const view = await renderHeader(true);
+
+    expect(view.getByText('新建')).toBeTruthy();
   });
 });
