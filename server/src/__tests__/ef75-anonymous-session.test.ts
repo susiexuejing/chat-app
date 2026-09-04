@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import http from 'node:http';
 import express from 'express';
 import request from 'supertest';
 
@@ -13,6 +14,22 @@ const {
 
 const TOKEN = 'A'.repeat(43);
 const OWNER = '11111111-1111-4111-8111-111111111111';
+
+const loopbackServers: http.Server[] = [];
+
+async function loopbackRequest(app: express.Express) {
+  const server = http.createServer(app);
+  loopbackServers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ port: 0, host: '127.0.0.1' }, resolve);
+  });
+  return request(server);
+}
+
+afterEach(async () => {
+  await Promise.all(loopbackServers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+});
 
 function clientWithSession(overrides: Record<string, unknown> = {}) {
   const row = {
@@ -44,7 +61,7 @@ describe('EF-75 native anonymous session verification', () => {
 
   test('accepts only an active server-issued native credential', async () => {
     getSupabaseClient.mockReturnValue(clientWithSession());
-    const response = await request(makeApp())
+    const response = await (await loopbackRequest(makeApp()))
       .get('/protected')
       .set('Authorization', `Bearer ${TOKEN}`);
     expect(response.status).toBe(200);
@@ -59,7 +76,7 @@ describe('EF-75 native anonymous session verification', () => {
     ['wrong transport', `Bearer ${TOKEN}`, { transport: 'web' }],
   ])('%s credential fails with the same non-disclosing response', async (_label, header, row) => {
     getSupabaseClient.mockReturnValue(clientWithSession(row));
-    const pending = request(makeApp()).get('/protected');
+    const pending = (await loopbackRequest(makeApp())).get('/protected');
     if (header) pending.set('Authorization', header);
     const response = await pending;
     expect(response.status).toBe(401);
@@ -68,7 +85,7 @@ describe('EF-75 native anonymous session verification', () => {
 
   test('browser metadata cannot enter native bearer mode', async () => {
     getSupabaseClient.mockReturnValue(clientWithSession());
-    const response = await request(makeApp())
+    const response = await (await loopbackRequest(makeApp()))
       .get('/protected')
       .set('Authorization', `Bearer ${TOKEN}`)
       .set('Origin', 'https://dev.douhaoyu.cn');

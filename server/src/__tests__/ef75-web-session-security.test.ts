@@ -1,4 +1,5 @@
 import { jest } from '@jest/globals';
+import http from 'node:http';
 import express from 'express';
 import request from 'supertest';
 
@@ -15,6 +16,22 @@ const {
 
 const WEB_TOKEN = 'W'.repeat(43);
 const CSRF = 'C'.repeat(43);
+
+const loopbackServers: http.Server[] = [];
+
+async function loopbackRequest(app: express.Express) {
+  const server = http.createServer(app);
+  loopbackServers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ port: 0, host: '127.0.0.1' }, resolve);
+  });
+  return request(server);
+}
+
+afterEach(async () => {
+  await Promise.all(loopbackServers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+});
 
 function chain(result: { data?: unknown; error?: unknown } = {}) {
   const value = { data: result.data ?? null, error: result.error ?? null };
@@ -43,7 +60,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
   test('issues an exact host-only cookie and never returns the bearer in JSON', async () => {
     const insert = chain();
     getSupabaseClient.mockReturnValue({ from: jest.fn(() => insert) });
-    const response = await request(makeApp())
+    const response = await (await loopbackRequest(makeApp()))
       .post('/api/v1/anonymous-sessions/web')
       .set('Origin', EF75_WEB_ORIGIN)
       .set('X-EF-Client', 'web')
@@ -68,7 +85,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
   test.each([undefined, 'https://evil.example', 'null'])(
     'rejects missing or non-exact browser Origin: %s',
     async origin => {
-      const pending = request(makeApp())
+      const pending = (await loopbackRequest(makeApp()))
         .post('/api/v1/anonymous-sessions/web')
         .set('X-EF-Client', 'web')
         .set('Content-Type', 'application/json')
@@ -91,7 +108,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       revoked_at: null,
     };
     getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
-    const response = await request(makeApp(true))
+    const response = await (await loopbackRequest(makeApp(true)))
       .post('/protected')
       .set('Origin', EF75_WEB_ORIGIN)
       .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`)
@@ -112,7 +129,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       revoked_at: null,
     };
     getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
-    const response = await request(makeApp(true))
+    const response = await (await loopbackRequest(makeApp(true)))
       .get('/protected')
       .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`);
     expect(response.status).toBe(200);
@@ -131,7 +148,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
         revoked_at: null,
       };
       getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
-      const pending = request(makeApp(true))
+      const pending = (await loopbackRequest(makeApp(true)))
         .post('/protected')
         .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`)
         .set('X-EF-CSRF', CSRF)
@@ -154,7 +171,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       revoked_at: null,
     };
     getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
-    const response = await request(makeApp(true))
+    const response = await (await loopbackRequest(makeApp(true)))
       .get('/protected')
       .set('Origin', 'https://evil.example')
       .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`);
@@ -176,7 +193,7 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       revoked_at: null,
     };
     getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
-    const pending = request(makeApp(true))
+    const pending = (await loopbackRequest(makeApp(true)))
       .post('/protected')
       .set('Origin', EF75_WEB_ORIGIN)
       .set('Cookie', cookie)
