@@ -101,6 +101,22 @@ interface SendSnapshot {
   sessionId: string;
   roleId: string;
   message: string;
+  intentGeneration: number;
+}
+
+export interface SendIntentState {
+  generation: number;
+  sessionId: string | null;
+  mounted: boolean;
+}
+
+export function isSendIntentCurrent(
+  intent: Pick<SendSnapshot, 'intentGeneration' | 'sessionId'>,
+  state: SendIntentState,
+): boolean {
+  return state.mounted
+    && state.sessionId === intent.sessionId
+    && state.generation === intent.intentGeneration;
 }
 
 // Keep every completed message through the pending user message, but never
@@ -374,6 +390,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const currentSessionIdRef = useRef<string | null>(null);
+  const intentGenerationRef = useRef(0);
   const [currentRole, setCurrentRole] = useState<(typeof roles)[0]>(roles[0]);
   const [thinkingContent, setThinkingContent] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -1093,6 +1110,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const createNewChat = useCallback((role?: PsychologistRole): string => {
     const newConversationId = generateConversationId();
+    intentGenerationRef.current += 1;
     setMessages([]);
     // EF-59 OVERWRITE TRACE: 追踪谁调用了 createNewChat
     console.trace('[EF59_SESSION_TRACE] createNewChat called - setting currentSessionId null');
@@ -1117,6 +1135,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     (sessionId: string) => {
       const session = sessions.find((s) => s.id === sessionId);
       if (session) {
+        intentGenerationRef.current += 1;
         setMessages(session.messages);
         // EF-59 SETTER TRACE
         console.trace('[EF59_SETTER_TRACE] setCurrentSessionId called', {
@@ -1379,6 +1398,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return 'chatstart_failed';
       }
 
+      if (!mountedRef.current || intentGenerationRef.current !== snapshot.intentGeneration) {
+        return 'interrupted';
+      }
+
       // 设置 abort controller
       const controller = new AbortController();
       abortControllerRef.current = controller;
@@ -1494,6 +1517,17 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         legacyConversationId,
       );
 
+      if (!mountedRef.current || intentGenerationRef.current !== snapshot.intentGeneration) {
+        await markTurnInterrupted(snapshot.sessionId);
+        return 'interrupted';
+      }
+
+      const isCurrentIntent = () => isSendIntentCurrent(snapshot, {
+        generation: intentGenerationRef.current,
+        sessionId: currentSessionIdRef.current,
+        mounted: mountedRef.current,
+      });
+
       // EF-105: A canonical Conversation is server-created. Local conv_* values
       // remain compatibility metadata and are never sent as canonical IDs.
       let backendConvId = existingCanonicalConversationId;
@@ -1523,6 +1557,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 'chatstart_failed';
         }
       }
+
+      // A New Chat can happen while the canonical-conversation preparation is
+      // pending. Do not let the superseded turn start a response or replace
+      // the current conversation once that async boundary returns.
+      if (!isCurrentIntent()) {
+        return 'interrupted';
+      }
+
       snapshot.conversationId = backendConvId;
       conversationIdRef.current = backendConvId;
       setConversationId(backendConvId);
@@ -1548,6 +1590,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           snapshot.requestId,
           retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined,
         );
+
+        // The transport may resolve after its UI intent has been superseded.
+        // In that case it has no authority to project state or start a stream.
+        if (!isCurrentIntent()) {
+          return 'interrupted';
+        }
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
 
@@ -1578,8 +1626,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           messageId: responseMessageIds.deep,
         };
 
-        const hasVisibleSessionAuthority = () =>
-          mountedRef.current && currentSessionIdRef.current === snapshot.sessionId;
+        const hasVisibleSessionAuthority = isCurrentIntent;
 
         const appendOwnedLayer = (
           target: ResponseMessageTarget,
@@ -1598,6 +1645,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-104: Reaction is its own client message projection. Companion and
         // Deep entities are created only when their progressive phase begins.
         replaceMessages(previous => {
+          if (!hasVisibleSessionAuthority()) return previous;
           if (!isRetry) {
             return [
               ...previous,
@@ -2301,8 +2349,9 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       conversationId: convIdToUse,
       sessionId: sessionIdToUse,
       roleId: currentRole.id,
-      message: nextMessage.text,
-    };
+        message: nextMessage.text,
+        intentGeneration: intentGenerationRef.current,
+      };
 
     try {
       const result = await withSendGuard(() => sendMessageCore(nextMessage.text, snapshot, false));
@@ -2384,6 +2433,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         sessionId: sessionIdToUse,
         roleId: currentRole.id,
         message: userMessage,
+        intentGeneration: intentGenerationRef.current,
       };
 
       await withSendGuard(() => sendMessageCore(userMessage, snapshot, false));
@@ -2424,6 +2474,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           sessionId: currentSessionId,
           roleId: pendingTurn.roleId,
           message: pendingTurn.userMessage,
+          intentGeneration: intentGenerationRef.current,
         };
       }
     }
