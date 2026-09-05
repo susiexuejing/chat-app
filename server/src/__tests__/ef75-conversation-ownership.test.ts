@@ -1,9 +1,12 @@
 import { jest } from '@jest/globals';
+import http from 'node:http';
 import express from 'express';
 import request from 'supertest';
 
 const getSupabaseClient = jest.fn();
 jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
+const verifyOwnedConversation = jest.fn(async (owner: string, conversation: string) =>
+  owner === 'owner-a' && conversation === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' ? 'owned' : 'missing');
 
 jest.unstable_mockModule('../security/anonymousSession', () => ({
   requireAnonymousSession: (req: { get: (name: string) => string | undefined }, res: { locals: Record<string, unknown> }, next: () => void) => {
@@ -16,10 +19,27 @@ jest.unstable_mockModule('../security/anonymousSession', () => ({
     next();
   },
   getVerifiedAnonymousSession: (res: { locals: { anonymousSession: unknown } }) => res.locals.anonymousSession,
+  verifyOwnedConversation,
 }));
 
 const { default: conversationsRouter } = await import('../routes/conversations');
 const CONVERSATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+const loopbackServers: http.Server[] = [];
+
+async function loopbackRequest(app: express.Express) {
+  const server = http.createServer(app);
+  loopbackServers.push(server);
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen({ port: 0, host: '127.0.0.1' }, resolve);
+  });
+  return request(server);
+}
+
+afterEach(async () => {
+  await Promise.all(loopbackServers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+});
 
 function makeOwnershipClient() {
   const calls: Array<{ table: string; filters: Array<[string, unknown]> }> = [];
@@ -69,33 +89,37 @@ function makeApp() {
 }
 
 describe('EF-75 conversation and message ownership', () => {
+  beforeEach(() => verifyOwnedConversation.mockClear());
+
   test('User B direct-id substitution is indistinguishable from a missing or legacy conversation', async () => {
     const client = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(client);
-    const b = await request(makeApp())
+    const b = await (await loopbackRequest(makeApp()))
       .get(`/api/v1/conversations/${CONVERSATION}`)
       .set('X-Test-Owner', 'owner-b');
-    const missing = await request(makeApp())
+    const missing = await (await loopbackRequest(makeApp()))
       .get('/api/v1/conversations/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
       .set('X-Test-Owner', 'owner-b');
-    const legacy = await request(makeApp())
+    const legacy = await (await loopbackRequest(makeApp()))
       .get(`/api/v1/conversations/${CONVERSATION}`)
       .set('X-Test-Owner', 'legacy-owner');
     expect(b.status).toBe(404);
     expect(b.body).toEqual({ error: 'resource_not_found' });
     expect(missing.body).toEqual(b.body);
     expect(legacy.body).toEqual(b.body);
+    expect(getSupabaseClient).not.toHaveBeenCalled();
   });
 
   test('User A read is owner-filtered before any messages are returned', async () => {
     const client = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(client);
-    const response = await request(makeApp())
+    const response = await (await loopbackRequest(makeApp()))
       .get(`/api/v1/conversations/${CONVERSATION}`)
       .set('X-Test-Owner', 'owner-a');
     expect(response.status).toBe(200);
     expect(response.body.conversation).not.toHaveProperty('userId');
     expect(response.body.messages[0].content).toBe('private-a');
+    expect(verifyOwnedConversation).toHaveBeenCalledWith('owner-a', CONVERSATION);
     expect(client.calls[0].filters).toEqual(expect.arrayContaining([
       ['id', CONVERSATION],
       ['owner_session_id', 'owner-a'],
@@ -105,16 +129,16 @@ describe('EF-75 conversation and message ownership', () => {
   test('message mutation and idempotency are scoped to the owned conversation', async () => {
     const client = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(client);
-    const response = await request(makeApp())
+    const response = await (await loopbackRequest(makeApp()))
       .post(`/api/v1/conversations/${CONVERSATION}/messages`)
       .set('X-Test-Owner', 'owner-b')
       .send({ role: 'user', content: 'attempt', requestId: 'shared-request' });
     expect(response.status).toBe(404);
-    expect(client.calls).toHaveLength(1);
+    expect(client.calls).toHaveLength(0);
 
     const aClient = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(aClient);
-    await request(makeApp())
+    await (await loopbackRequest(makeApp()))
       .post(`/api/v1/conversations/${CONVERSATION}/messages`)
       .set('X-Test-Owner', 'owner-a')
       .send({ role: 'user', content: 'attempt', requestId: 'shared-request' });
