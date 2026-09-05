@@ -20,6 +20,20 @@ const EF75_SCOPE = 'ef-75-pr-52-b651b05-clean-merge';
 const EF146_SCOPE = 'ef-146-pr-54-docs-only';
 const EF146_PATHS = ['docs/EF-146-ownership-boundary-contract.md'];
 const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
+const EF185_SCOPE = 'ef-185-pr-70-2fba703-fixed-head';
+const EF185_HEAD = '2fba70356cdd209895d7823a96203730d73a3b33';
+const EF185_MERGE_BASE = '2329423e3a0fb2442e68a4a13923b2609b621385';
+const EF185_PATHS = [
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/__tests__/ef75-web-session-security.test.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/shared/schema.ts',
+];
 const LOW_RISK_SCOPE = 'r0-chat-ui-visual-v1';
 const LOW_RISK_UI_PATH = 'client/screens/chat/components/RoleHeader.tsx';
 const LOW_RISK_TEST_PATH = 'client/screens/chat/__tests__/r0-ui-visual.test.tsx';
@@ -128,6 +142,11 @@ const scopeObject = {
       approvedHeadSha: EF146_HEAD,
       allowedPaths: EF146_PATHS,
     },
+    {
+      id: EF185_SCOPE, kind: 'exact-fixed-head-paths', pullRequestNumber: 70, baseRef: 'dev',
+      approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
+      allowedPaths: EF185_PATHS,
+    },
   ],
 };
 const scope = JSON.stringify(scopeObject);
@@ -142,13 +161,13 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : head;
     if (operation === 'cat-file') return '';
-    if (operation === 'merge-base') return MERGE_BASE;
+    if (operation === 'merge-base') return mergeBase;
     if (operation === 'diff') return `${changed.join('\n')}\n`;
     throw new Error(`unexpected git operation: ${args.join(' ')}`);
   };
@@ -471,6 +490,45 @@ test('EF-146 PR 54 rejects a correct path and PR number with an unapproved candi
     optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
       gitFixture({ head: HEAD, changed: EF146_PATHS })),
   ), /head SHA is not approved/);
+});
+
+test('EF-185 PR 70 accepts only its fixed head, merge-base, and exact path set', async t => {
+  const { root, file } = await eventFixture({
+    number: 70, head: EF185_HEAD, body: `Review-Scope: ${EF185_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({ head: EF185_HEAD, changed: EF185_PATHS, mergeBase: EF185_MERGE_BASE })),
+  );
+  assert.equal(manifest.scopeId, EF185_SCOPE);
+  assert.deepEqual(manifest.changedPaths, EF185_PATHS);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'exact-fixed-head-paths', approvedPaths: EF185_PATHS,
+    approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
+  });
+});
+
+test('EF-185 PR 70 fixed-head profile rejects every identity and path mismatch', async t => {
+  const cases = [
+    { number: 69, head: EF185_HEAD, mergeBase: EF185_MERGE_BASE, changed: EF185_PATHS, error: /profile does not match/ },
+    { number: 70, head: HEAD, mergeBase: EF185_MERGE_BASE, changed: EF185_PATHS, error: /head SHA is not approved/ },
+    { number: 70, head: EF185_HEAD, mergeBase: MERGE_BASE, changed: EF185_PATHS, error: /merge-base SHA is not approved/ },
+    { number: 70, head: EF185_HEAD, mergeBase: EF185_MERGE_BASE, changed: EF185_PATHS.slice(0, -1), error: /exact approved path set/ },
+    { number: 70, head: EF185_HEAD, mergeBase: EF185_MERGE_BASE, changed: [...EF185_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({
+      number: entry.number, head: entry.head, body: `Review-Scope: ${EF185_SCOPE}`,
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        gitFixture({ head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
+    ), entry.error);
+  }
 });
 
 test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {
