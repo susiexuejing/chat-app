@@ -23,6 +23,7 @@ const EF146_HEAD = '5130611c32d51017ab2d8ec4b5f5447452bd9b4f';
 const EF185_SCOPE = 'ef-185-pr-70-2fba703-fixed-head';
 const EF185_HEAD = '2fba70356cdd209895d7823a96203730d73a3b33';
 const EF185_MERGE_BASE = '2329423e3a0fb2442e68a4a13923b2609b621385';
+const EF185_AUTHORITY = '5b5ed075c2526956a0dacdc4cd6234386de48d1d';
 const EF185_PATHS = [
   'server/src/__tests__/ef75-anonymous-session.test.ts',
   'server/src/__tests__/ef75-chat-ownership.test.ts',
@@ -144,7 +145,7 @@ const scopeObject = {
     },
     {
       id: EF185_SCOPE, kind: 'exact-fixed-head-paths', pullRequestNumber: 70, baseRef: 'dev',
-      approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
+      approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE, approvedAuthoritySha: EF185_AUTHORITY,
       allowedPaths: EF185_PATHS,
     },
   ],
@@ -500,13 +501,13 @@ test('EF-185 PR 70 accepts only its fixed head, merge-base, and exact path set',
   const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
   const manifest = await createReviewManifest(
     { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
-    optionsFor(file, layout, gitFixture({ head: EF185_HEAD, changed: EF185_PATHS, mergeBase: EF185_MERGE_BASE })),
+    optionsFor(file, layout, gitFixture({ authority: EF185_AUTHORITY, head: EF185_HEAD, changed: EF185_PATHS, mergeBase: EF185_MERGE_BASE })),
   );
   assert.equal(manifest.scopeId, EF185_SCOPE);
   assert.deepEqual(manifest.changedPaths, EF185_PATHS);
   assert.deepEqual(manifest.structuralProof, {
     kind: 'exact-fixed-head-paths', approvedPaths: EF185_PATHS,
-    approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
+    approvedAuthoritySha: EF185_AUTHORITY, approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
   });
 });
 
@@ -526,8 +527,22 @@ test('EF-185 PR 70 fixed-head profile rejects every identity and path mismatch',
     await assert.rejects(createReviewManifest(
       { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
       optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
-        gitFixture({ head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
+        gitFixture({ authority: EF185_AUTHORITY, head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
     ), entry.error);
+  }
+});
+
+test('EF-185 fixed-head profile rejects a missing or wrong authority anchor before evaluating candidate paths', async t => {
+  const { root, file } = await eventFixture({
+    number: 70, head: EF185_HEAD, body: `Review-Scope: ${EF185_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const authority of [BASE, 'e'.repeat(40)]) {
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+        gitFixture({ authority, head: EF185_HEAD, changed: EF185_PATHS, mergeBase: EF185_MERGE_BASE })),
+    ), /approved authority SHA/);
   }
 });
 

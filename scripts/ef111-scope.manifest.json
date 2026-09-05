@@ -125,6 +125,7 @@
       "baseRef": "dev",
       "approvedHeadSha": "2fba70356cdd209895d7823a96203730d73a3b33",
       "approvedMergeBaseSha": "2329423e3a0fb2442e68a4a13923b2609b621385",
+      "approvedAuthoritySha": "5b5ed075c2526956a0dacdc4cd6234386de48d1d",
       "allowedPaths": [
         "server/src/__tests__/ef75-anonymous-session.test.ts",
         "server/src/__tests__/ef75-chat-ownership.test.ts",

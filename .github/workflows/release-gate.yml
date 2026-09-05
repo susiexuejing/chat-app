@@ -27,7 +27,7 @@ jobs:
         if: ${{ github.event_name == 'pull_request' }}
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: 5b5ed075c2526956a0dacdc4cd6234386de48d1d
           fetch-depth: 0
           path: authority
 
@@ -50,7 +50,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            test "$(git -C authority rev-parse HEAD)" = "${{ github.event.pull_request.base.sha }}"
+            test "$(git -C authority rev-parse HEAD)" = "5b5ed075c2526956a0dacdc4cd6234386de48d1d"
             test "$(git -C candidate rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
             git -C candidate cat-file -e "${{ github.event.pull_request.base.sha }}^{commit}"
           else

@@ -30,11 +30,12 @@ test('release gate uses minimum permissions and no secrets or external runtime',
 
 test('pull requests use exact fixed authority and candidate checkouts', async () => {
   const workflow = await text(workflowUrl);
-  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}[\s\S]*path: authority/);
+  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: 5b5ed075c2526956a0dacdc4cd6234386de48d1d[\s\S]*path: authority/);
   assert.match(workflow, /name: Checkout pull request candidate[\s\S]*ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}[\s\S]*path: candidate/);
   assert.match(workflow, /git -C authority rev-parse HEAD/);
   assert.match(workflow, /git -C candidate rev-parse HEAD/);
   assert.match(workflow, /git -C candidate cat-file -e/);
+  assert.match(workflow, /test "\$\(git -C authority rev-parse HEAD\)" = "5b5ed075c2526956a0dacdc4cd6234386de48d1d"/);
   assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
   assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
   assert.deepEqual(workflow.match(/GATE_ROOT="[^"]+"/g), [
@@ -178,6 +179,26 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       baseRef: 'dev',
       approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
       allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
+    },
+    {
+      id: 'ef-185-pr-70-2fba703-fixed-head',
+      kind: 'exact-fixed-head-paths',
+      pullRequestNumber: 70,
+      baseRef: 'dev',
+      approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
+      approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
+      approvedAuthoritySha: '5b5ed075c2526956a0dacdc4cd6234386de48d1d',
+      allowedPaths: [
+        'server/src/__tests__/ef75-anonymous-session.test.ts',
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/__tests__/ef75-conversation-ownership.test.ts',
+        'server/src/__tests__/ef75-web-session-security.test.ts',
+        'server/src/routes/conversations.ts',
+        'server/src/security/anonymousSession.ts',
+        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+        'server/src/storage/database/rds-owner-binding-store.ts',
+        'server/src/storage/database/shared/schema.ts',
+      ],
     },
   ]);
 });

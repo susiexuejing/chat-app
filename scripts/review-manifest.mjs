@@ -108,6 +108,7 @@ const EXACT_APPROVED_PROFILES = [{
   baseRef: 'dev',
   approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
   approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
+  approvedAuthoritySha: '5b5ed075c2526956a0dacdc4cd6234386de48d1d',
   allowedPaths: [
     'server/src/__tests__/ef75-anonymous-session.test.ts',
     'server/src/__tests__/ef75-chat-ownership.test.ts',
@@ -278,7 +279,7 @@ export async function loadScope(read = readFile) {
     const profileKeys = expected.kind === 'exact-clean-merge'
       ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths']
       : expected.kind === 'exact-fixed-head-paths'
-        ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'approvedMergeBaseSha', 'allowedPaths']
+        ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'approvedMergeBaseSha', 'approvedAuthoritySha', 'allowedPaths']
         : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
@@ -287,7 +288,8 @@ export async function loadScope(read = readFile) {
         && actual.approvedFirstParentSha !== expected.approvedFirstParentSha)
       || (expected.kind === 'exact-fixed-head-paths'
         && (actual.approvedHeadSha !== expected.approvedHeadSha
-          || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha))
+          || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha
+          || actual.approvedAuthoritySha !== expected.approvedAuthoritySha))
       || (expected.kind === 'exact-docs-paths' && actual.approvedHeadSha !== expected.approvedHeadSha)
       || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
@@ -296,6 +298,7 @@ export async function loadScope(read = readFile) {
     if (expected.kind === 'exact-fixed-head-paths') {
       sha(actual.approvedHeadSha, 'approved profile head SHA');
       sha(actual.approvedMergeBaseSha, 'approved profile merge-base SHA');
+      sha(actual.approvedAuthoritySha, 'approved profile authority SHA');
     }
     if (expected.kind === 'exact-docs-paths') sha(actual.approvedHeadSha, 'approved profile head SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
@@ -381,19 +384,21 @@ function verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, chan
     recomputedTreeSha,
   };
 }
-function verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed }) {
+function verifyFixedHeadProfile({ profile, authoritySha, headSha, mergeBaseSha, changed }) {
   if (profile.kind !== 'exact-fixed-head-paths') fail('approved profile kind is unsupported');
+  if (authoritySha !== profile.approvedAuthoritySha) fail('fixed-head profile authority SHA is not approved');
   if (headSha !== profile.approvedHeadSha) fail('fixed-head profile head SHA is not approved');
   if (mergeBaseSha !== profile.approvedMergeBaseSha) fail('fixed-head profile merge-base SHA is not approved');
   verifyExactPaths(changed, profile.allowedPaths);
   return {
     kind: profile.kind,
     approvedPaths: [...profile.allowedPaths],
+    approvedAuthoritySha: profile.approvedAuthoritySha,
     approvedHeadSha: profile.approvedHeadSha,
     approvedMergeBaseSha: profile.approvedMergeBaseSha,
   };
 }
-function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git }) {
+function verifyProfile({ profile, authoritySha, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git }) {
   if (profile.kind === 'exact-clean-merge') {
     return verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git });
   }
@@ -407,7 +412,7 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
     };
   }
   if (profile.kind === 'exact-fixed-head-paths') {
-    return verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed });
+    return verifyFixedHeadProfile({ profile, authoritySha, headSha, mergeBaseSha, changed });
   }
   fail('approved profile kind is unsupported');
 }
@@ -431,14 +436,16 @@ export async function createReviewManifest(env = process.env, options = {}) {
     if (!Number.isInteger(prNumber) || prNumber < 1) fail('pull_request.number must be a positive integer');
     if (baseRef !== 'dev') fail('pull request base ref must be dev');
     if (headSha !== checkedOutSha) fail('pull request head SHA does not match the candidate checkout');
-    const { changed, mergeBaseSha } = changedPaths(baseSha, headSha, layout.candidateRoot, git);
-
     if (layout.mode !== 'dual' || !layout.authorityRoot) fail('pull request requires dual checkout authority');
     const authoritySha = sha(git(layout.authorityRoot, ['rev-parse', 'HEAD']), 'authority SHA');
-    if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
 
     const scope = await loadScope(options.read ?? readFile);
     const requestedScopeId = declaredScopeId(event?.pull_request?.body);
+    const authorityProfile = requestedScopeId === null ? null : scope.profiles.get(requestedScopeId);
+    const requiredAuthoritySha = authorityProfile?.kind === 'exact-fixed-head-paths'
+      ? authorityProfile.approvedAuthoritySha : baseSha;
+    if (authoritySha !== requiredAuthoritySha) fail('authority checkout does not match the approved authority SHA');
+    const { changed, mergeBaseSha } = changedPaths(baseSha, headSha, layout.candidateRoot, git);
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
     let structuralProof = null;
@@ -478,7 +485,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
       } else {
         allowedPaths = profile.allowedPaths;
         structuralProof = verifyProfile({
-          profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot: layout.candidateRoot, git,
+          profile, authoritySha, baseSha, headSha, mergeBaseSha, changed, candidateRoot: layout.candidateRoot, git,
         });
       }
     }
