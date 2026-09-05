@@ -1522,6 +1522,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         return 'interrupted';
       }
 
+      const isCurrentIntent = () => isSendIntentCurrent(snapshot, {
+        generation: intentGenerationRef.current,
+        sessionId: currentSessionIdRef.current,
+        mounted: mountedRef.current,
+      });
+
       // EF-105: A canonical Conversation is server-created. Local conv_* values
       // remain compatibility metadata and are never sent as canonical IDs.
       let backendConvId = existingCanonicalConversationId;
@@ -1551,6 +1557,14 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 'chatstart_failed';
         }
       }
+
+      // A New Chat can happen while the canonical-conversation preparation is
+      // pending. Do not let the superseded turn start a response or replace
+      // the current conversation once that async boundary returns.
+      if (!isCurrentIntent()) {
+        return 'interrupted';
+      }
+
       snapshot.conversationId = backendConvId;
       conversationIdRef.current = backendConvId;
       setConversationId(backendConvId);
@@ -1576,6 +1590,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           snapshot.requestId,
           retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined,
         );
+
+        // The transport may resolve after its UI intent has been superseded.
+        // In that case it has no authority to project state or start a stream.
+        if (!isCurrentIntent()) {
+          return 'interrupted';
+        }
 
         chatStartSucceeded = true;  // 标记 chatStart 成功
 
@@ -1606,12 +1626,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           messageId: responseMessageIds.deep,
         };
 
-        const hasVisibleSessionAuthority = () =>
-          isSendIntentCurrent(snapshot, {
-            generation: intentGenerationRef.current,
-            sessionId: currentSessionIdRef.current,
-            mounted: mountedRef.current,
-          });
+        const hasVisibleSessionAuthority = isCurrentIntent;
 
         const appendOwnedLayer = (
           target: ResponseMessageTarget,

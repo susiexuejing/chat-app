@@ -1,4 +1,42 @@
-import { isSendIntentCurrent, type SendIntentState } from '../contexts/ChatContext';
+import React from 'react';
+import { View } from 'react-native';
+import { act, render, waitFor } from '@testing-library/react-native';
+import { isSendIntentCurrent, ChatProvider, useChat, type SendIntentState } from '../contexts/ChatContext';
+import { chatStart, chatStream } from '../api/cozeApi';
+
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  __esModule: true,
+  default: {
+    getItem: jest.fn(async () => null),
+    setItem: jest.fn(async () => undefined),
+    removeItem: jest.fn(async () => undefined),
+    clear: jest.fn(async () => undefined),
+  },
+}));
+
+jest.mock('../api/cozeApi', () => ({
+  chatStart: jest.fn(),
+  chatStream: jest.fn(),
+}));
+
+jest.mock('../stores/sessionStore', () => ({
+  ...jest.requireActual('../stores/sessionStore'),
+  createConversation: jest.fn(async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' })),
+}));
+
+const mockedChatStart = chatStart as jest.MockedFunction<typeof chatStart>;
+const mockedChatStream = chatStream as jest.MockedFunction<typeof chatStream>;
+
+type CapturedContext = ReturnType<typeof useChat>;
+let capturedContext: CapturedContext | null = null;
+
+function Harness() {
+  const context = useChat();
+  React.useEffect(() => {
+    capturedContext = context;
+  }, [context]);
+  return <View />;
+}
 
 type Completion = { name: string; resolve: () => void };
 
@@ -9,6 +47,12 @@ function deferred(name: string): Completion & { promise: Promise<void> } {
 }
 
 describe('EF-189 deterministic New Chat/send completion race', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    capturedContext = null;
+    mockedChatStream.mockResolvedValue();
+  });
+
   it.each([
     ['old completion before new completion', ['old', 'new']],
     ['new completion before old completion', ['new', 'old']],
@@ -56,5 +100,63 @@ describe('EF-189 deterministic New Chat/send completion race', () => {
     expect(history).toEqual(['S_new:new']);
     expect(isSendIntentCurrent(oldIntent, state)).toBe(false);
     expect(isSendIntentCurrent(newIntent, state)).toBe(true);
+  });
+
+  it('drops a deferred stale send in the real provider before it can start a stream', async () => {
+    let releaseOldChatStart!: (value: Awaited<ReturnType<typeof chatStart>>) => void;
+    const oldChatStart = new Promise<Awaited<ReturnType<typeof chatStart>>>(resolve => {
+      releaseOldChatStart = resolve;
+    });
+    const successfulStart = {
+      sessionId: 'backend-synthetic-session',
+      emotionTag: 'neutral',
+      eventKeyword: '',
+      reactionLayer: 'synthetic reaction',
+      frontFlowText: '',
+      flowContext: {
+        flowType: null,
+        flowStage: null,
+        flowStrength: null,
+        flowConfidence: null,
+        flowRisk: null,
+      },
+    };
+    mockedChatStart.mockImplementationOnce(() => oldChatStart).mockResolvedValue(successfulStart);
+
+    await render(<ChatProvider><Harness /></ChatProvider>);
+    await waitFor(() => expect(capturedContext?.isHydrated).toBe(true));
+
+    // C_old is established, then S_old is held after its turn state exists
+    // but before any response/stream side effect is released.
+    await act(async () => {
+      capturedContext?.createNewChat();
+    });
+    let oldSend!: Promise<boolean>;
+    await act(async () => {
+      oldSend = capturedContext!.sendMessage('synthetic-old');
+    });
+    await waitFor(() => expect(mockedChatStart).toHaveBeenCalledTimes(1));
+
+    // New Chat revokes S_old while its response-start completion is deferred.
+    await act(async () => {
+      capturedContext?.createNewChat();
+    });
+    expect(capturedContext?.currentSessionId).toBeNull();
+
+    await act(async () => {
+      releaseOldChatStart(successfulStart);
+      await oldSend;
+    });
+
+    // The stale completion cannot start a stream or reselect C_old.
+    expect(mockedChatStream).not.toHaveBeenCalled();
+    expect(capturedContext?.currentSessionId).toBeNull();
+
+    // The first send under the new intent is the only stream that may start.
+    await act(async () => {
+      await capturedContext?.sendMessage('synthetic-new');
+    });
+    expect(mockedChatStream).toHaveBeenCalledTimes(1);
+    expect(capturedContext?.currentSessionId).not.toBeNull();
   });
 });
