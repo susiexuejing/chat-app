@@ -30,11 +30,12 @@ test('release gate uses minimum permissions and no secrets or external runtime',
 
 test('pull requests use exact fixed authority and candidate checkouts', async () => {
   const workflow = await text(workflowUrl);
-  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}[\s\S]*path: authority/);
+  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: 5b5ed075c2526956a0dacdc4cd6234386de48d1d[\s\S]*path: authority/);
   assert.match(workflow, /name: Checkout pull request candidate[\s\S]*ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}[\s\S]*path: candidate/);
   assert.match(workflow, /git -C authority rev-parse HEAD/);
   assert.match(workflow, /git -C candidate rev-parse HEAD/);
   assert.match(workflow, /git -C candidate cat-file -e/);
+  assert.match(workflow, /test "\$\(git -C authority rev-parse HEAD\)" = "5b5ed075c2526956a0dacdc4cd6234386de48d1d"/);
   assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
   assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
   assert.deepEqual(workflow.match(/GATE_ROOT="[^"]+"/g), [
@@ -186,6 +187,7 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       baseRef: 'dev',
       approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
       approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
+      approvedAuthoritySha: '5b5ed075c2526956a0dacdc4cd6234386de48d1d',
       allowedPaths: [
         'server/src/__tests__/ef75-anonymous-session.test.ts',
         'server/src/__tests__/ef75-chat-ownership.test.ts',
