@@ -149,6 +149,23 @@
         "server/src/storage/database/rds-owner-binding-store.ts",
         "server/src/storage/database/shared/schema.ts"
       ]
+    },
+    {
+      "id": "ef-189-pr-73-a1b7378-fixed-head",
+      "kind": "exact-fixed-head-targeted-test",
+      "pullRequestNumber": 73,
+      "baseRef": "dev",
+      "approvedHeadSha": "a1b737882b1b2dc2b22f3c15cd73787c70fde71d",
+      "approvedMergeBaseSha": "2ddabf317c59f9638cef75973db0b628f541b504",
+      "allowedPaths": [
+        "client/screens/chat/contexts/ChatContext.tsx",
+        "client/screens/chat/index.tsx",
+        "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
+      ],
+      "targetIds": [
+        "chat-ui-jest-path"
+      ],
+      "targetedTestPath": "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
     }
   ]
 }
