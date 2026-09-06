@@ -26,6 +26,14 @@ const R1_FRONTEND_UI_COMPONENT_ROOT = 'client/screens/chat/components';
 const R1_FRONTEND_TEST_ROOT = 'client/screens/chat/__tests__';
 const R1_FRONTEND_MAX_UI_PATHS = 2;
 const R1_FRONTEND_MAX_TEST_PATHS = 3;
+const MANUAL_GOVERNANCE_BOOTSTRAP_ID = 'ef-194-manual-governance-bootstrap-v1';
+const MANUAL_GOVERNANCE_BOOTSTRAP_PATHS = [
+  '.github/workflows/release-gate.yml',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+];
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -184,6 +192,16 @@ function r1FrontendProfile(value) {
   return { ...value, uiEntryPaths: new Set(value.uiEntryPaths), targetIds: [...value.targetIds] };
 }
 
+function manualGovernanceBootstrap(value) {
+  exactKeys(value, ['id', 'kind', 'baseRef', 'allowedPaths', 'requiresManualCtoManagementAdmission'], 'manual governance bootstrap');
+  if (value.id !== MANUAL_GOVERNANCE_BOOTSTRAP_ID || value.kind !== 'manual-governance-bootstrap'
+    || value.baseRef !== 'dev' || value.requiresManualCtoManagementAdmission !== true) {
+    fail('manual governance bootstrap identity is malformed');
+  }
+  exactPathList(value.allowedPaths, MANUAL_GOVERNANCE_BOOTSTRAP_PATHS, 'manual governance bootstrap paths');
+  return { ...value, allowedPaths: new Set(value.allowedPaths) };
+}
+
 function directChildOf(value, root, suffix) {
   if (typeof value !== 'string' || !value.startsWith(`${root}/`) || !value.endsWith(suffix)
     || /[*?\[\]{}]/.test(value) || value.split('/').some(part => part === '.' || part === '..')) return false;
@@ -252,8 +270,8 @@ export function resolveLayout(env = process.env, options = {}) {
 export async function loadScope(read = readFile) {
   let parsed;
   try { parsed = JSON.parse(await read(SCOPE_PATH, 'utf8')); } catch { fail('scope manifest is unreadable'); }
-  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles', 'r1FrontendProfiles'], 'scope manifest');
-  if (parsed.schemaVersion !== 5) fail('scope manifest is malformed');
+  exactKeys(parsed, ['schemaVersion', 'legacyAllowedPaths', 'approvedProfiles', 'lowRiskFrontendProfiles', 'r1FrontendProfiles', 'manualGovernanceBootstrap'], 'scope manifest');
+  if (parsed.schemaVersion !== 6) fail('scope manifest is malformed');
   exactPathList(parsed.legacyAllowedPaths, EXACT_LEGACY_PATHS, 'legacy scope');
   if (!Array.isArray(parsed.lowRiskFrontendProfiles) || parsed.lowRiskFrontendProfiles.length > 1) fail('low-risk frontend profiles are malformed');
   const lowRiskProfiles = new Map();
@@ -301,7 +319,10 @@ export async function loadScope(read = readFile) {
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
     profiles.set(actual.id, { ...actual, allowedPaths: new Set(actual.allowedPaths) });
   }
-  return { legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfiles, r1FrontendProfiles };
+  return {
+    legacyAllowedPaths: new Set(parsed.legacyAllowedPaths), profiles, lowRiskProfiles, r1FrontendProfiles,
+    manualGovernanceBootstrap: manualGovernanceBootstrap(parsed.manualGovernanceBootstrap),
+  };
 }
 
 export function declaredScopeId(body) {
@@ -445,13 +466,17 @@ export async function createReviewManifest(env = process.env, options = {}) {
     let targetedRegressionIds = scopeId === LEGACY_SCOPE_ID ? [...DEFAULT_TARGETED_REGRESSION_IDS] : null;
     let targetedTestPath = null;
     let affectedTestPaths = null;
+    let manualAdmissionRequired = false;
     if (requestedScopeId !== null) {
       const profile = scope.profiles.get(requestedScopeId)
         ?? scope.lowRiskProfiles.get(requestedScopeId)
-        ?? scope.r1FrontendProfiles.get(requestedScopeId);
+        ?? scope.r1FrontendProfiles.get(requestedScopeId)
+        ?? (scope.manualGovernanceBootstrap.id === requestedScopeId ? scope.manualGovernanceBootstrap : null);
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
       if (profile.baseRef !== baseRef || (!scope.lowRiskProfiles.has(requestedScopeId)
-        && !scope.r1FrontendProfiles.has(requestedScopeId) && profile.pullRequestNumber !== prNumber)) {
+        && !scope.r1FrontendProfiles.has(requestedScopeId)
+        && scope.manualGovernanceBootstrap.id !== requestedScopeId
+        && profile.pullRequestNumber !== prNumber)) {
         fail('approved profile does not match PR identity');
       }
       scopeId = profile.id;
@@ -475,6 +500,14 @@ export async function createReviewManifest(env = process.env, options = {}) {
         };
         targetedRegressionIds = profile.targetIds;
         affectedTestPaths = categoryPaths.affectedTestPaths;
+      } else if (scope.manualGovernanceBootstrap.id === requestedScopeId) {
+        verifyExactPaths(changed, profile.allowedPaths);
+        structuralProof = {
+          kind: 'manual-governance-bootstrap-evidence-only', authoritySha,
+          approvedPaths: [...profile.allowedPaths], manualAdmissionRequired: true,
+        };
+        targetedRegressionIds = [...DEFAULT_TARGETED_REGRESSION_IDS];
+        manualAdmissionRequired = true;
       } else {
         allowedPaths = profile.allowedPaths;
         structuralProof = verifyProfile({
@@ -487,7 +520,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
       schemaVersion: 5, eventName, mode: 'authority-candidate', authoritySha,
       checkedOutSha, baseSha, headSha, mergeBaseSha,
       prNumber, scopeId, changedPaths: changed, structuralProof, targetedRegressionIds,
-      targetedTestPath, affectedTestPaths,
+      targetedTestPath, affectedTestPaths, manualAdmissionRequired,
     };
   }
 
@@ -502,6 +535,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
       checkedOutSha, baseSha: null, headSha: githubSha,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
       targetedRegressionIds: [...DEFAULT_TARGETED_REGRESSION_IDS], targetedTestPath: null, affectedTestPaths: null,
+      manualAdmissionRequired: false,
     };
   }
   fail(`unsupported event: ${String(eventName)}`);
