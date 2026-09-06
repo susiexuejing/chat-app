@@ -43,6 +43,14 @@ const R1_FRONTEND_TEST_PATHS = [
   'client/screens/chat/__tests__/r1-ui-affected-a.test.tsx',
   'client/screens/chat/__tests__/r1-ui-affected-b.test.tsx',
 ];
+const MANUAL_GOVERNANCE_SCOPE = 'ef-194-manual-governance-bootstrap-v1';
+const MANUAL_GOVERNANCE_PATHS = [
+  '.github/workflows/release-gate.yml',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+];
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -99,7 +107,7 @@ const EF75_PATHS = [
   'server/src/storage/database/shared/schema.ts',
 ];
 const scopeObject = {
-  schemaVersion: 5,
+  schemaVersion: 6,
   legacyAllowedPaths: LEGACY_PATHS,
   lowRiskFrontendProfiles: [{
     id: LOW_RISK_SCOPE,
@@ -124,6 +132,13 @@ const scopeObject = {
     maxUiPaths: 2,
     maxTestPaths: 3,
   }],
+  manualGovernanceBootstrap: {
+    id: MANUAL_GOVERNANCE_SCOPE,
+    kind: 'manual-governance-bootstrap',
+    baseRef: 'dev',
+    allowedPaths: MANUAL_GOVERNANCE_PATHS,
+    requiresManualCtoManagementAdmission: true,
+  },
   approvedProfiles: [
     {
       id: STRUCTURAL_SCOPE, kind: 'exact-clean-merge', pullRequestNumber: 43, baseRef: 'dev',
@@ -229,6 +244,7 @@ test('push and workflow dispatch retain one-checkout identity without PR claims'
       checkedOutSha: HEAD, baseSha: null, headSha: HEAD,
       mergeBaseSha: null, prNumber: null, scopeId: null, changedPaths: null,
       targetedRegressionIds: ['review-manifest-contract', 'release-gate-contract'], targetedTestPath: null, affectedTestPaths: null,
+      manualAdmissionRequired: false,
     });
   }
 });
@@ -333,6 +349,34 @@ test('authority scope rejects malformed or broadened R1 frontend category rules'
   ]) {
     await assert.rejects(loadScope(async () => JSON.stringify({ ...scopeObject, r1FrontendProfiles: [mutation] })), /malformed|targets/);
   }
+});
+
+test('manual governance bootstrap is evidence-only and rejects every identity or path expansion', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const { root, file } = await eventFixture({ body: `Review-Scope: ${MANUAL_GOVERNANCE_SCOPE}` });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({ changed: MANUAL_GOVERNANCE_PATHS })),
+  );
+  assert.equal(manifest.scopeId, MANUAL_GOVERNANCE_SCOPE);
+  assert.equal(manifest.manualAdmissionRequired, true);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'manual-governance-bootstrap-evidence-only', authoritySha: BASE,
+    approvedPaths: MANUAL_GOVERNANCE_PATHS, manualAdmissionRequired: true,
+  });
+  for (const changed of [MANUAL_GOVERNANCE_PATHS.slice(0, -1), [...MANUAL_GOVERNANCE_PATHS, 'server/src/index.ts']]) {
+    const fixture = await eventFixture({ body: `Review-Scope: ${MANUAL_GOVERNANCE_SCOPE}` });
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: fixture.file },
+      optionsFor(fixture.file, layout, gitFixture({ changed })),
+    ), /exact approved path set/);
+  }
+  await assert.rejects(loadScope(async () => JSON.stringify({
+    ...scopeObject,
+    manualGovernanceBootstrap: { ...scopeObject.manualGovernanceBootstrap, requiresManualCtoManagementAdmission: false },
+  })), /malformed/);
 });
 
 test('dual mode accepts only the exact clean-merge EF-118 graph, tree, and paths', async t => {
@@ -748,6 +792,7 @@ test('declarations and repository-controlled scope remain fail-closed', async ()
     { ...scopeObject, approvedProfiles: [{ ...scopeObject.approvedProfiles[0], headSha: HEAD }] },
     { ...scopeObject, approvedProfiles: [...scopeObject.approvedProfiles, scopeObject.approvedProfiles[1]] },
     { ...scopeObject, lowRiskFrontendProfiles: ['ef-175-pr-59'] },
+    { ...scopeObject, manualGovernanceBootstrap: { ...scopeObject.manualGovernanceBootstrap, allowedPaths: [...MANUAL_GOVERNANCE_PATHS, 'server/src/index.ts'] } },
     { ...scopeObject, unexpected: true },
   ];
   for (const mutation of mutations) {

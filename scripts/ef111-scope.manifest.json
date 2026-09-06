@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "legacyAllowedPaths": [
     ".github/workflows/release-gate.yml",
     "scripts/ef111-scope.manifest.json",
@@ -44,6 +44,19 @@
       "maxTestPaths": 3
     }
   ],
+  "manualGovernanceBootstrap": {
+    "id": "ef-194-manual-governance-bootstrap-v1",
+    "kind": "manual-governance-bootstrap",
+    "baseRef": "dev",
+    "allowedPaths": [
+      ".github/workflows/release-gate.yml",
+      "scripts/ef111-scope.manifest.json",
+      "scripts/review-manifest.mjs",
+      "scripts/__tests__/ef111-review-manifest.test.mjs",
+      "scripts/__tests__/ef94-ci-release-gate.test.mjs"
+    ],
+    "requiresManualCtoManagementAdmission": true
+  },
   "approvedProfiles": [
     {
       "id": "ef-118-pr-43-f35b3ca-clean-merge",

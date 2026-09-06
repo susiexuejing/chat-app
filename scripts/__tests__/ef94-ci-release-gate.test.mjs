@@ -50,6 +50,7 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /version: 9\.0\.0/);
   assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs" --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /review_scope_id=\$SCOPE_ID/);
+  assert.match(workflow, /manual_governance_bootstrap=evidence_only; CTO Management admission record required/);
   assert.ok(workflow.indexOf('Verify fail-closed review scope contract') < workflow.indexOf('Produce fail-closed review manifest'));
   assert.match(workflow, /name: Run approved targeted gate regressions[\s\S]*id: targeted_regressions/);
   assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
@@ -68,8 +69,21 @@ test('scope authority runs before candidate-only install and release regression'
 
 test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
   const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 5);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'r1FrontendProfiles', 'schemaVersion']);
+  assert.equal(manifest.schemaVersion, 6);
+  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'manualGovernanceBootstrap', 'r1FrontendProfiles', 'schemaVersion']);
+  assert.deepEqual(manifest.manualGovernanceBootstrap, {
+    id: 'ef-194-manual-governance-bootstrap-v1',
+    kind: 'manual-governance-bootstrap',
+    baseRef: 'dev',
+    allowedPaths: [
+      '.github/workflows/release-gate.yml',
+      'scripts/ef111-scope.manifest.json',
+      'scripts/review-manifest.mjs',
+      'scripts/__tests__/ef111-review-manifest.test.mjs',
+      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    ],
+    requiresManualCtoManagementAdmission: true,
+  });
   assert.deepEqual(manifest.lowRiskFrontendProfiles, [{
     id: 'r0-chat-ui-visual-v1',
     kind: 'r0-ui-category',
