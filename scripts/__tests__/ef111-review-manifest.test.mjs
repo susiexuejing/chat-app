@@ -46,6 +46,10 @@ const EF189_TARGETED_TEST_PATH = 'client/screens/chat/__tests__/ef189-synthetic-
 const EF189_REBUILT_SCOPE = 'ef-189-pr-79-8741c63-fixed-head';
 const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
+const EF189_FIXED_CANDIDATE_SCOPE = 'ef-189-8741c631-fixed-candidate-v1';
+const EF189_FIXED_CANDIDATE_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
+const EF189_FIXED_CANDIDATE_PARENT = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
+const EF189_FIXED_CANDIDATE_PATH_SET_SHA = '84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18';
 const LOW_RISK_SCOPE = 'r0-chat-ui-visual-v1';
 const LOW_RISK_UI_PATH = 'client/screens/chat/components/RoleHeader.tsx';
 const LOW_RISK_TEST_PATH = 'client/screens/chat/__tests__/r0-ui-visual.test.tsx';
@@ -184,25 +188,36 @@ const scopeObject = {
       approvedHeadSha: EF189_REBUILT_HEAD, approvedMergeBaseSha: EF189_REBUILT_MERGE_BASE,
       allowedPaths: EF189_PATHS, targetIds: ['chat-ui-jest-path'], targetedTestPath: EF189_TARGETED_TEST_PATH,
     },
+    {
+      id: EF189_FIXED_CANDIDATE_SCOPE, kind: 'exact-fixed-candidate-targeted-test', ticketId: 'EF-189',
+      candidateSha: EF189_FIXED_CANDIDATE_HEAD, candidateParentSha: EF189_FIXED_CANDIDATE_PARENT,
+      approvedMergeBaseSha: EF189_FIXED_CANDIDATE_PARENT, targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef189-governance-bootstrap-product',
+      allowedPaths: EF189_PATHS, allowedPathCount: 3, allowedPathSetSha: EF189_FIXED_CANDIDATE_PATH_SET_SHA,
+      targetId: 'chat-ui-jest-path', targetedTestPath: EF189_TARGETED_TEST_PATH,
+    },
   ],
 };
 const scope = JSON.stringify(scopeObject);
 
-async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null } = {}) {
+async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null, headRef, headRepository } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'ef111-event-'));
   const file = path.join(root, 'event.json');
   await writeFile(file, JSON.stringify({
     number,
-    pull_request: { number, body, base: { ref: baseRef, sha: base }, head: { sha: head } },
+    pull_request: {
+      number, body, base: { ref: baseRef, sha: base },
+      head: { sha: head, ...(headRef ? { ref: headRef } : {}), ...(headRepository ? { repo: { full_name: headRepository } } : {}) },
+    },
   }));
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
-    if (operation === 'rev-parse') return root === authorityRoot ? authority : head;
+    if (operation === 'rev-parse') return root === authorityRoot ? authority : (String(args[1]).endsWith('^') ? (candidateParent ?? head) : head);
     if (operation === 'cat-file') return '';
     if (operation === 'merge-base') return mergeBase;
     if (operation === 'diff') return `${changed.join('\n')}\n`;
@@ -669,6 +684,34 @@ test('EF-189 PR 79 admits only its rebuilt fixed identity and rejects mismatches
         optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
           gitFixture({ head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
       ), entry.error);
+    }
+  }
+});
+
+test('EF-189 fixed candidate identity admits no different SHA, source, parent, merge-base, or path set', async t => {
+  const cases = [
+    { head: EF189_FIXED_CANDIDATE_HEAD, parent: EF189_FIXED_CANDIDATE_PARENT, mergeBase: EF189_FIXED_CANDIDATE_PARENT, changed: EF189_PATHS, headRef: 'cell2/ef189-governance-bootstrap-product', repository: 'susiexuejing/chat-app', pass: true },
+    { head: EF189_HEAD, parent: EF189_FIXED_CANDIDATE_PARENT, mergeBase: EF189_FIXED_CANDIDATE_PARENT, changed: EF189_PATHS, headRef: 'cell2/ef189-governance-bootstrap-product', repository: 'susiexuejing/chat-app', error: /candidate SHA is not approved/ },
+    { head: EF189_FIXED_CANDIDATE_HEAD, parent: HEAD, mergeBase: EF189_FIXED_CANDIDATE_PARENT, changed: EF189_PATHS, headRef: 'cell2/ef189-governance-bootstrap-product', repository: 'susiexuejing/chat-app', error: /candidate parent SHA is not approved/ },
+    { head: EF189_FIXED_CANDIDATE_HEAD, parent: EF189_FIXED_CANDIDATE_PARENT, mergeBase: EF189_MERGE_BASE, changed: EF189_PATHS, headRef: 'cell2/ef189-governance-bootstrap-product', repository: 'susiexuejing/chat-app', error: /candidate merge-base SHA is not approved/ },
+    { head: EF189_FIXED_CANDIDATE_HEAD, parent: EF189_FIXED_CANDIDATE_PARENT, mergeBase: EF189_FIXED_CANDIDATE_PARENT, changed: EF189_PATHS, headRef: 'other-branch', repository: 'susiexuejing/chat-app', error: /candidate source identity is not approved/ },
+    { head: EF189_FIXED_CANDIDATE_HEAD, parent: EF189_FIXED_CANDIDATE_PARENT, mergeBase: EF189_FIXED_CANDIDATE_PARENT, changed: [...EF189_PATHS, 'client/screens/chat/api/cozeApi.ts'], headRef: 'cell2/ef189-governance-bootstrap-product', repository: 'susiexuejing/chat-app', error: /exact approved path set/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({
+      number: 999, head: entry.head, base: 'f'.repeat(40), body: `Review-Scope: ${EF189_FIXED_CANDIDATE_SCOPE}`,
+      headRef: entry.headRef, headRepository: entry.repository,
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const env = { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file };
+    const options = optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+      gitFixture({ authority: 'f'.repeat(40), head: entry.head, candidateParent: entry.parent, changed: entry.changed, mergeBase: entry.mergeBase }));
+    if (entry.pass) {
+      const manifest = await createReviewManifest(env, options);
+      assert.equal(manifest.scopeId, EF189_FIXED_CANDIDATE_SCOPE);
+      assert.equal(manifest.targetedTestPath, EF189_TARGETED_TEST_PATH);
+    } else {
+      await assert.rejects(createReviewManifest(env, options), entry.error);
     }
   }
 });
