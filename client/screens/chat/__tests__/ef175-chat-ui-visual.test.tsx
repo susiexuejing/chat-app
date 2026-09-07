@@ -23,6 +23,7 @@ describe('EF-175 chat product identity', () => {
     const view = await renderHeader(hasHistory);
 
     expect(view.getByText('EmotionFlow')).toBeTruthy();
+    expect(view.getByText('EmotionFlow')).toHaveProp('className', 'text-base font-bold text-gray-900 dark:text-white');
     expect(view.queryByText('正在陪你')).toBeNull();
     expect(view.queryByText('聪明狐狸')).toBeNull();
   });
