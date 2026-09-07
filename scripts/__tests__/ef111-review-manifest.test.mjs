@@ -43,6 +43,21 @@ const EF189_PATHS = [
   'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
 ];
 const EF189_TARGETED_TEST_PATH = 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx';
+const EF211_SCOPE = 'ef-211-ef164-fixed-candidate-v1';
+const EF211_AUTHORITY = '551948abd520177d5d8dd1c1d3d29beb3df51e8a';
+const EF211_HEAD = 'ec34ff89b1e25fc16913e63d3144d49e38174e26';
+const EF211_PARENT = '8c6dc1170f27f5698b74a3aa94f99fb01cff4753';
+const EF211_PATHS = [
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/__tests__/ef75-web-session-security.test.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/shared/schema.ts',
+];
+const EF211_PATH_SET_SHA = '9791e8f1de73f3522bafada6239ebd00e86d060f473ae808efe35c28fc5167b1';
 const EF189_REBUILT_SCOPE = 'ef-189-pr-79-8741c63-fixed-head';
 const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
@@ -214,6 +229,13 @@ const scopeObject = {
       sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef189-governance-bootstrap-product',
       allowedPaths: EF189_PATHS, allowedPathCount: 3, allowedPathSetSha: EF189_FIXED_CANDIDATE_PATH_SET_SHA,
       targetId: 'chat-ui-jest-path', targetedTestPath: EF189_TARGETED_TEST_PATH,
+    },
+    {
+      id: EF211_SCOPE, kind: 'exact-fixed-candidate-profile', ticketId: 'EF-164',
+      candidateSha: EF211_HEAD, candidateParentSha: EF211_PARENT, targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell-cto/ef164-ec34ff8',
+      allowedPaths: EF211_PATHS, allowedPathCount: 8, allowedPathSetSha: EF211_PATH_SET_SHA,
+      uniqueRegressionId: 'ef164-ownership-regression',
     },
   ],
 };
@@ -484,6 +506,33 @@ test('EF-210 admits only the fixed PR #84 head/base and exact eight product path
       })),
     ), /authority checkout|profile does not match PR identity|fixed-head profile head SHA|merge-base SHA|exact approved path set/);
   }
+});
+
+test('EF-211 admits fixed EF-164 identity without binding a PR number', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const { root, file } = await eventFixture({
+    number: 999,
+    head: EF211_HEAD,
+    base: EF211_PARENT,
+    body: `Review-Scope: ${EF211_SCOPE}`,
+    headRef: 'cell-cto/ef164-ec34ff8',
+    headRepository: 'susiexuejing/chat-app',
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({
+      authority: EF211_AUTHORITY,
+      head: EF211_HEAD,
+      candidateParent: EF211_PARENT,
+      mergeBase: EF211_PARENT,
+      changed: EF211_PATHS,
+    })),
+  );
+  assert.equal(manifest.scopeId, EF211_SCOPE);
+  assert.equal(manifest.structuralProof.uniqueRegressionId, 'ef164-ownership-regression');
+  assert.equal(manifest.targetedRegressionIds[0], 'ef164-ownership-regression');
+  assert.deepEqual(manifest.structuralProof.approvedPathSetSha, EF211_PATH_SET_SHA);
 });
 
 test('dual mode accepts only the exact clean-merge EF-118 graph, tree, and paths', async t => {
