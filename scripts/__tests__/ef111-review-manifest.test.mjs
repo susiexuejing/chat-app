@@ -447,7 +447,7 @@ test('EF-210 admits only the fixed PR #84 head/base and exact eight product path
   const manifest = await createReviewManifest(
     { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
     optionsFor(file, layout, gitFixture({
-      authority: EF210_AUTHORITY,
+      authority: EF210_MERGE_BASE,
       head: EF210_HEAD,
       mergeBase: EF210_MERGE_BASE,
       changed: EF210_PATHS,
@@ -477,7 +477,7 @@ test('EF-210 admits only the fixed PR #84 head/base and exact eight product path
     await assert.rejects(createReviewManifest(
       { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: fixture.file },
       optionsFor(fixture.file, layout, gitFixture({
-        authority: EF210_AUTHORITY,
+        authority: EF210_MERGE_BASE,
         head: mutation.head ?? EF210_HEAD,
         mergeBase: mutation.base ?? EF210_MERGE_BASE,
         changed: mutation.changed ?? EF210_PATHS,

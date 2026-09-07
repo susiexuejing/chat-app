@@ -600,8 +600,7 @@ export async function createReviewManifest(env = process.env, options = {}) {
 
     if (layout.mode !== 'dual' || !layout.authorityRoot) fail('pull request requires dual checkout authority');
     const authoritySha = sha(git(layout.authorityRoot, ['rev-parse', 'HEAD']), 'authority SHA');
-    const expectedAuthoritySha = requestedScopeId === EF210_SCOPE_ID ? EF210_AUTHORITY_SHA : baseSha;
-    if (authoritySha !== expectedAuthoritySha) fail('authority checkout does not match protected dev authority');
+    if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
 
     const scope = await loadScope(options.read ?? readFile);
     let scopeId = LEGACY_SCOPE_ID;
