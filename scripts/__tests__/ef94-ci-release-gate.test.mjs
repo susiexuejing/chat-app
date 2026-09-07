@@ -30,7 +30,7 @@ test('release gate uses minimum permissions and no secrets or external runtime',
 
 test('pull requests use exact fixed authority and candidate checkouts', async () => {
   const workflow = await text(workflowUrl);
-  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: 0106c9f103bd81212e7b90ecbd46cd8c44a6bc1d[\s\S]*path: authority/);
+  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}[\s\S]*path: authority/);
   assert.match(workflow, /name: Checkout pull request candidate[\s\S]*ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}[\s\S]*path: candidate/);
   assert.match(workflow, /git -C authority rev-parse HEAD/);
   assert.match(workflow, /git -C candidate rev-parse HEAD/);
