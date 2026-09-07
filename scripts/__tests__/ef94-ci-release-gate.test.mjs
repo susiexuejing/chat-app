@@ -283,6 +283,29 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       targetId: 'chat-ui-jest-path',
       targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
     },
+    {
+      id: 'ef-211-ef164-fixed-candidate-v1',
+      kind: 'exact-fixed-candidate-profile',
+      ticketId: 'EF-164',
+      candidateSha: 'ec34ff89b1e25fc16913e63d3144d49e38174e26',
+      candidateParentSha: '8c6dc1170f27f5698b74a3aa94f99fb01cff4753',
+      targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app',
+      sourceBranch: 'cell-cto/ef164-ec34ff8',
+      allowedPaths: [
+        'server/src/__tests__/ef75-anonymous-session.test.ts',
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/__tests__/ef75-conversation-ownership.test.ts',
+        'server/src/__tests__/ef75-web-session-security.test.ts',
+        'server/src/routes/conversations.ts',
+        'server/src/security/anonymousSession.ts',
+        'server/src/storage/database/rds-owner-binding-store.ts',
+        'server/src/storage/database/shared/schema.ts',
+      ],
+      allowedPathCount: 8,
+      allowedPathSetSha: '9791e8f1de73f3522bafada6239ebd00e86d060f473ae808efe35c28fc5167b1',
+      uniqueRegressionId: 'ef164-ownership-regression',
+    },
   ]);
 });
 
