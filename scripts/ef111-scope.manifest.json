@@ -183,6 +183,26 @@
         "chat-ui-jest-path"
       ],
       "targetedTestPath": "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
+    },
+    {
+      "id": "ef-189-8741c631-fixed-candidate-v1",
+      "kind": "exact-fixed-candidate-targeted-test",
+      "ticketId": "EF-189",
+      "candidateSha": "8741c6318a89a8064ac36c42fda09c19e72c9215",
+      "candidateParentSha": "c0b19561ec8a98b5e9feb985b34375ca9a0785f0",
+      "approvedMergeBaseSha": "c0b19561ec8a98b5e9feb985b34375ca9a0785f0",
+      "targetBranch": "dev",
+      "sourceRepository": "susiexuejing/chat-app",
+      "sourceBranch": "cell2/ef189-governance-bootstrap-product",
+      "allowedPaths": [
+        "client/screens/chat/contexts/ChatContext.tsx",
+        "client/screens/chat/index.tsx",
+        "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
+      ],
+      "allowedPathCount": 3,
+      "allowedPathSetSha": "84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18",
+      "targetId": "chat-ui-jest-path",
+      "targetedTestPath": "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
     }
   ]
 }

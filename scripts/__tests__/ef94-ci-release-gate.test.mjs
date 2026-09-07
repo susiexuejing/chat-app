@@ -59,6 +59,7 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /name: Run authority-selected R1 frontend regression[\s\S]*scope_id == 'r1-chat-ui-affected-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /name: Run authority-selected EF-189 synthetic race regression[\s\S]*scope_id == 'ef-189-pr-73-a1b7378-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /name: Run authority-selected EF-189 rebuilt synthetic race regression[\s\S]*scope_id == 'ef-189-pr-79-8741c63-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /name: Run authority-selected EF-189 fixed candidate race regression[\s\S]*scope_id == 'ef-189-8741c631-fixed-candidate-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
@@ -242,6 +243,26 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
         'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
       ],
       targetIds: ['chat-ui-jest-path'],
+      targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
+    },
+    {
+      id: 'ef-189-8741c631-fixed-candidate-v1',
+      kind: 'exact-fixed-candidate-targeted-test',
+      ticketId: 'EF-189',
+      candidateSha: '8741c6318a89a8064ac36c42fda09c19e72c9215',
+      candidateParentSha: 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0',
+      approvedMergeBaseSha: 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0',
+      targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app',
+      sourceBranch: 'cell2/ef189-governance-bootstrap-product',
+      allowedPaths: [
+        'client/screens/chat/contexts/ChatContext.tsx',
+        'client/screens/chat/index.tsx',
+        'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
+      ],
+      allowedPathCount: 3,
+      allowedPathSetSha: '84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18',
+      targetId: 'chat-ui-jest-path',
       targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
     },
   ]);
