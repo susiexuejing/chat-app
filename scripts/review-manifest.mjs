@@ -54,6 +54,7 @@ const EF189_FIXED_CANDIDATE_SHA = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_FIXED_CANDIDATE_PARENT_SHA = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
 const EF189_FIXED_CANDIDATE_PATH_SET_SHA = '84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18';
 const EF210_SCOPE_ID = 'ef-210-pr-84-ec34ff8-fixed-head';
+const EF210_AUTHORITY_SHA = '0106c9f103bd81212e7b90ecbd46cd8c44a6bc1d';
 const EF210_HEAD = 'ec34ff89b1e25fc16913e63d3144d49e38174e26';
 const EF210_MERGE_BASE = '8c6dc1170f27f5698b74a3aa94f99fb01cff4753';
 const EF210_PATHS = [
@@ -595,13 +596,14 @@ export async function createReviewManifest(env = process.env, options = {}) {
     if (baseRef !== 'dev') fail('pull request base ref must be dev');
     if (headSha !== checkedOutSha) fail('pull request head SHA does not match the candidate checkout');
     const { changed, mergeBaseSha } = changedPaths(baseSha, headSha, layout.candidateRoot, git);
+    const requestedScopeId = declaredScopeId(event?.pull_request?.body);
 
     if (layout.mode !== 'dual' || !layout.authorityRoot) fail('pull request requires dual checkout authority');
     const authoritySha = sha(git(layout.authorityRoot, ['rev-parse', 'HEAD']), 'authority SHA');
-    if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
+    const expectedAuthoritySha = requestedScopeId === EF210_SCOPE_ID ? EF210_AUTHORITY_SHA : baseSha;
+    if (authoritySha !== expectedAuthoritySha) fail('authority checkout does not match protected dev authority');
 
     const scope = await loadScope(options.read ?? readFile);
-    const requestedScopeId = declaredScopeId(event?.pull_request?.body);
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
     let structuralProof = null;
