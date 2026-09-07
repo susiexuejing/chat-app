@@ -57,6 +57,7 @@ function ChatContent() {
   const [showHome, setShowHome] = useState(true);
   const [homeInput, setHomeInput] = useState('');
   const inputRef = useRef<TextInput>(null);
+  const startChatInFlightRef = useRef(false);
 
   const [introModalVisible, setIntroModalVisible] = useState(false);
   const [roleDetailVisible, setRoleDetailVisible] = useState(false);
@@ -146,23 +147,30 @@ function ChatContent() {
 
   // 开始对话：从首页进入聊天
   const handleStartChat = useCallback(async () => {
+    if (startChatInFlightRef.current) return;
     const text = homeInput.trim();
     if (!text) return;
 
-    // 设置默认陪伴者（聪明狐狸）
-    const defaultRole = DEFAULT_ROLES.find(r => r.id === 'clever-fox') || DEFAULT_ROLES[0];
-    setCurrentRole(defaultRole);
-    // EM-43: createNewChat 返回新的 conversationId，显式传给 sendMessage
-    const newConversationId = createNewChat(defaultRole);
+    startChatInFlightRef.current = true;
 
-    // EM-50: 清空输入框，防止新建会话后残留文本
-    setHomeInput('');
+    try {
+      // 设置默认陪伴者（聪明狐狸）
+      const defaultRole = DEFAULT_ROLES.find(r => r.id === 'clever-fox') || DEFAULT_ROLES[0];
+      setCurrentRole(defaultRole);
+      // EM-43: createNewChat 返回新的 conversationId，显式传给 sendMessage
+      const newConversationId = createNewChat(defaultRole);
 
-    // 切换到聊天视图
-    setShowHome(false);
+      // EM-50: 清空输入框，防止新建会话后残留文本
+      setHomeInput('');
 
-    // 发送用户消息，显式传入新 conversationId
-    await sendMessage(text, { conversationId: newConversationId });
+      // 切换到聊天视图
+      setShowHome(false);
+
+      // 发送用户消息，显式传入新 conversationId
+      await sendMessage(text, { conversationId: newConversationId });
+    } finally {
+      startChatInFlightRef.current = false;
+    }
   }, [homeInput, setCurrentRole, createNewChat, sendMessage]);
 
   // 状态入口按钮点击
