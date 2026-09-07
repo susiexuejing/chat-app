@@ -53,6 +53,19 @@ const EF189_FIXED_CANDIDATE_SCOPE_ID = 'ef-189-8741c631-fixed-candidate-v1';
 const EF189_FIXED_CANDIDATE_SHA = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_FIXED_CANDIDATE_PARENT_SHA = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
 const EF189_FIXED_CANDIDATE_PATH_SET_SHA = '84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18';
+const EF210_SCOPE_ID = 'ef-210-pr-84-ec34ff8-fixed-head';
+const EF210_HEAD = 'ec34ff89b1e25fc16913e63d3144d49e38174e26';
+const EF210_MERGE_BASE = '8c6dc1170f27f5698b74a3aa94f99fb01cff4753';
+const EF210_PATHS = [
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/__tests__/ef75-web-session-security.test.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/shared/schema.ts',
+];
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -146,6 +159,14 @@ const EXACT_APPROVED_PROFILES = [{
     'server/src/storage/database/rds-owner-binding-store.ts',
     'server/src/storage/database/shared/schema.ts',
   ],
+}, {
+  id: EF210_SCOPE_ID,
+  kind: 'exact-fixed-head-paths',
+  pullRequestNumber: 84,
+  baseRef: 'dev',
+  approvedHeadSha: EF210_HEAD,
+  approvedMergeBaseSha: EF210_MERGE_BASE,
+  allowedPaths: EF210_PATHS,
 }, {
   id: EF189_SCOPE_ID,
   kind: 'exact-fixed-head-targeted-test',

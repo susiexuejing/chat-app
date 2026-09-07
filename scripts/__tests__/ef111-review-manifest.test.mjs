@@ -67,6 +67,19 @@ const MANUAL_GOVERNANCE_PATHS = [
   'scripts/__tests__/ef111-review-manifest.test.mjs',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
 ];
+const EF210_SCOPE = 'ef-210-pr-84-ec34ff8-fixed-head';
+const EF210_HEAD = 'ec34ff89b1e25fc16913e63d3144d49e38174e26';
+const EF210_MERGE_BASE = '8c6dc1170f27f5698b74a3aa94f99fb01cff4753';
+const EF210_PATHS = [
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/__tests__/ef75-web-session-security.test.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/shared/schema.ts',
+];
 const GOVERNANCE_BASE = '76549f7473c48f721a72344ae89ab5d3e87575fa';
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const LEGACY_PATHS = [
@@ -177,6 +190,11 @@ const scopeObject = {
       id: EF185_SCOPE, kind: 'exact-fixed-head-paths', pullRequestNumber: 70, baseRef: 'dev',
       approvedHeadSha: EF185_HEAD, approvedMergeBaseSha: EF185_MERGE_BASE,
       allowedPaths: EF185_PATHS,
+    },
+    {
+      id: EF210_SCOPE, kind: 'exact-fixed-head-paths', pullRequestNumber: 84, baseRef: 'dev',
+      approvedHeadSha: EF210_HEAD, approvedMergeBaseSha: EF210_MERGE_BASE,
+      allowedPaths: EF210_PATHS,
     },
     {
       id: EF189_SCOPE, kind: 'exact-fixed-head-targeted-test', pullRequestNumber: 73, baseRef: 'dev',
@@ -414,6 +432,57 @@ test('manual governance bootstrap is evidence-only and rejects every identity or
     ...scopeObject,
     manualGovernanceBootstrap: { ...scopeObject.manualGovernanceBootstrap, requiresManualCtoManagementAdmission: false },
   })), /malformed/);
+});
+
+test('EF-210 admits only the fixed PR #84 head/base and exact eight product paths', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const { root, file } = await eventFixture({
+    number: 84,
+    head: EF210_HEAD,
+    base: EF210_MERGE_BASE,
+    body: `Review-Scope: ${EF210_SCOPE}`,
+  });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const manifest = await createReviewManifest(
+    { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+    optionsFor(file, layout, gitFixture({
+      authority: EF210_MERGE_BASE,
+      head: EF210_HEAD,
+      mergeBase: EF210_MERGE_BASE,
+      changed: EF210_PATHS,
+    })),
+  );
+  assert.equal(manifest.scopeId, EF210_SCOPE);
+  assert.deepEqual(manifest.structuralProof, {
+    kind: 'exact-fixed-head-paths',
+    approvedPaths: EF210_PATHS,
+    approvedHeadSha: EF210_HEAD,
+    approvedMergeBaseSha: EF210_MERGE_BASE,
+  });
+  for (const mutation of [
+    { number: 83 },
+    { head: 'f'.repeat(40) },
+    { base: 'e'.repeat(40) },
+    { changed: [...EF210_PATHS, 'server/src/index.ts'] },
+    { changed: EF210_PATHS.slice(0, -1) },
+  ]) {
+    const fixture = await eventFixture({
+      number: mutation.number ?? 84,
+      head: mutation.head ?? EF210_HEAD,
+      base: mutation.base ?? EF210_MERGE_BASE,
+      body: `Review-Scope: ${EF210_SCOPE}`,
+    });
+    t.after(() => rm(fixture.root, { recursive: true, force: true }));
+    await assert.rejects(createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: fixture.file },
+      optionsFor(fixture.file, layout, gitFixture({
+        authority: EF210_MERGE_BASE,
+        head: mutation.head ?? EF210_HEAD,
+        mergeBase: mutation.base ?? EF210_MERGE_BASE,
+        changed: mutation.changed ?? EF210_PATHS,
+      })),
+    ), /authority checkout|profile does not match PR identity|fixed-head profile head SHA|merge-base SHA|exact approved path set/);
+  }
 });
 
 test('dual mode accepts only the exact clean-merge EF-118 graph, tree, and paths', async t => {
