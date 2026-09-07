@@ -36,6 +36,12 @@ function makeApp() {
   app.get('/protected', requireAnonymousSession, (_req, res) => {
     res.json({ owner: getVerifiedAnonymousSession(res).id });
   });
+  return loopbackOnly(app);
+}
+
+function loopbackOnly(app: express.Express) {
+  const listen = app.listen.bind(app);
+  app.listen = ((port: number, callback?: () => void) => listen(port, '127.0.0.1', callback)) as typeof app.listen;
   return app;
 }
 

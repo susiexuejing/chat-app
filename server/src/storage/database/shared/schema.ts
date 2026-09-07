@@ -30,6 +30,23 @@ export const anonymousSessions = pgTable(
   ],
 );
 
+// EF-164: private ownership metadata only; no content and no client authority.
+export const conversationOwnerBindings = pgTable(
+  "conversation_owner_bindings",
+  {
+    conversation_ref: varchar("conversation_ref", { length: 36 }).primaryKey(),
+    owner_principal_id: varchar("owner_principal_id", { length: 36 }).notNull(),
+    created_at: bigint("created_at", { mode: "number" }).notNull(),
+    revoked_at: bigint("revoked_at", { mode: "number" }),
+  },
+  (table) => [
+    index("conversation_owner_bindings_owner_active_idx").on(
+      table.owner_principal_id,
+      table.conversation_ref,
+    ),
+  ],
+);
+
 // EF-59: Conversations table
 export const conversations = pgTable(
   "conversations",
