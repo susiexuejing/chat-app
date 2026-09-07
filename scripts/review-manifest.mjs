@@ -44,6 +44,9 @@ const EF189_PATHS = [
 ];
 const EF189_TARGET_IDS = ['chat-ui-jest-path'];
 const EF189_TARGETED_TEST_PATH = 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx';
+const EF189_REBUILT_SCOPE_ID = 'ef-189-pr-79-8741c63-fixed-head';
+const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
+const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -144,6 +147,16 @@ const EXACT_APPROVED_PROFILES = [{
   baseRef: 'dev',
   approvedHeadSha: EF189_HEAD,
   approvedMergeBaseSha: EF189_MERGE_BASE,
+  allowedPaths: EF189_PATHS,
+  targetIds: EF189_TARGET_IDS,
+  targetedTestPath: EF189_TARGETED_TEST_PATH,
+}, {
+  id: EF189_REBUILT_SCOPE_ID,
+  kind: 'exact-fixed-head-targeted-test',
+  pullRequestNumber: 79,
+  baseRef: 'dev',
+  approvedHeadSha: EF189_REBUILT_HEAD,
+  approvedMergeBaseSha: EF189_REBUILT_MERGE_BASE,
   allowedPaths: EF189_PATHS,
   targetIds: EF189_TARGET_IDS,
   targetedTestPath: EF189_TARGETED_TEST_PATH,

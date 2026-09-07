@@ -43,6 +43,9 @@ const EF189_PATHS = [
   'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
 ];
 const EF189_TARGETED_TEST_PATH = 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx';
+const EF189_REBUILT_SCOPE = 'ef-189-pr-79-8741c63-fixed-head';
+const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
+const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
 const LOW_RISK_SCOPE = 'r0-chat-ui-visual-v1';
 const LOW_RISK_UI_PATH = 'client/screens/chat/components/RoleHeader.tsx';
 const LOW_RISK_TEST_PATH = 'client/screens/chat/__tests__/r0-ui-visual.test.tsx';
@@ -174,6 +177,11 @@ const scopeObject = {
     {
       id: EF189_SCOPE, kind: 'exact-fixed-head-targeted-test', pullRequestNumber: 73, baseRef: 'dev',
       approvedHeadSha: EF189_HEAD, approvedMergeBaseSha: EF189_MERGE_BASE,
+      allowedPaths: EF189_PATHS, targetIds: ['chat-ui-jest-path'], targetedTestPath: EF189_TARGETED_TEST_PATH,
+    },
+    {
+      id: EF189_REBUILT_SCOPE, kind: 'exact-fixed-head-targeted-test', pullRequestNumber: 79, baseRef: 'dev',
+      approvedHeadSha: EF189_REBUILT_HEAD, approvedMergeBaseSha: EF189_REBUILT_MERGE_BASE,
       allowedPaths: EF189_PATHS, targetIds: ['chat-ui-jest-path'], targetedTestPath: EF189_TARGETED_TEST_PATH,
     },
   ],
@@ -634,6 +642,35 @@ test('EF-189 PR 73 rejects changed identity, unknown target, and every missing o
       ? { ...profile, targetIds: ['chat-ui-jest-path', 'chat-ui-jest-path'] } : profile),
   };
   await assert.rejects(loadScope(async () => JSON.stringify(malformed)), /malformed/);
+});
+
+test('EF-189 PR 79 admits only its rebuilt fixed identity and rejects mismatches', async t => {
+  const cases = [
+    { number: 79, head: EF189_REBUILT_HEAD, mergeBase: EF189_REBUILT_MERGE_BASE, changed: EF189_PATHS, body: `Review-Scope: ${EF189_REBUILT_SCOPE}`, pass: true },
+    { number: 79, head: EF189_HEAD, mergeBase: EF189_REBUILT_MERGE_BASE, changed: EF189_PATHS, body: `Review-Scope: ${EF189_REBUILT_SCOPE}`, error: /head SHA is not approved/ },
+    { number: 79, head: EF189_REBUILT_HEAD, mergeBase: EF189_MERGE_BASE, changed: EF189_PATHS, body: `Review-Scope: ${EF189_REBUILT_SCOPE}`, error: /merge-base SHA is not approved/ },
+    { number: 79, head: EF189_REBUILT_HEAD, mergeBase: EF189_REBUILT_MERGE_BASE, changed: [...EF189_PATHS, 'client/screens/chat/api/cozeApi.ts'], body: `Review-Scope: ${EF189_REBUILT_SCOPE}`, error: /exact approved path set/ },
+    { number: 79, head: EF189_REBUILT_HEAD, mergeBase: EF189_REBUILT_MERGE_BASE, changed: EF189_PATHS, body: `Review-Scope: ${EF189_SCOPE}`, error: /profile does not match/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({ number: entry.number, head: entry.head, body: entry.body });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    if (entry.pass) {
+      const manifest = await createReviewManifest(
+        { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+        optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+          gitFixture({ head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
+      );
+      assert.equal(manifest.scopeId, EF189_REBUILT_SCOPE);
+      assert.equal(manifest.targetedTestPath, EF189_TARGETED_TEST_PATH);
+    } else {
+      await assert.rejects(createReviewManifest(
+        { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+        optionsFor(file, { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' },
+          gitFixture({ head: entry.head, changed: entry.changed, mergeBase: entry.mergeBase })),
+      ), entry.error);
+    }
+  }
 });
 
 test('EF-75 profile rejects direct F0, wrong PR, and missing or extra paths', async t => {

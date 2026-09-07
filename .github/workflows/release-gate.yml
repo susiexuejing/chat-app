@@ -128,6 +128,11 @@ jobs:
         working-directory: candidate
         run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef189-synthetic-race-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
 
+      - name: Run authority-selected EF-189 rebuilt synthetic race regression
+        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-189-pr-79-8741c63-fixed-head' }}
+        working-directory: candidate
+        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef189-rebuilt-synthetic-race-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
+
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm run test:release
