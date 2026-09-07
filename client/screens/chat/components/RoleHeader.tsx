@@ -19,7 +19,7 @@ export function RoleHeader({
       <View className="flex-row items-center">
         {/* 产品标识：聊天顶部始终显示同一产品身份。 */}
         <View className="flex-1">
-          <Text className="text-sm font-bold text-gray-900 dark:text-white">
+          <Text className="text-base font-bold text-gray-900 dark:text-white">
             EmotionFlow
           </Text>
         </View>
