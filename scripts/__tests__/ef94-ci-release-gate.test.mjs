@@ -57,6 +57,7 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
   assert.match(workflow, /name: Run authority-selected R0 UI category regression[\s\S]*scope_id == 'r0-chat-ui-visual-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /name: Run authority-selected R1 frontend regression[\s\S]*scope_id == 'r1-chat-ui-affected-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /name: Run authority-selected EF-189 synthetic race regression[\s\S]*scope_id == 'ef-189-pr-73-a1b7378-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
@@ -211,6 +212,21 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
         'server/src/storage/database/rds-owner-binding-store.ts',
         'server/src/storage/database/shared/schema.ts',
       ],
+    },
+    {
+      id: 'ef-189-pr-73-a1b7378-fixed-head',
+      kind: 'exact-fixed-head-targeted-test',
+      pullRequestNumber: 73,
+      baseRef: 'dev',
+      approvedHeadSha: 'a1b737882b1b2dc2b22f3c15cd73787c70fde71d',
+      approvedMergeBaseSha: '2ddabf317c59f9638cef75973db0b628f541b504',
+      allowedPaths: [
+        'client/screens/chat/contexts/ChatContext.tsx',
+        'client/screens/chat/index.tsx',
+        'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
+      ],
+      targetIds: ['chat-ui-jest-path'],
+      targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
     },
   ]);
 });

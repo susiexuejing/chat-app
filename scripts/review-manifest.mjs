@@ -34,6 +34,16 @@ const MANUAL_GOVERNANCE_BOOTSTRAP_PATHS = [
   'scripts/__tests__/ef111-review-manifest.test.mjs',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
 ];
+const EF189_SCOPE_ID = 'ef-189-pr-73-a1b7378-fixed-head';
+const EF189_HEAD = 'a1b737882b1b2dc2b22f3c15cd73787c70fde71d';
+const EF189_MERGE_BASE = '2ddabf317c59f9638cef75973db0b628f541b504';
+const EF189_PATHS = [
+  'client/screens/chat/contexts/ChatContext.tsx',
+  'client/screens/chat/index.tsx',
+  'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
+];
+const EF189_TARGET_IDS = ['chat-ui-jest-path'];
+const EF189_TARGETED_TEST_PATH = 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx';
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -127,6 +137,16 @@ const EXACT_APPROVED_PROFILES = [{
     'server/src/storage/database/rds-owner-binding-store.ts',
     'server/src/storage/database/shared/schema.ts',
   ],
+}, {
+  id: EF189_SCOPE_ID,
+  kind: 'exact-fixed-head-targeted-test',
+  pullRequestNumber: 73,
+  baseRef: 'dev',
+  approvedHeadSha: EF189_HEAD,
+  approvedMergeBaseSha: EF189_MERGE_BASE,
+  allowedPaths: EF189_PATHS,
+  targetIds: EF189_TARGET_IDS,
+  targetedTestPath: EF189_TARGETED_TEST_PATH,
 }];
 
 function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
@@ -297,21 +317,28 @@ export async function loadScope(read = readFile) {
       ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedFirstParentSha', 'allowedPaths']
       : expected.kind === 'exact-fixed-head-paths'
         ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'approvedMergeBaseSha', 'allowedPaths']
-        : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
+        : expected.kind === 'exact-fixed-head-targeted-test'
+          ? ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'approvedMergeBaseSha', 'allowedPaths', 'targetIds', 'targetedTestPath']
+          : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.pullRequestNumber !== expected.pullRequestNumber
       || actual.kind !== expected.kind || actual.baseRef !== expected.baseRef
       || (expected.kind === 'exact-clean-merge'
         && actual.approvedFirstParentSha !== expected.approvedFirstParentSha)
-      || (expected.kind === 'exact-fixed-head-paths'
+      || ((expected.kind === 'exact-fixed-head-paths' || expected.kind === 'exact-fixed-head-targeted-test')
         && (actual.approvedHeadSha !== expected.approvedHeadSha
           || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha))
+      || (expected.kind === 'exact-fixed-head-targeted-test'
+        && (!Array.isArray(actual.targetIds)
+          || actual.targetIds.length !== 1
+          || actual.targetIds[0] !== expected.targetIds[0]
+          || actual.targetedTestPath !== expected.targetedTestPath))
       || (expected.kind === 'exact-docs-paths' && actual.approvedHeadSha !== expected.approvedHeadSha)
       || profiles.has(actual.id)) {
       fail('approved profile identity is malformed');
     }
     if (expected.kind === 'exact-clean-merge') sha(actual.approvedFirstParentSha, 'approved profile first parent SHA');
-    if (expected.kind === 'exact-fixed-head-paths') {
+    if (expected.kind === 'exact-fixed-head-paths' || expected.kind === 'exact-fixed-head-targeted-test') {
       sha(actual.approvedHeadSha, 'approved profile head SHA');
       sha(actual.approvedMergeBaseSha, 'approved profile merge-base SHA');
     }
@@ -403,7 +430,9 @@ function verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, chan
   };
 }
 function verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed }) {
-  if (profile.kind !== 'exact-fixed-head-paths') fail('approved profile kind is unsupported');
+  if (profile.kind !== 'exact-fixed-head-paths' && profile.kind !== 'exact-fixed-head-targeted-test') {
+    fail('approved profile kind is unsupported');
+  }
   if (headSha !== profile.approvedHeadSha) fail('fixed-head profile head SHA is not approved');
   if (mergeBaseSha !== profile.approvedMergeBaseSha) fail('fixed-head profile merge-base SHA is not approved');
   verifyExactPaths(changed, profile.allowedPaths);
@@ -427,7 +456,7 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
       baseSha, approvedHeadSha: profile.approvedHeadSha,
     };
   }
-  if (profile.kind === 'exact-fixed-head-paths') {
+  if (profile.kind === 'exact-fixed-head-paths' || profile.kind === 'exact-fixed-head-targeted-test') {
     return verifyFixedHeadProfile({ profile, headSha, mergeBaseSha, changed });
   }
   fail('approved profile kind is unsupported');
@@ -513,6 +542,10 @@ export async function createReviewManifest(env = process.env, options = {}) {
         structuralProof = verifyProfile({
           profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot: layout.candidateRoot, git,
         });
+        if (profile.kind === 'exact-fixed-head-targeted-test') {
+          targetedRegressionIds = [...profile.targetIds];
+          targetedTestPath = profile.targetedTestPath;
+        }
       }
     }
     if (structuralProof === null) verifyAllowedPaths(changed, allowedPaths);
