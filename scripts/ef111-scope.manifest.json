@@ -166,6 +166,23 @@
         "chat-ui-jest-path"
       ],
       "targetedTestPath": "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
+    },
+    {
+      "id": "ef-189-pr-79-8741c63-fixed-head",
+      "kind": "exact-fixed-head-targeted-test",
+      "pullRequestNumber": 79,
+      "baseRef": "dev",
+      "approvedHeadSha": "8741c6318a89a8064ac36c42fda09c19e72c9215",
+      "approvedMergeBaseSha": "c0b19561ec8a98b5e9feb985b34375ca9a0785f0",
+      "allowedPaths": [
+        "client/screens/chat/contexts/ChatContext.tsx",
+        "client/screens/chat/index.tsx",
+        "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
+      ],
+      "targetIds": [
+        "chat-ui-jest-path"
+      ],
+      "targetedTestPath": "client/screens/chat/__tests__/ef189-synthetic-race.test.tsx"
     }
   ]
 }
