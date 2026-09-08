@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client';
+import { verifyExactOwnerBinding } from '../storage/database/rds-owner-binding-store';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 export const EF75_WEB_ORIGIN = 'https://dev.douhaoyu.cn';
@@ -195,19 +196,7 @@ export async function verifyOwnedConversation(
   ownerSessionId: string,
   conversationId: string,
 ): Promise<'owned' | 'missing' | 'internal'> {
-  try {
-    const client = getSupabaseClient();
-    const { data, error } = await client
-      .from('conversations')
-      .select('id')
-      .eq('id', conversationId)
-      .eq('owner_session_id', ownerSessionId)
-      .maybeSingle();
-    if (error) return 'internal';
-    return data ? 'owned' : 'missing';
-  } catch {
-    return 'internal';
-  }
+  return verifyExactOwnerBinding(conversationId, ownerSessionId);
 }
 
 export function serializeWebSessionCookie(credentialValue: string, maxAgeSeconds: number): string {

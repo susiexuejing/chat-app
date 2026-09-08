@@ -34,6 +34,10 @@ function makeApp(withProtected = false) {
     app.get('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
     app.post('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
   }
+
+  const listen = app.listen.bind(app);
+  app.listen = ((port: number, callback?: () => void) =>
+    listen(port, '127.0.0.1', callback)) as typeof app.listen;
   return app;
 }
 

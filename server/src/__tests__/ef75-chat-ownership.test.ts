@@ -29,6 +29,14 @@ jest.unstable_mockModule('../routes/conversations', () => ({ default: express.Ro
 const { app } = await import('../index');
 const CONVERSATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 
+function loopbackOnly(app: express.Express) {
+  const listen = app.listen.bind(app);
+  app.listen = ((port: number, callback?: () => void) => listen(port, '127.0.0.1', callback)) as typeof app.listen;
+  return app;
+}
+
+const loopbackApp = loopbackOnly(app);
+
 describe('EF-75 chat start/stream production ownership path', () => {
   beforeEach(() => {
     authenticateAnonymousRequest.mockClear();
@@ -36,7 +44,7 @@ describe('EF-75 chat start/stream production ownership path', () => {
   });
 
   test('chat/start verifies the persisted conversation before creating a response run', async () => {
-    const response = await request(app)
+    const response = await request(loopbackApp)
       .post('/api/v1/chat/start')
       .set('Authorization', 'Bearer owner-b-token')
       .send({ roleId: 'clever-fox', message: '你好', conversationId: CONVERSATION });
@@ -46,12 +54,12 @@ describe('EF-75 chat start/stream production ownership path', () => {
   });
 
   test('a response-run id cannot be substituted by another anonymous owner', async () => {
-    const started = await request(app)
+    const started = await request(loopbackApp)
       .post('/api/v1/chat/start')
       .set('Authorization', 'Bearer owner-a-token')
       .send({ roleId: 'clever-fox', message: '你好', conversationId: CONVERSATION });
     expect(started.status).toBe(200);
-    const substituted = await request(app)
+    const substituted = await request(loopbackApp)
       .get(`/api/v1/chat/stream?sessionId=${started.body.sessionId}`)
       .set('Authorization', 'Bearer owner-b-token');
     expect(substituted.status).toBe(404);
@@ -59,13 +67,13 @@ describe('EF-75 chat start/stream production ownership path', () => {
   });
 
   test('debug session surface is no longer externally routed', async () => {
-    const response = await request(app).get('/api/v1/debug/last-prompt');
+    const response = await request(loopbackApp).get('/api/v1/debug/last-prompt');
     expect(response.status).toBe(404);
     expect(JSON.stringify(response.body)).not.toContain('sessions');
   });
 
   test('cross-origin reads receive no credentialed CORS grant', async () => {
-    const response = await request(app)
+    const response = await request(loopbackApp)
       .get('/api/v1/version')
       .set('Origin', 'https://evil.example');
     expect(response.status).toBe(200);
@@ -74,7 +82,7 @@ describe('EF-75 chat start/stream production ownership path', () => {
   });
 
   test('the configured HTTPS Origin receives the exact credentialed CORS grant', async () => {
-    const response = await request(app)
+    const response = await request(loopbackApp)
       .get('/api/v1/version')
       .set('Origin', 'https://dev.douhaoyu.cn');
     expect(response.status).toBe(200);
