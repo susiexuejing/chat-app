@@ -39,7 +39,7 @@ export function RoleHeader({
           className="flex-row items-center bg-gray-100 dark:bg-gray-800 rounded-full px-3 py-1"
         >
           <Ionicons name="add-circle-outline" size={14} color="#6B7280" />
-          <Text className="text-xs text-gray-500 dark:text-gray-400 ml-1">新对话</Text>
+          <Text className="text-xs text-gray-500 dark:text-gray-400 ml-1">新建</Text>
         </TouchableOpacity>
       </View>
     </View>
