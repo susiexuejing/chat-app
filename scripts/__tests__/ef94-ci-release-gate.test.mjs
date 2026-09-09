@@ -60,6 +60,7 @@ test('scope authority runs before candidate-only install and release regression'
   assert.match(workflow, /name: Run authority-selected EF-189 synthetic race regression[\s\S]*scope_id == 'ef-189-pr-73-a1b7378-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /name: Run authority-selected EF-189 rebuilt synthetic race regression[\s\S]*scope_id == 'ef-189-pr-79-8741c63-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /name: Run authority-selected EF-189 fixed candidate race regression[\s\S]*scope_id == 'ef-189-8741c631-fixed-candidate-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
+  assert.match(workflow, /name: Run authority-selected EF-177 fixed candidate R1 frontend regression[\s\S]*scope_id == 'ef-111-r2-ef177-fixed-candidate-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
   assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
   assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
   assert.match(workflow, /run: pnpm install --frozen-lockfile/);
@@ -305,6 +306,27 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       allowedPathCount: 8,
       allowedPathSetSha: '9791e8f1de73f3522bafada6239ebd00e86d060f473ae808efe35c28fc5167b1',
       uniqueRegressionId: 'ef164-ownership-regression',
+    },
+    {
+      id: 'ef-111-r2-ef177-fixed-candidate-v1',
+      kind: 'exact-fixed-candidate-r1-frontend-admission',
+      ticketId: 'EF-177',
+      candidateSha: '461dbd90ad3c727293bdd759f113ac2feb034266',
+      candidateParentSha: '72bdec30003daae4d8c8eedef4aee08b28b76461',
+      approvedBaseSha: '18ef7702c237ed89120bf069b6fb02827b2b5190',
+      approvedMergeBaseSha: '18ef7702c237ed89120bf069b6fb02827b2b5190',
+      targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app',
+      sourceBranch: 'cell1/ef-177-history-new-conversation',
+      allowedPaths: ['client/screens/chat/components/RoleHeader.tsx'],
+      allowedPathCount: 1,
+      allowedPathSetSha: 'ad134788b54107e328aa4d50605e9e39987099b95bac236a22ba0b9aed748fb4',
+      targetId: 'chat-ui-jest-path',
+      affectedTestPaths: [
+        'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
+        'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
+        'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
+      ],
     },
   ]);
 });
