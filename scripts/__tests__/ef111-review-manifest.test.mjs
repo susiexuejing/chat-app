@@ -69,6 +69,18 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
+const EF194_EF161_ADVANCED_SCOPE = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
+const EF194_EF161_ADVANCED_HEAD = '12048a16386edf34e6527341ffda64181d98e4ce';
+const EF194_EF161_ADVANCED_BASE = '2284f0479316e3eb5a29b86854c82792aaa5a1c5';
+const EF194_EF161_ADVANCED_AUTHORITY = 'e'.repeat(40);
+const EF194_EF161_ADVANCED_PATHS = [
+  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+  'client/screens/chat/stores/sessionStore.ts',
+];
+const EF194_EF161_ADVANCED_PATH_SET_SHA = 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29';
+const EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS = [
+  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+];
 const EF189_REBUILT_SCOPE = 'ef-189-pr-79-8741c63-fixed-head';
 const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
@@ -257,6 +269,15 @@ const scopeObject = {
       allowedPaths: EF111_R2_EF177_PATHS, allowedPathCount: 1, allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
       targetId: 'chat-ui-jest-path', affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
     },
+    {
+      id: EF194_EF161_ADVANCED_SCOPE, kind: 'exact-fixed-candidate-governance-advanced-r1-frontend-admission', ticketId: 'EF-161',
+      pullRequestNumber: 93, candidateSha: EF194_EF161_ADVANCED_HEAD, candidateParentSha: EF194_EF161_ADVANCED_BASE,
+      approvedOriginalBaseSha: EF194_EF161_ADVANCED_BASE, approvedMergeBaseSha: EF194_EF161_ADVANCED_BASE,
+      targetBranch: 'dev', sourceRepository: 'susiexuejing/chat-app',
+      sourceBranch: 'cell3/ef-161-web-same-origin-backend',
+      allowedPaths: EF194_EF161_ADVANCED_PATHS, allowedPathCount: 2, allowedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA,
+      targetId: 'chat-ui-jest-path', affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
+    },
   ],
 };
 const scope = JSON.stringify(scopeObject);
@@ -274,13 +295,18 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, governanceAuthorityBase = null, governanceAuthorityMergeBase = null, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : (String(args[1]).endsWith('^') ? (candidateParent ?? head) : head);
     if (operation === 'cat-file') return '';
-    if (operation === 'merge-base') return mergeBase;
+    if (operation === 'merge-base') {
+      if (governanceAuthorityBase !== null
+        && args.includes(EF194_EF161_ADVANCED_BASE)
+        && args.includes(governanceAuthorityBase)) return governanceAuthorityMergeBase ?? mergeBase;
+      return mergeBase;
+    }
     if (operation === 'diff') return `${changed.join('\n')}\n`;
     throw new Error(`unexpected git operation: ${args.join(' ')}`);
   };
@@ -593,6 +619,51 @@ test('EF-111 R2 admits only the fixed EF-177 frontend candidate and its baseline
         approvedBaseSha: EF111_R2_EF177_BASE, approvedMergeBaseSha: EF111_R2_EF177_BASE,
         approvedPathSetSha: EF111_R2_EF177_PATH_SET_SHA, targetId: 'chat-ui-jest-path',
         affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
+      });
+    } else {
+      await assert.rejects(promise, entry.error);
+    }
+  }
+});
+
+test('EF-194 admits only PR 93 after its exact governance profile advances the authority base', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const cases = [
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', pass: true },
+    { number: 92, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /PR identity/ },
+    { number: 93, head: HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /candidate SHA/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: HEAD, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /candidate parent SHA/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_BASE, mergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /not integrated into an advanced authority base/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: MERGE_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /candidate merge-base SHA/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: MERGE_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /authority base lineage/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: [...EF194_EF161_ADVANCED_PATHS, 'client/screens/chat/index.tsx'], headRef: 'cell3/ef-161-web-same-origin-backend', repository: 'susiexuejing/chat-app', error: /exact approved path set/ },
+    { number: 93, head: EF194_EF161_ADVANCED_HEAD, parent: EF194_EF161_ADVANCED_BASE, base: EF194_EF161_ADVANCED_AUTHORITY, mergeBase: EF194_EF161_ADVANCED_BASE, authorityMergeBase: EF194_EF161_ADVANCED_BASE, changed: EF194_EF161_ADVANCED_PATHS, headRef: 'other-branch', repository: 'susiexuejing/chat-app', error: /source identity/ },
+  ];
+  for (const entry of cases) {
+    const { root, file } = await eventFixture({
+      number: entry.number, head: entry.head, base: entry.base, body: `Review-Scope: ${EF194_EF161_ADVANCED_SCOPE}`,
+      headRef: entry.headRef, headRepository: entry.repository,
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const promise = createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      optionsFor(file, layout, gitFixture({
+        authority: entry.base, head: entry.head, candidateParent: entry.parent, mergeBase: entry.mergeBase,
+        changed: entry.changed, governanceAuthorityBase: entry.base, governanceAuthorityMergeBase: entry.authorityMergeBase,
+      })),
+    );
+    if (entry.pass) {
+      const manifest = await promise;
+      assert.equal(manifest.scopeId, EF194_EF161_ADVANCED_SCOPE);
+      assert.deepEqual(manifest.targetedRegressionIds, ['chat-ui-jest-path']);
+      assert.equal(manifest.targetedTestPath, null);
+      assert.deepEqual(manifest.affectedTestPaths, EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS);
+      assert.deepEqual(manifest.structuralProof, {
+        kind: 'exact-fixed-candidate-governance-advanced-r1-frontend-admission', ticketId: 'EF-161', pullRequestNumber: 93,
+        candidateSha: EF194_EF161_ADVANCED_HEAD, candidateParentSha: EF194_EF161_ADVANCED_BASE,
+        approvedOriginalBaseSha: EF194_EF161_ADVANCED_BASE, approvedMergeBaseSha: EF194_EF161_ADVANCED_BASE,
+        approvedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA, targetId: 'chat-ui-jest-path',
+        affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
       });
     } else {
       await assert.rejects(promise, entry.error);

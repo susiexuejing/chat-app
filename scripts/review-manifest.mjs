@@ -84,6 +84,17 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
+const EF194_EF161_ADVANCED_SCOPE_ID = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
+const EF194_EF161_ADVANCED_HEAD = '12048a16386edf34e6527341ffda64181d98e4ce';
+const EF194_EF161_ADVANCED_BASE = '2284f0479316e3eb5a29b86854c82792aaa5a1c5';
+const EF194_EF161_ADVANCED_PATHS = [
+  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+  'client/screens/chat/stores/sessionStore.ts',
+];
+const EF194_EF161_ADVANCED_PATH_SET_SHA = 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29';
+const EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS = [
+  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+];
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -249,6 +260,23 @@ const EXACT_APPROVED_PROFILES = [{
   allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
   targetId: 'chat-ui-jest-path',
   affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
+}, {
+  id: EF194_EF161_ADVANCED_SCOPE_ID,
+  kind: 'exact-fixed-candidate-governance-advanced-r1-frontend-admission',
+  ticketId: 'EF-161',
+  pullRequestNumber: 93,
+  candidateSha: EF194_EF161_ADVANCED_HEAD,
+  candidateParentSha: EF194_EF161_ADVANCED_BASE,
+  approvedOriginalBaseSha: EF194_EF161_ADVANCED_BASE,
+  approvedMergeBaseSha: EF194_EF161_ADVANCED_BASE,
+  targetBranch: 'dev',
+  sourceRepository: 'susiexuejing/chat-app',
+  sourceBranch: 'cell3/ef-161-web-same-origin-backend',
+  allowedPaths: EF194_EF161_ADVANCED_PATHS,
+  allowedPathCount: 2,
+  allowedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA,
+  targetId: 'chat-ui-jest-path',
+  affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
 }];
 
 function fail(message) { throw new Error(`EF-111 review manifest rejected: ${message}`); }
@@ -437,6 +465,8 @@ export async function loadScope(read = readFile) {
             ? ['id', 'kind', 'ticketId', 'candidateSha', 'candidateParentSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'uniqueRegressionId']
             : expected.kind === 'exact-fixed-candidate-r1-frontend-admission'
               ? ['id', 'kind', 'ticketId', 'candidateSha', 'candidateParentSha', 'approvedBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'targetId', 'affectedTestPaths']
+              : expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission'
+                ? ['id', 'kind', 'ticketId', 'pullRequestNumber', 'candidateSha', 'candidateParentSha', 'approvedOriginalBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'targetId', 'affectedTestPaths']
           : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.kind !== expected.kind
@@ -469,6 +499,19 @@ export async function loadScope(read = readFile) {
           || actual.candidateSha !== expected.candidateSha
           || actual.candidateParentSha !== expected.candidateParentSha
           || actual.approvedBaseSha !== expected.approvedBaseSha
+          || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha
+          || actual.targetBranch !== expected.targetBranch
+          || actual.sourceRepository !== expected.sourceRepository
+          || actual.sourceBranch !== expected.sourceBranch
+          || actual.allowedPathCount !== expected.allowedPathCount
+          || actual.allowedPathSetSha !== expected.allowedPathSetSha
+          || actual.targetId !== expected.targetId))
+      || (expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission'
+        && (actual.ticketId !== expected.ticketId
+          || actual.pullRequestNumber !== expected.pullRequestNumber
+          || actual.candidateSha !== expected.candidateSha
+          || actual.candidateParentSha !== expected.candidateParentSha
+          || actual.approvedOriginalBaseSha !== expected.approvedOriginalBaseSha
           || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha
           || actual.targetBranch !== expected.targetBranch
           || actual.sourceRepository !== expected.sourceRepository
@@ -526,6 +569,20 @@ export async function loadScope(read = readFile) {
         fail('fixed R1 candidate path-set identity is malformed');
       }
       exactPathList(actual.affectedTestPaths, expected.affectedTestPaths, 'fixed R1 candidate affected test paths');
+    }
+    if (expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission') {
+      sha(actual.candidateSha, 'governance-advanced candidate SHA');
+      sha(actual.candidateParentSha, 'governance-advanced candidate parent SHA');
+      sha(actual.approvedOriginalBaseSha, 'governance-advanced original base SHA');
+      sha(actual.approvedMergeBaseSha, 'governance-advanced merge-base SHA');
+      sha256(actual.allowedPathSetSha, 'governance-advanced candidate path-set SHA');
+      if (!Number.isInteger(actual.pullRequestNumber) || actual.pullRequestNumber < 1
+        || !Number.isInteger(actual.allowedPathCount) || actual.allowedPathCount !== actual.allowedPaths.length
+        || actual.allowedPathSetSha !== fixedCandidatePathSetSha(actual.allowedPaths)
+        || actual.targetId !== 'chat-ui-jest-path') {
+        fail('governance-advanced candidate profile is malformed');
+      }
+      exactPathList(actual.affectedTestPaths, expected.affectedTestPaths, 'governance-advanced affected test paths');
     }
     if (expected.kind === 'exact-docs-paths') sha(actual.approvedHeadSha, 'approved profile head SHA');
     exactPathList(actual.allowedPaths, expected.allowedPaths, 'approved profile paths');
@@ -705,6 +762,41 @@ function verifyFixedCandidateR1FrontendAdmission({ profile, baseSha, headSha, me
     affectedTestPaths: [...profile.affectedTestPaths],
   };
 }
+function verifyGovernanceAdvancedR1FrontendAdmission({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git, event }) {
+  if (event?.pull_request?.number !== profile.pullRequestNumber) fail('governance-advanced candidate PR identity is not approved');
+  if (headSha !== profile.candidateSha) fail('governance-advanced candidate SHA is not approved');
+  if (git(candidateRoot, ['rev-parse', `${headSha}^`]) !== profile.candidateParentSha) {
+    fail('governance-advanced candidate parent SHA is not approved');
+  }
+  if (baseSha === profile.approvedOriginalBaseSha) {
+    fail('governance-advanced profile is not integrated into an advanced authority base');
+  }
+  if (git(candidateRoot, ['merge-base', profile.approvedOriginalBaseSha, baseSha]) !== profile.approvedOriginalBaseSha) {
+    fail('governance-advanced authority base lineage is not approved');
+  }
+  if (mergeBaseSha !== profile.approvedMergeBaseSha) fail('governance-advanced candidate merge-base SHA is not approved');
+  if (event?.pull_request?.base?.ref !== profile.targetBranch
+    || event?.pull_request?.head?.repo?.full_name !== profile.sourceRepository
+    || event?.pull_request?.head?.ref !== profile.sourceBranch) {
+    fail('governance-advanced candidate source identity is not approved');
+  }
+  verifyExactPaths(changed, profile.allowedPaths);
+  if (changed.length !== profile.allowedPathCount || fixedCandidatePathSetSha(changed) !== profile.allowedPathSetSha) {
+    fail('governance-advanced candidate path-set identity is not approved');
+  }
+  return {
+    kind: profile.kind,
+    ticketId: profile.ticketId,
+    pullRequestNumber: profile.pullRequestNumber,
+    candidateSha: profile.candidateSha,
+    candidateParentSha: profile.candidateParentSha,
+    approvedOriginalBaseSha: profile.approvedOriginalBaseSha,
+    approvedMergeBaseSha: profile.approvedMergeBaseSha,
+    approvedPathSetSha: profile.allowedPathSetSha,
+    targetId: profile.targetId,
+    affectedTestPaths: [...profile.affectedTestPaths],
+  };
+}
 function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git, event }) {
   if (profile.kind === 'exact-clean-merge') {
     return verifyStructuralProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git });
@@ -729,6 +821,9 @@ function verifyProfile({ profile, baseSha, headSha, mergeBaseSha, changed, candi
   }
   if (profile.kind === 'exact-fixed-candidate-r1-frontend-admission') {
     return verifyFixedCandidateR1FrontendAdmission({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git, event });
+  }
+  if (profile.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission') {
+    return verifyGovernanceAdvancedR1FrontendAdmission({ profile, baseSha, headSha, mergeBaseSha, changed, candidateRoot, git, event });
   }
   fail('approved profile kind is unsupported');
 }
@@ -775,7 +870,8 @@ export async function createReviewManifest(env = process.env, options = {}) {
       if (!profile) fail(`unknown scope declaration: ${requestedScopeId}`);
       const fixedCandidateProfile = profile.kind === 'exact-fixed-candidate-targeted-test'
         || profile.kind === 'exact-fixed-candidate-profile'
-        || profile.kind === 'exact-fixed-candidate-r1-frontend-admission';
+        || profile.kind === 'exact-fixed-candidate-r1-frontend-admission'
+        || profile.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission';
       if ((fixedCandidateProfile ? profile.targetBranch !== baseRef : profile.baseRef !== baseRef) || (!scope.lowRiskProfiles.has(requestedScopeId)
         && !scope.r1FrontendProfiles.has(requestedScopeId)
         && scope.manualGovernanceBootstrap.id !== requestedScopeId
@@ -828,6 +924,10 @@ export async function createReviewManifest(env = process.env, options = {}) {
           targetedRegressionIds = [profile.uniqueRegressionId];
         }
         if (profile.kind === 'exact-fixed-candidate-r1-frontend-admission') {
+          targetedRegressionIds = [profile.targetId];
+          affectedTestPaths = [...profile.affectedTestPaths];
+        }
+        if (profile.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission') {
           targetedRegressionIds = [profile.targetId];
           affectedTestPaths = [...profile.affectedTestPaths];
         }

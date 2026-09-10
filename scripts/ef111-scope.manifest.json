@@ -267,6 +267,29 @@
         "client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx",
         "client/screens/chat/__tests__/em54-persist-refresh.test.tsx"
       ]
+    },
+    {
+      "id": "ef-194-ef161-pr93-12048a1-governance-advance-v1",
+      "kind": "exact-fixed-candidate-governance-advanced-r1-frontend-admission",
+      "ticketId": "EF-161",
+      "pullRequestNumber": 93,
+      "candidateSha": "12048a16386edf34e6527341ffda64181d98e4ce",
+      "candidateParentSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
+      "approvedOriginalBaseSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
+      "approvedMergeBaseSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
+      "targetBranch": "dev",
+      "sourceRepository": "susiexuejing/chat-app",
+      "sourceBranch": "cell3/ef-161-web-same-origin-backend",
+      "allowedPaths": [
+        "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
+        "client/screens/chat/stores/sessionStore.ts"
+      ],
+      "allowedPathCount": 2,
+      "allowedPathSetSha": "a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29",
+      "targetId": "chat-ui-jest-path",
+      "affectedTestPaths": [
+        "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx"
+      ]
     }
   ]
 }
