@@ -143,6 +143,11 @@ jobs:
         working-directory: candidate
         run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef111-ef177-r1-frontend-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
 
+      - name: Run authority-selected EF-161 post-governance fixed candidate frontend regression
+        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-194-ef161-pr93-12048a1-governance-advance-v1' }}
+        working-directory: candidate
+        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef194-ef161-post-governance-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
+
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
         run: pnpm run test:release
