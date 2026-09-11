@@ -1,0 +1,30 @@
+name: Protected Fixed PR Admission
+
+on:
+  pull_request_target:
+    branches:
+      - dev
+
+permissions:
+  contents: read
+
+jobs:
+  fixed-successor-admission:
+    name: Protected fixed successor admission
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # pull_request_target loads this workflow from protected dev. The event Head
+      # is data only; this job never checks it out or executes its contents.
+      - name: Checkout protected Base authority
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: authority
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify fixed successor admission from protected Base
+        working-directory: authority
+        run: node scripts/fixed-pr-admission.mjs
