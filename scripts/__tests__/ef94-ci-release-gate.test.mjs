@@ -66,10 +66,10 @@ test('EF-161 replacement authority freezes the Candidate, parent, source, and pa
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
   assert.equal(profile.authorityFloorSha, '63761f81e7a8e05472812e7a95674bb34d6c3d57');
   assert.equal(profile.product.headPolicy, 'fixed-head-single-parent-of-fixed-base');
-  assert.equal(profile.product.headSha, '17caa29c9dfb2c3488986951171775a3e667651f');
-  assert.equal(profile.product.parentSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
+  assert.equal(profile.product.headSha, '724bde65ee8ed4085520ff65c0bba38f7dcdb10b');
+  assert.equal(profile.product.parentSha, '7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603');
   assert.equal(profile.product.patchId, '24321ba636082a1963c8be5ddc9add2915eb4e59');
-  assert.equal(profile.product.sourceBranch, 'cell3/ef-161-successor-105a71d');
+  assert.equal(profile.product.sourceBranch, 'cell3/ef-161-successor-7fb7fe9');
   assert.deepEqual(profile.product.paths, [
     'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
     'client/screens/chat/stores/sessionStore.ts',
