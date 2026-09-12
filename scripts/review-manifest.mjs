@@ -84,17 +84,6 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
-const EF194_EF161_ADVANCED_SCOPE_ID = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
-const EF194_EF161_ADVANCED_HEAD = '12048a16386edf34e6527341ffda64181d98e4ce';
-const EF194_EF161_ADVANCED_BASE = '2284f0479316e3eb5a29b86854c82792aaa5a1c5';
-const EF194_EF161_ADVANCED_PATHS = [
-  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-  'client/screens/chat/stores/sessionStore.ts',
-];
-const EF194_EF161_ADVANCED_PATH_SET_SHA = 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29';
-const EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS = [
-  'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-];
 const EF194_EF107_SCOPE_ID = 'ef-194-ef107-final-259a9bb8-bounded-advance-v1';
 const EF194_EF107_HEAD = '259a9bb8e2d60cbce2f30235ce288badb39b673a';
 const EF194_EF107_PARENT = '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b';
@@ -116,10 +105,13 @@ const EF194_EF107_PATH_SET_SHA = 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf
 const EF194_EF107_BASE_ADVANCE_PATHS = [
   'scripts/__tests__/ef111-review-manifest.test.mjs',
   'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
   'scripts/ef111-scope.manifest.json',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
   'scripts/review-manifest.mjs',
 ];
-const EF194_EF107_BASE_ADVANCE_PATH_SET_SHA = 'de12e1a7a8acdb8a405a116d087ada05c1ab9593385507d1a72a26a6bb9271e2';
+const EF194_EF107_BASE_ADVANCE_PATH_SET_SHA = 'c02c0a80bcc92fa4eee8d1f56c513ef34866ce78a0c08342ac46b87b36716dab';
 const EXACT_LEGACY_PATHS = [
   '.github/workflows/release-gate.yml', 'scripts/ef111-scope.manifest.json',
   'scripts/review-manifest.mjs', 'scripts/release-suite.manifest.json',
@@ -286,23 +278,6 @@ const EXACT_APPROVED_PROFILES = [{
   targetId: 'chat-ui-jest-path',
   affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
 }, {
-  id: EF194_EF161_ADVANCED_SCOPE_ID,
-  kind: 'exact-fixed-candidate-governance-advanced-r1-frontend-admission',
-  ticketId: 'EF-161',
-  pullRequestNumber: 93,
-  candidateSha: EF194_EF161_ADVANCED_HEAD,
-  candidateParentSha: EF194_EF161_ADVANCED_BASE,
-  approvedOriginalBaseSha: EF194_EF161_ADVANCED_BASE,
-  approvedMergeBaseSha: EF194_EF161_ADVANCED_BASE,
-  targetBranch: 'dev',
-  sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell3/ef-161-web-same-origin-backend',
-  allowedPaths: EF194_EF161_ADVANCED_PATHS,
-  allowedPathCount: 2,
-  allowedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA,
-  targetId: 'chat-ui-jest-path',
-  affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
-}, {
   id: EF194_EF107_SCOPE_ID,
   kind: 'exact-fixed-candidate-bounded-governance-advance-admission',
   ticketId: 'EF-107',
@@ -318,7 +293,7 @@ const EXACT_APPROVED_PROFILES = [{
   allowedPathCount: 10,
   allowedPathSetSha: EF194_EF107_PATH_SET_SHA,
   allowedBaseAdvancePaths: EF194_EF107_BASE_ADVANCE_PATHS,
-  allowedBaseAdvancePathCount: 4,
+  allowedBaseAdvancePathCount: 7,
   allowedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
 }];
 

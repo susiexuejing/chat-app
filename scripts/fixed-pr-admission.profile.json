@@ -1,30 +1,42 @@
 {
   "schemaVersion": 1,
   "kind": "integrated-successor-pr-admission",
-  "ticket": "EF-161",
+  "ticket": "EF-107",
   "legacyPullRequestNumbers": [93, 99],
-  "authorityFloorSha": "63761f81e7a8e05472812e7a95674bb34d6c3d57",
+  "authorityFloorSha": "40ddb9ddedcc4c573f26398ca3104dd4003be9fb",
   "governanceSelfAdmission": "forbidden",
   "product": {
     "headPolicy": "fixed-head-single-parent-of-fixed-base",
-    "headSha": "724bde65ee8ed4085520ff65c0bba38f7dcdb10b",
-    "parentSha": "7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603",
-    "patchId": "24321ba636082a1963c8be5ddc9add2915eb4e59",
+    "headSha": "259a9bb8e2d60cbce2f30235ce288badb39b673a",
+    "parentSha": "59f70e9d7b47de238e1e0564c3ce42d2912d8b5b",
+    "originalBaseSha": "ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7",
+    "patchId": "5dbdf01ab6391ab9dff6b564ea3f37545b21a766",
     "sourceRepository": "susiexuejing/chat-app",
-    "sourceBranch": "cell3/ef-161-successor-7fb7fe9",
+    "sourceBranch": "cell2/ef107-final-259a9bb8",
     "targetBranch": "dev",
     "paths": [
-      "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
-      "client/screens/chat/stores/sessionStore.ts"
+      ".gitleaks.toml",
+      "server/src/__tests__/ef75-anonymous-session.test.ts",
+      "server/src/__tests__/ef75-chat-ownership.test.ts",
+      "server/src/__tests__/ef75-conversation-ownership.test.ts",
+      "server/src/index.ts",
+      "server/src/routes/conversations.ts",
+      "server/src/security/anonymousSession.ts",
+      "server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql",
+      "server/src/storage/database/rds-owner-binding-store.ts",
+      "server/src/storage/database/rds-runtime-config.ts"
     ],
-    "pathCount": 2,
-    "pathDigest": "a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29",
-    "targetedRegression": "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
+    "pathCount": 10,
+    "pathDigest": "bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803",
+    "releaseGateRoute": "base-owned-review-manifest",
     "allowedTargetBaseAdvancePaths": [
+      "scripts/__tests__/ef111-review-manifest.test.mjs",
       "scripts/__tests__/ef94-ci-release-gate.test.mjs",
       "scripts/__tests__/fixed-pr-admission.test.mjs",
+      "scripts/ef111-scope.manifest.json",
       "scripts/fixed-pr-admission.mjs",
-      "scripts/fixed-pr-admission.profile.json"
+      "scripts/fixed-pr-admission.profile.json",
+      "scripts/review-manifest.mjs"
     ]
   }
 }
