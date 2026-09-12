@@ -1,16 +1,15 @@
 {
   "schemaVersion": 1,
-  "kind": "fixed-successor-pr-admission",
+  "kind": "integrated-successor-pr-admission",
   "ticket": "EF-161",
   "legacyPullRequestNumbers": [93],
-  "authorityFloorSha": "5468fefbf9400726e1c7c3a9daa146be608fb916",
+  "authorityFloorSha": "63761f81e7a8e05472812e7a95674bb34d6c3d57",
   "governanceSelfAdmission": "forbidden",
   "product": {
-    "headSha": "12048a16386edf34e6527341ffda64181d98e4ce",
-    "directParentSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
-    "originalMergeBaseSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
+    "headPolicy": "event-head-single-parent-of-protected-base",
+    "patchId": "24321ba636082a1963c8be5ddc9add2915eb4e59",
     "sourceRepository": "susiexuejing/chat-app",
-    "sourceBranch": "cell3/ef-161-web-same-origin-backend",
+    "sourceBranch": "cell3/ef-161-current-dev-integration",
     "targetBranch": "dev",
     "paths": [
       "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",

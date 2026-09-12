@@ -8,12 +8,18 @@ const PROFILE_URL = new URL('./fixed-pr-admission.profile.json', import.meta.url
 const PROFILE_REPOSITORY_PATH = 'scripts/fixed-pr-admission.profile.json';
 const RELEASE_GATE_SCOPE_ID = 'ef-194-ef161-fixed-successor-release-gate-v1';
 const SHA = /^[0-9a-f]{40}$/;
+const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
+  '.github/workflows/protected-fixed-pr-admission.yml',
+  '.github/workflows/release-gate.yml',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+]);
 const FIXED = Object.freeze({
-  authorityFloorSha: '5468fefbf9400726e1c7c3a9daa146be608fb916',
-  headSha: '12048a16386edf34e6527341ffda64181d98e4ce',
-  originalSha: '2284f0479316e3eb5a29b86854c82792aaa5a1c5',
+  authorityFloorSha: '63761f81e7a8e05472812e7a95674bb34d6c3d57',
+  headPolicy: 'event-head-single-parent-of-protected-base',
+  patchId: '24321ba636082a1963c8be5ddc9add2915eb4e59',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell3/ef-161-web-same-origin-backend',
+  sourceBranch: 'cell3/ef-161-current-dev-integration',
   targetBranch: 'dev',
   paths: [
     'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
@@ -54,7 +60,7 @@ export function canonicalPathDigest(paths) {
 }
 
 export function validateProfile(profile) {
-  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'fixed-successor-pr-admission' || profile.ticket !== 'EF-161') {
+  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'integrated-successor-pr-admission' || profile.ticket !== 'EF-161') {
     reject('malformed profile');
   }
   if (profile.governanceSelfAdmission !== 'forbidden') reject('self-admission is not forbidden');
@@ -65,14 +71,9 @@ export function validateProfile(profile) {
   exact(profile.authorityFloorSha, FIXED.authorityFloorSha, 'authority floor SHA');
   const product = profile.product;
   if (!product) reject('missing product profile');
-  for (const [name, value] of Object.entries({
-    productHeadSha: product.headSha,
-    productDirectParentSha: product.directParentSha,
-    productOriginalMergeBaseSha: product.originalMergeBaseSha,
-  })) sha(value, name);
-  if (product.headSha !== FIXED.headSha
-    || product.directParentSha !== FIXED.originalSha
-    || product.originalMergeBaseSha !== FIXED.originalSha
+  sha(product.patchId, 'product patch ID');
+  if (product.headPolicy !== FIXED.headPolicy
+    || product.patchId !== FIXED.patchId
     || product.sourceRepository !== FIXED.sourceRepository
     || product.sourceBranch !== FIXED.sourceBranch
     || product.targetBranch !== FIXED.targetBranch
@@ -93,7 +94,7 @@ export function validateProfile(profile) {
 export function isFixedSuccessorAttempt(profileInput, event) {
   const profile = validateProfile(profileInput);
   const head = event?.pullRequest?.head;
-  return head?.sha === profile.product.headSha || head?.ref === profile.product.sourceBranch;
+  return head?.ref === profile.product.sourceBranch;
 }
 
 export function fixedSuccessorRegressionManifest(profileInput) {
@@ -116,17 +117,25 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   if (!pullRequest || !Number.isInteger(pullRequest.number)) reject('missing pull request identity');
   if (profile.legacyPullRequestNumbers.includes(pullRequest.number)) reject('legacy PR rejected');
   const product = profile.product;
-  exact(pullRequest.head?.sha, product.headSha, 'product head SHA');
+  sha(pullRequest.head?.sha, 'product head SHA');
   exact(pullRequest.head?.ref, product.sourceBranch, 'source branch');
   exact(pullRequest.head?.repoFullName, product.sourceRepository, 'source repository');
   exact(pullRequest.base?.ref, product.targetBranch, 'target branch');
   exact(pullRequest.base?.repoFullName, product.sourceRepository, 'target repository');
   sha(pullRequest.base?.sha, 'target base SHA');
   exact(evidence?.protectedBaseCheckoutSha, pullRequest.base.sha, 'protected base checkout SHA');
+  exact(evidence?.candidateResolvedSha, pullRequest.head.sha, 'candidate resolved SHA');
   if (!evidence?.authorityFloorIncluded) reject('authority floor not integrated into target base');
-  exact(evidence.productDirectParentSha, product.directParentSha, 'product parent SHA');
-  exact(evidence.productMergeBaseSha, product.originalMergeBaseSha, 'product merge-base SHA');
+  if (!Array.isArray(evidence.candidateParentShas) || evidence.candidateParentShas.length !== 1) {
+    reject('candidate must have exactly one parent');
+  }
+  exact(evidence.candidateParentShas[0], pullRequest.base.sha, 'candidate parent SHA');
+  exact(evidence.candidateMergeBaseSha, pullRequest.base.sha, 'candidate merge-base SHA');
+  exact(evidence.candidatePatchId, product.patchId, 'candidate patch ID');
   if (!Array.isArray(evidence.changedPaths)) reject('missing changed paths');
+  if (!Array.isArray(evidence.candidateControlPlanePaths) || evidence.candidateControlPlanePaths.length !== 0) {
+    reject('candidate self-authorization or control-plane change');
+  }
   const observedDigest = canonicalPathDigest(evidence.changedPaths);
   if (evidence.changedPaths.length !== product.pathCount
     || observedDigest !== product.pathDigest
@@ -152,6 +161,25 @@ function gitSucceeded(args, cwd = process.cwd()) {
   }
 }
 
+function gitPatchId(headSha, cwd = process.cwd()) {
+  const patch = execFileSync('git', ['show', '--pretty=email', '--no-ext-diff', '--binary', headSha], {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const result = execFileSync('git', ['patch-id', '--stable'], {
+    cwd,
+    encoding: 'utf8',
+    input: patch,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  }).trim();
+  const [patchId, resolvedHead, ...extra] = result.split(/\s+/);
+  if (!SHA.test(patchId ?? '') || resolvedHead !== headSha || extra.length !== 0) {
+    reject('candidate patch ID unavailable');
+  }
+  return patchId;
+}
+
 function eventFromPayload(githubEvent) {
   const baseSha = githubEvent.pull_request?.base?.sha;
   return {
@@ -174,17 +202,28 @@ function eventFromPayload(githubEvent) {
 
 function evidenceFromRepositories({ profile, event, rawProfile, candidateRoot }) {
   const baseSha = event.pullRequest?.base?.sha;
+  const headSha = event.pullRequest?.head?.sha;
   const profileAtBase = typeof baseSha === 'string'
     ? (() => {
       try { return git(['show', `${baseSha}:${PROFILE_REPOSITORY_PATH}`]); } catch { return null; }
     })()
     : null;
+  const revision = typeof headSha === 'string'
+    ? git(['rev-list', '--parents', '-n', '1', headSha], candidateRoot).split(/\s+/)
+    : [];
+  const candidateResolvedSha = revision.shift();
+  const changedPaths = typeof baseSha === 'string' && typeof headSha === 'string'
+    ? git(['diff', '--name-only', baseSha, headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
+    : [];
   return {
     protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
     authorityFloorIncluded: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.authorityFloorSha, baseSha]),
-    productDirectParentSha: git(['rev-parse', `${profile.product.headSha}^`], candidateRoot),
-    productMergeBaseSha: git(['merge-base', profile.product.originalMergeBaseSha, profile.product.headSha], candidateRoot),
-    changedPaths: git(['diff', '--name-only', profile.product.originalMergeBaseSha, profile.product.headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right)),
+    candidateResolvedSha,
+    candidateParentShas: revision,
+    candidateMergeBaseSha: git(['merge-base', baseSha, headSha], candidateRoot),
+    candidatePatchId: gitPatchId(headSha, candidateRoot),
+    changedPaths,
+    candidateControlPlanePaths: changedPaths.filter(entry => CANDIDATE_CONTROL_PLANE_PATHS.includes(entry)),
     targetedRegression: profile.product.targetedRegression,
     profilePresentAtBase: profileAtBase !== null,
     profileMatchesBase: profileAtBase !== null && sameValue(profileAtBase, rawProfile.trim()),

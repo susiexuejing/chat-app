@@ -7,6 +7,8 @@ const docsUrl = new URL('../../docs/EF-94-ci-release-gate.md', import.meta.url);
 const scopeManifestUrl = new URL('../ef111-scope.manifest.json', import.meta.url);
 const secretScanUrl = new URL('../../.github/workflows/secret-scan.yml', import.meta.url);
 const deployDevUrl = new URL('../../.github/workflows/deploy-dev.yml', import.meta.url);
+const fixedAdmissionProfileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
+const fixedAdmissionVerifierUrl = new URL('../fixed-pr-admission.mjs', import.meta.url);
 
 async function text(url) {
   return readFile(url, 'utf8');
@@ -54,6 +56,27 @@ test('fixed EF-161 successor uses Base-owned admission and bypasses only the leg
   assert.match(workflow, /name: Produce fail-closed review manifest[\s\S]*if: \$\{\{ github\.event_name != 'pull_request' \|\| steps\.fixed_successor\.outputs\.accepted != 'true' \}\}/);
   assert.match(workflow, /name: Run Base-owned fixed successor chat UI regression[\s\S]*steps\.fixed_successor\.outputs\.accepted == 'true'[\s\S]*--manifest "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"/);
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
+});
+
+test('EF-161 integrated successor authority freezes the patch contract while allowing a rebuilt head', async () => {
+  const [profile, verifier] = await Promise.all([
+    text(fixedAdmissionProfileUrl).then(JSON.parse),
+    text(fixedAdmissionVerifierUrl),
+  ]);
+  assert.equal(profile.kind, 'integrated-successor-pr-admission');
+  assert.equal(profile.authorityFloorSha, '63761f81e7a8e05472812e7a95674bb34d6c3d57');
+  assert.equal(profile.product.headPolicy, 'event-head-single-parent-of-protected-base');
+  assert.equal(profile.product.patchId, '24321ba636082a1963c8be5ddc9add2915eb4e59');
+  assert.equal(profile.product.headSha, undefined);
+  assert.deepEqual(profile.product.paths, [
+    'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+    'client/screens/chat/stores/sessionStore.ts',
+  ]);
+  assert.equal(profile.product.pathDigest, 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29');
+  assert.match(verifier, /candidate must have exactly one parent/);
+  assert.match(verifier, /candidate parent SHA/);
+  assert.match(verifier, /candidate patch ID/);
+  assert.match(verifier, /candidate self-authorization or control-plane change/);
 });
 
 test('scope authority runs before candidate-only install and release regression', async () => {
