@@ -1,10 +1,12 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PROFILE_URL = new URL('./fixed-pr-admission.profile.json', import.meta.url);
 const PROFILE_REPOSITORY_PATH = 'scripts/fixed-pr-admission.profile.json';
+const RELEASE_GATE_SCOPE_ID = 'ef-194-ef161-fixed-successor-release-gate-v1';
 const SHA = /^[0-9a-f]{40}$/;
 const FIXED = Object.freeze({
   authorityFloorSha: '5468fefbf9400726e1c7c3a9daa146be608fb916',
@@ -88,9 +90,28 @@ export function validateProfile(profile) {
   return profile;
 }
 
-export function validateAdmission(profileInput, event, evidence) {
+export function isFixedSuccessorAttempt(profileInput, event) {
   const profile = validateProfile(profileInput);
-  if (event?.eventName !== 'pull_request_target') reject('unexpected event');
+  const head = event?.pullRequest?.head;
+  return head?.sha === profile.product.headSha || head?.ref === profile.product.sourceBranch;
+}
+
+export function fixedSuccessorRegressionManifest(profileInput) {
+  const profile = validateProfile(profileInput);
+  return {
+    schemaVersion: 1,
+    kind: 'fixed-successor-release-gate-regression',
+    scopeId: RELEASE_GATE_SCOPE_ID,
+    targetedRegressionIds: ['chat-ui-jest-path'],
+    targetedTestPath: profile.product.targetedRegression,
+    affectedTestPaths: null,
+  };
+}
+
+export function validateAdmission(profileInput, event, evidence, options = {}) {
+  const profile = validateProfile(profileInput);
+  const expectedEventName = options.expectedEventName ?? 'pull_request_target';
+  if (event?.eventName !== expectedEventName) reject('unexpected event');
   const pullRequest = event.pullRequest;
   if (!pullRequest || !Number.isInteger(pullRequest.number)) reject('missing pull request identity');
   if (profile.legacyPullRequestNumbers.includes(pullRequest.number)) reject('legacy PR rejected');
@@ -118,17 +139,63 @@ export function validateAdmission(profileInput, event, evidence) {
   return { accepted: true, profile };
 }
 
-function git(args) {
-  return execFileSync('git', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+function git(args, cwd = process.cwd()) {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 }
 
-function gitSucceeded(args) {
+function gitSucceeded(args, cwd = process.cwd()) {
   try {
-    execFileSync('git', args, { stdio: 'ignore' });
+    execFileSync('git', args, { cwd, stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
+}
+
+function eventFromPayload(githubEvent) {
+  const baseSha = githubEvent.pull_request?.base?.sha;
+  return {
+    eventName: process.env.GITHUB_EVENT_NAME,
+    pullRequest: {
+      number: githubEvent.pull_request?.number,
+      head: {
+        sha: githubEvent.pull_request?.head?.sha,
+        ref: githubEvent.pull_request?.head?.ref,
+        repoFullName: githubEvent.pull_request?.head?.repo?.full_name,
+      },
+      base: {
+        sha: baseSha,
+        ref: githubEvent.pull_request?.base?.ref,
+        repoFullName: githubEvent.pull_request?.base?.repo?.full_name,
+      },
+    },
+  };
+}
+
+function evidenceFromRepositories({ profile, event, rawProfile, candidateRoot }) {
+  const baseSha = event.pullRequest?.base?.sha;
+  const profileAtBase = typeof baseSha === 'string'
+    ? (() => {
+      try { return git(['show', `${baseSha}:${PROFILE_REPOSITORY_PATH}`]); } catch { return null; }
+    })()
+    : null;
+  return {
+    protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
+    authorityFloorIncluded: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.authorityFloorSha, baseSha]),
+    productDirectParentSha: git(['rev-parse', `${profile.product.headSha}^`], candidateRoot),
+    productMergeBaseSha: git(['merge-base', profile.product.originalMergeBaseSha, profile.product.headSha], candidateRoot),
+    changedPaths: git(['diff', '--name-only', profile.product.originalMergeBaseSha, profile.product.headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right)),
+    targetedRegression: profile.product.targetedRegression,
+    profilePresentAtBase: profileAtBase !== null,
+    profileMatchesBase: profileAtBase !== null && sameValue(profileAtBase, rawProfile.trim()),
+  };
+}
+
+function releaseGateArguments(argv) {
+  if (argv.length !== 4 || argv[0] !== '--release-gate-output' || argv[2] !== '--candidate-root' || !argv[1] || !argv[3]) {
+    reject('invalid release gate arguments');
+  }
+  return { output: path.resolve(argv[1]), candidateRoot: path.resolve(argv[3]) };
 }
 
 async function main() {
@@ -149,40 +216,23 @@ async function main() {
   } catch {
     reject('malformed profile');
   }
-  const product = validateProfile(profile).product;
-  const baseSha = githubEvent.pull_request?.base?.sha;
-  const event = {
-    eventName: process.env.GITHUB_EVENT_NAME,
-    pullRequest: {
-      number: githubEvent.pull_request?.number,
-      head: {
-        sha: githubEvent.pull_request?.head?.sha,
-        ref: githubEvent.pull_request?.head?.ref,
-        repoFullName: githubEvent.pull_request?.head?.repo?.full_name,
-      },
-      base: {
-        sha: baseSha,
-        ref: githubEvent.pull_request?.base?.ref,
-        repoFullName: githubEvent.pull_request?.base?.repo?.full_name,
-      },
-    },
-  };
-  const profileAtBase = typeof baseSha === 'string'
-    ? (() => {
-      try { return git(['show', `${baseSha}:${PROFILE_REPOSITORY_PATH}`]); } catch { return null; }
-    })()
-    : null;
-  const evidence = {
-    protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
-    authorityFloorIncluded: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.authorityFloorSha, baseSha]),
-    productDirectParentSha: git(['rev-parse', `${product.headSha}^`]),
-    productMergeBaseSha: git(['merge-base', product.originalMergeBaseSha, product.headSha]),
-    changedPaths: git(['diff', '--name-only', product.originalMergeBaseSha, product.headSha]).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right)),
-    targetedRegression: product.targetedRegression,
-    profilePresentAtBase: profileAtBase !== null,
-    profileMatchesBase: profileAtBase !== null && sameValue(profileAtBase, rawProfile.trim()),
-  };
-  validateAdmission(profile, event, evidence);
+  const validatedProfile = validateProfile(profile);
+  const event = eventFromPayload(githubEvent);
+  if (process.argv.length > 2) {
+    const { output, candidateRoot } = releaseGateArguments(process.argv.slice(2));
+    if (!isFixedSuccessorAttempt(validatedProfile, event)) {
+      process.stdout.write('fixed successor admission not applicable\n');
+      process.exitCode = 2;
+      return;
+    }
+    const evidence = evidenceFromRepositories({ profile: validatedProfile, event, rawProfile, candidateRoot });
+    validateAdmission(validatedProfile, event, evidence, { expectedEventName: 'pull_request' });
+    await writeFile(output, `${JSON.stringify(fixedSuccessorRegressionManifest(validatedProfile), null, 2)}\n`, { encoding: 'utf8', flag: 'wx' });
+    process.stdout.write('fixed successor release gate admission accepted\n');
+    return;
+  }
+  const evidence = evidenceFromRepositories({ profile: validatedProfile, event, rawProfile, candidateRoot: process.cwd() });
+  validateAdmission(validatedProfile, event, evidence);
   process.stdout.write('fixed successor admission accepted\n');
 }
 
