@@ -21,9 +21,9 @@ function acceptedEvent() {
   return {
     eventName: 'pull_request_target',
     pullRequest: {
-      number: 95,
+      number: 99,
       head: {
-        sha: PROFILE.product.headSha,
+        sha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         ref: PROFILE.product.sourceBranch,
         repoFullName: PROFILE.product.sourceRepository,
       },
@@ -40,9 +40,12 @@ function acceptedEvidence() {
   return {
     protectedBaseCheckoutSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     authorityFloorIncluded: true,
-    productDirectParentSha: PROFILE.product.directParentSha,
-    productMergeBaseSha: PROFILE.product.originalMergeBaseSha,
+    candidateResolvedSha: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    candidateParentShas: ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    candidateMergeBaseSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    candidatePatchId: PROFILE.product.patchId,
     changedPaths: [...PROFILE.product.paths],
+    candidateControlPlanePaths: [],
     targetedRegression: PROFILE.product.targetedRegression,
     profilePresentAtBase: true,
     profileMatchesBase: true,
@@ -66,9 +69,9 @@ test('release gate accepts the same exact identity only on ordinary pull_request
   event.eventName = 'pull_request';
   assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
   assert.equal(validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }).accepted, true);
-  event.pullRequest.head.sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  event.pullRequest.head.sha = 'cccccccccccccccccccccccccccccccccccccccc';
   assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
-  assert.throws(() => validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }), /head/);
+  assert.throws(() => validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }), /candidate resolved SHA/);
 });
 
 test('unrelated pull requests remain on the legacy release gate path', () => {
@@ -103,9 +106,12 @@ test('rejects malformed, self-admitting, or missing authority profiles', () => {
   const wrongFloor = clone(PROFILE);
   wrongFloor.authorityFloorSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.throws(() => validateProfile(wrongFloor), /authority floor/);
-  const wrongHead = clone(PROFILE);
-  wrongHead.product.headSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-  assert.throws(() => validateProfile(wrongHead), /fixed product identity/);
+  const wrongPolicy = clone(PROFILE);
+  wrongPolicy.product.headPolicy = 'fixed-head';
+  assert.throws(() => validateProfile(wrongPolicy), /fixed product identity/);
+  const wrongPatch = clone(PROFILE);
+  wrongPatch.product.patchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  assert.throws(() => validateProfile(wrongPatch), /fixed product identity/);
   rejected(({ evidence }) => { evidence.profilePresentAtBase = false; }, /absent/);
   rejected(({ evidence }) => { evidence.profileMatchesBase = false; }, /differs/);
 });
@@ -118,21 +124,31 @@ test('rejects the legacy PR and unexpected events', () => {
 });
 
 test('rejects successor identity mismatches', () => {
-  rejected(({ event }) => { event.pullRequest.head.sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /head/);
+  rejected(({ event }) => { event.pullRequest.head.sha = 'cccccccccccccccccccccccccccccccccccccccc'; }, /candidate resolved SHA/);
   rejected(({ event }) => { event.pullRequest.head.ref = 'other'; }, /source branch/);
   rejected(({ event }) => { event.pullRequest.head.repoFullName = 'other/repo'; }, /source repository/);
   rejected(({ event }) => { event.pullRequest.base.ref = 'main'; }, /target branch/);
   rejected(({ event }) => { event.pullRequest.base.repoFullName = 'other/repo'; }, /target repository/);
 });
 
-test('rejects authority, parent, merge-base, paths, digest, and regression mismatches', () => {
+test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {
   rejected(({ evidence }) => { evidence.authorityFloorIncluded = false; }, /authority floor/);
   rejected(({ evidence }) => { evidence.protectedBaseCheckoutSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /protected base checkout/);
-  rejected(({ evidence }) => { evidence.productDirectParentSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /parent/);
-  rejected(({ evidence }) => { evidence.productMergeBaseSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /merge-base/);
+  rejected(({ evidence }) => { evidence.candidateParentShas = []; }, /exactly one parent/);
+  rejected(({ evidence }) => { evidence.candidateParentShas = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'dddddddddddddddddddddddddddddddddddddddd']; }, /exactly one parent/);
+  rejected(({ evidence }) => { evidence.candidateParentShas = ['dddddddddddddddddddddddddddddddddddddddd']; }, /parent/);
+  rejected(({ evidence }) => { evidence.candidateMergeBaseSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /merge-base/);
+  rejected(({ evidence }) => { evidence.candidatePatchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /patch ID/);
   rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0]]; }, /path set/);
   rejected(({ evidence }) => { evidence.changedPaths = [...PROFILE.product.paths, 'unexpected']; }, /path set/);
+  rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0], PROFILE.product.paths[0]]; }, /canonical/);
   rejected(({ evidence }) => { evidence.targetedRegression = 'client/other.test.tsx'; }, /targeted regression/);
+});
+
+test('rejects candidate attempts to authorize itself or alter the control plane', () => {
+  rejected(({ evidence }) => {
+    evidence.candidateControlPlanePaths = ['scripts/fixed-pr-admission.profile.json'];
+  }, /self-authorization/);
 });
 
 test('rejects targeted regression substitution or omission in the profile itself', () => {
