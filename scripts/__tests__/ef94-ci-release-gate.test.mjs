@@ -45,6 +45,17 @@ test('pull requests use exact fixed authority and candidate checkouts', async ()
   ]);
 });
 
+test('fixed EF-161 successor uses Base-owned admission and bypasses only the legacy PR-number manifest path', async () => {
+  const workflow = await text(workflowUrl);
+  assert.match(workflow, /name: Select Base-owned fixed successor admission[\s\S]*working-directory: authority/);
+  assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs[\s\S]*--release-gate-output "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"[\s\S]*--candidate-root "\$GITHUB_WORKSPACE\/candidate"/);
+  assert.match(workflow, /case "\$STATUS" in[\s\S]*0\)[\s\S]*accepted=true[\s\S]*2\)[\s\S]*accepted=false[\s\S]*\*\)[\s\S]*exit "\$STATUS"/);
+  assert.match(workflow, /name: Verify fail-closed review scope contract\n        if: \$\{\{ github\.event_name != 'pull_request' \|\| steps\.fixed_successor\.outputs\.accepted != 'true' \}\}/);
+  assert.match(workflow, /name: Produce fail-closed review manifest[\s\S]*if: \$\{\{ github\.event_name != 'pull_request' \|\| steps\.fixed_successor\.outputs\.accepted != 'true' \}\}/);
+  assert.match(workflow, /name: Run Base-owned fixed successor chat UI regression[\s\S]*steps\.fixed_successor\.outputs\.accepted == 'true'[\s\S]*--manifest "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"/);
+  assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
+});
+
 test('scope authority runs before candidate-only install and release regression', async () => {
   const workflow = await text(workflowUrl);
   assert.match(workflow, /version: 9\.0\.0/);

@@ -59,7 +59,32 @@ jobs:
             test "$ACTUAL_SHA" = "$EXPECTED_SHA"
           fi
 
+      - name: Select Base-owned fixed successor admission
+        id: fixed_successor
+        if: ${{ github.event_name == 'pull_request' }}
+        working-directory: authority
+        shell: bash
+        run: |
+          set +e
+          node scripts/fixed-pr-admission.mjs \
+            --release-gate-output "$RUNNER_TEMP/ef194-fixed-successor-manifest.json" \
+            --candidate-root "$GITHUB_WORKSPACE/candidate"
+          STATUS="$?"
+          set -e
+          case "$STATUS" in
+            0)
+              echo "accepted=true" >> "$GITHUB_OUTPUT"
+              ;;
+            2)
+              echo "accepted=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              exit "$STATUS"
+              ;;
+          esac
+
       - name: Verify fail-closed review scope contract
+        if: ${{ github.event_name != 'pull_request' || steps.fixed_successor.outputs.accepted != 'true' }}
         shell: bash
         run: |
           GATE_ROOT="$GITHUB_WORKSPACE"
@@ -73,6 +98,7 @@ jobs:
 
       - name: Produce fail-closed review manifest
         id: review_manifest
+        if: ${{ github.event_name != 'pull_request' || steps.fixed_successor.outputs.accepted != 'true' }}
         shell: bash
         run: |
           GATE_ROOT="$GITHUB_WORKSPACE"
@@ -147,6 +173,11 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-194-ef161-pr93-12048a1-governance-advance-v1' }}
         working-directory: candidate
         run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef194-ef161-post-governance-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
+
+      - name: Run Base-owned fixed successor chat UI regression
+        if: ${{ github.event_name == 'pull_request' && steps.fixed_successor.outputs.accepted == 'true' }}
+        working-directory: candidate
+        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef194-ef161-fixed-successor-evidence.json" --manifest "$RUNNER_TEMP/ef194-fixed-successor-manifest.json"
 
       - name: Run approved release regression
         working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}

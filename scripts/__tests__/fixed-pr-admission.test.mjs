@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { canonicalPathDigest, validateAdmission, validateProfile } from '../fixed-pr-admission.mjs';
+import {
+  canonicalPathDigest,
+  fixedSuccessorRegressionManifest,
+  isFixedSuccessorAttempt,
+  validateAdmission,
+  validateProfile,
+} from '../fixed-pr-admission.mjs';
 
 const profileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
 const workflowUrl = new URL('../../.github/workflows/protected-fixed-pr-admission.yml', import.meta.url);
@@ -53,6 +59,35 @@ function rejected(mutator, expression) {
 
 test('accepts only a fresh protected pull_request_target successor event after the authority profile is integrated', () => {
   assert.deepEqual(validateAdmission(PROFILE, acceptedEvent(), acceptedEvidence()).accepted, true);
+});
+
+test('release gate accepts the same exact identity only on ordinary pull_request', () => {
+  const event = acceptedEvent();
+  event.eventName = 'pull_request';
+  assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
+  assert.equal(validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }).accepted, true);
+  event.pullRequest.head.sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
+  assert.throws(() => validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }), /head/);
+});
+
+test('unrelated pull requests remain on the legacy release gate path', () => {
+  const event = acceptedEvent();
+  event.eventName = 'pull_request';
+  event.pullRequest.head.sha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  event.pullRequest.head.ref = 'unrelated-branch';
+  assert.equal(isFixedSuccessorAttempt(PROFILE, event), false);
+});
+
+test('fixed successor manifest selects only the frozen chat UI regression', () => {
+  assert.deepEqual(fixedSuccessorRegressionManifest(PROFILE), {
+    schemaVersion: 1,
+    kind: 'fixed-successor-release-gate-regression',
+    scopeId: 'ef-194-ef161-fixed-successor-release-gate-v1',
+    targetedRegressionIds: ['chat-ui-jest-path'],
+    targetedTestPath: PROFILE.product.targetedRegression,
+    affectedTestPaths: null,
+  });
 });
 
 test('uses the canonical LF-sorted path digest', () => {
