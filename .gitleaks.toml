@@ -26,10 +26,21 @@ title = "EmotionFlow Gitleaks Config"
   description = "Generic Secret"
   regex = '''(?i)\b(secret|password|token)\b\s*[:=]\s*['"]?[^\s'"]{8,}['"]?'''
   tags = ["secret", "password"]
-  [rules.allowlist]
+  [[rules.allowlists]]
     paths = [
       '''\.env\.example$''',
       '''README\.md$''',
+    ]
+
+  [[rules.allowlists]]
+    description = "Allow EF-107 runtime configuration references only"
+    condition = "AND"
+    regexTarget = "match"
+    paths = [
+      '''(?:^|/)server/src/storage/database/(rds-runtime-config|rds-owner-binding-store)\.ts$''',
+    ]
+    regexes = [
+      '''password\s*[:=]\s*(?:env\.EF_RDS_RUNTIME_PASSWORD|config\.password)''',
     ]
 
 [[rules]]
