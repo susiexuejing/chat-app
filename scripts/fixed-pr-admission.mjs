@@ -16,10 +16,12 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
 ]);
 const FIXED = Object.freeze({
   authorityFloorSha: '63761f81e7a8e05472812e7a95674bb34d6c3d57',
-  headPolicy: 'event-head-single-parent-of-protected-base',
+  headPolicy: 'fixed-head-single-parent-of-fixed-base',
+  headSha: '17caa29c9dfb2c3488986951171775a3e667651f',
+  parentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
   patchId: '24321ba636082a1963c8be5ddc9add2915eb4e59',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell3/ef-161-current-dev-integration',
+  sourceBranch: 'cell3/ef-161-successor-105a71d',
   targetBranch: 'dev',
   paths: [
     'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
@@ -27,6 +29,12 @@ const FIXED = Object.freeze({
   ],
   pathDigest: 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29',
   targetedRegression: 'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+  allowedTargetBaseAdvancePaths: [
+    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/fixed-pr-admission.mjs',
+    'scripts/fixed-pr-admission.profile.json',
+  ],
 });
 
 function reject(reason) {
@@ -64,15 +72,22 @@ export function validateProfile(profile) {
     reject('malformed profile');
   }
   if (profile.governanceSelfAdmission !== 'forbidden') reject('self-admission is not forbidden');
-  if (!Array.isArray(profile.legacyPullRequestNumbers) || profile.legacyPullRequestNumbers.length !== 1 || profile.legacyPullRequestNumbers[0] !== 93) {
-    reject('legacy PR #93 is not explicitly rejected');
+  if (!Array.isArray(profile.legacyPullRequestNumbers)
+    || profile.legacyPullRequestNumbers.length !== 2
+    || profile.legacyPullRequestNumbers[0] !== 93
+    || profile.legacyPullRequestNumbers[1] !== 99) {
+    reject('legacy PRs #93 and #99 are not explicitly rejected');
   }
   sha(profile.authorityFloorSha, 'authority floor SHA');
   exact(profile.authorityFloorSha, FIXED.authorityFloorSha, 'authority floor SHA');
   const product = profile.product;
   if (!product) reject('missing product profile');
+  sha(product.headSha, 'product head SHA');
+  sha(product.parentSha, 'product parent SHA');
   sha(product.patchId, 'product patch ID');
   if (product.headPolicy !== FIXED.headPolicy
+    || product.headSha !== FIXED.headSha
+    || product.parentSha !== FIXED.parentSha
     || product.patchId !== FIXED.patchId
     || product.sourceRepository !== FIXED.sourceRepository
     || product.sourceBranch !== FIXED.sourceBranch
@@ -87,6 +102,12 @@ export function validateProfile(profile) {
     || product.pathDigest !== FIXED.pathDigest
     || canonicalPathDigest(product.paths) !== product.pathDigest) {
     reject('malformed fixed path contract');
+  }
+  if (!Array.isArray(product.allowedTargetBaseAdvancePaths)
+    || product.allowedTargetBaseAdvancePaths.length !== FIXED.allowedTargetBaseAdvancePaths.length
+    || product.allowedTargetBaseAdvancePaths.some((entry, index) => entry !== FIXED.allowedTargetBaseAdvancePaths[index])
+    || canonicalPathDigest(product.allowedTargetBaseAdvancePaths) !== canonicalPathDigest(FIXED.allowedTargetBaseAdvancePaths)) {
+    reject('malformed target base advance contract');
   }
   return profile;
 }
@@ -118,6 +139,7 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   if (profile.legacyPullRequestNumbers.includes(pullRequest.number)) reject('legacy PR rejected');
   const product = profile.product;
   sha(pullRequest.head?.sha, 'product head SHA');
+  exact(pullRequest.head.sha, product.headSha, 'product head SHA');
   exact(pullRequest.head?.ref, product.sourceBranch, 'source branch');
   exact(pullRequest.head?.repoFullName, product.sourceRepository, 'source repository');
   exact(pullRequest.base?.ref, product.targetBranch, 'target branch');
@@ -126,11 +148,12 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   exact(evidence?.protectedBaseCheckoutSha, pullRequest.base.sha, 'protected base checkout SHA');
   exact(evidence?.candidateResolvedSha, pullRequest.head.sha, 'candidate resolved SHA');
   if (!evidence?.authorityFloorIncluded) reject('authority floor not integrated into target base');
+  if (!evidence?.productParentIncludedInTargetBase) reject('fixed product parent not integrated into target base');
   if (!Array.isArray(evidence.candidateParentShas) || evidence.candidateParentShas.length !== 1) {
     reject('candidate must have exactly one parent');
   }
-  exact(evidence.candidateParentShas[0], pullRequest.base.sha, 'candidate parent SHA');
-  exact(evidence.candidateMergeBaseSha, pullRequest.base.sha, 'candidate merge-base SHA');
+  exact(evidence.candidateParentShas[0], product.parentSha, 'candidate parent SHA');
+  exact(evidence.candidateMergeBaseSha, product.parentSha, 'candidate merge-base SHA');
   exact(evidence.candidatePatchId, product.patchId, 'candidate patch ID');
   if (!Array.isArray(evidence.changedPaths)) reject('missing changed paths');
   if (!Array.isArray(evidence.candidateControlPlanePaths) || evidence.candidateControlPlanePaths.length !== 0) {
@@ -141,6 +164,14 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     || observedDigest !== product.pathDigest
     || evidence.changedPaths.some((entry, index) => entry !== product.paths[index])) {
     reject('changed path set or digest mismatch');
+  }
+  if (!Array.isArray(evidence.targetBaseAdvancePaths)) reject('missing target base advance paths');
+  canonicalPathDigest(evidence.targetBaseAdvancePaths);
+  if (evidence.targetBaseAdvancePaths.some(entry => product.paths.includes(entry))) {
+    reject('target base overlaps fixed product paths');
+  }
+  if (evidence.targetBaseAdvancePaths.some(entry => !product.allowedTargetBaseAdvancePaths.includes(entry))) {
+    reject('target base contains non-EF194 path');
   }
   exact(evidence.targetedRegression, product.targetedRegression, 'targeted regression');
   if (!evidence.profilePresentAtBase) reject('authority profile absent from target base');
@@ -212,17 +243,22 @@ function evidenceFromRepositories({ profile, event, rawProfile, candidateRoot })
     ? git(['rev-list', '--parents', '-n', '1', headSha], candidateRoot).split(/\s+/)
     : [];
   const candidateResolvedSha = revision.shift();
-  const changedPaths = typeof baseSha === 'string' && typeof headSha === 'string'
-    ? git(['diff', '--name-only', baseSha, headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
+  const changedPaths = typeof headSha === 'string'
+    ? git(['diff', '--name-only', profile.product.parentSha, headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
+    : [];
+  const targetBaseAdvancePaths = typeof baseSha === 'string'
+    ? git(['diff', '--name-only', profile.product.parentSha, baseSha]).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
     : [];
   return {
     protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
     authorityFloorIncluded: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.authorityFloorSha, baseSha]),
+    productParentIncludedInTargetBase: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.product.parentSha, baseSha]),
     candidateResolvedSha,
     candidateParentShas: revision,
     candidateMergeBaseSha: git(['merge-base', baseSha, headSha], candidateRoot),
     candidatePatchId: gitPatchId(headSha, candidateRoot),
     changedPaths,
+    targetBaseAdvancePaths,
     candidateControlPlanePaths: changedPaths.filter(entry => CANDIDATE_CONTROL_PLANE_PATHS.includes(entry)),
     targetedRegression: profile.product.targetedRegression,
     profilePresentAtBase: profileAtBase !== null,

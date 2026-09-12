@@ -2,14 +2,16 @@
   "schemaVersion": 1,
   "kind": "integrated-successor-pr-admission",
   "ticket": "EF-161",
-  "legacyPullRequestNumbers": [93],
+  "legacyPullRequestNumbers": [93, 99],
   "authorityFloorSha": "63761f81e7a8e05472812e7a95674bb34d6c3d57",
   "governanceSelfAdmission": "forbidden",
   "product": {
-    "headPolicy": "event-head-single-parent-of-protected-base",
+    "headPolicy": "fixed-head-single-parent-of-fixed-base",
+    "headSha": "17caa29c9dfb2c3488986951171775a3e667651f",
+    "parentSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
     "patchId": "24321ba636082a1963c8be5ddc9add2915eb4e59",
     "sourceRepository": "susiexuejing/chat-app",
-    "sourceBranch": "cell3/ef-161-current-dev-integration",
+    "sourceBranch": "cell3/ef-161-successor-105a71d",
     "targetBranch": "dev",
     "paths": [
       "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
@@ -17,6 +19,12 @@
     ],
     "pathCount": 2,
     "pathDigest": "a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29",
-    "targetedRegression": "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx"
+    "targetedRegression": "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
+    "allowedTargetBaseAdvancePaths": [
+      "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+      "scripts/__tests__/fixed-pr-admission.test.mjs",
+      "scripts/fixed-pr-admission.mjs",
+      "scripts/fixed-pr-admission.profile.json"
+    ]
   }
 }

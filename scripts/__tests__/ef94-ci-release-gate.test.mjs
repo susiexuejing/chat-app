@@ -58,21 +58,30 @@ test('fixed EF-161 successor uses Base-owned admission and bypasses only the leg
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('EF-161 integrated successor authority freezes the patch contract while allowing a rebuilt head', async () => {
+test('EF-161 replacement authority freezes the Candidate, parent, source, and patch contract', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
   ]);
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
   assert.equal(profile.authorityFloorSha, '63761f81e7a8e05472812e7a95674bb34d6c3d57');
-  assert.equal(profile.product.headPolicy, 'event-head-single-parent-of-protected-base');
+  assert.equal(profile.product.headPolicy, 'fixed-head-single-parent-of-fixed-base');
+  assert.equal(profile.product.headSha, '17caa29c9dfb2c3488986951171775a3e667651f');
+  assert.equal(profile.product.parentSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
   assert.equal(profile.product.patchId, '24321ba636082a1963c8be5ddc9add2915eb4e59');
-  assert.equal(profile.product.headSha, undefined);
+  assert.equal(profile.product.sourceBranch, 'cell3/ef-161-successor-105a71d');
   assert.deepEqual(profile.product.paths, [
     'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
     'client/screens/chat/stores/sessionStore.ts',
   ]);
   assert.equal(profile.product.pathDigest, 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29');
+  assert.deepEqual(profile.product.allowedTargetBaseAdvancePaths, [
+    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/fixed-pr-admission.mjs',
+    'scripts/fixed-pr-admission.profile.json',
+  ]);
+  assert.deepEqual(profile.legacyPullRequestNumbers, [93, 99]);
   assert.match(verifier, /candidate must have exactly one parent/);
   assert.match(verifier, /candidate parent SHA/);
   assert.match(verifier, /candidate patch ID/);
