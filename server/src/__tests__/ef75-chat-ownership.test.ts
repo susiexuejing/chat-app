@@ -18,6 +18,7 @@ const verifyOwnedConversation = jest.fn(async (owner: string, conversation: stri
 jest.unstable_mockModule('../security/anonymousSession', () => ({
   EF75_WEB_ORIGIN: 'https://dev.douhaoyu.cn',
   authenticateAnonymousRequest,
+  hasOwnerBindingRuntime: () => true,
   verifyOwnedConversation,
   sendAnonymousFailure: (res: { status: (code: number) => { json: (body: unknown) => unknown } }, kind: string) =>
     res.status(kind === 'request_not_allowed' ? 403 : kind === 'internal' ? 500 : 401)
