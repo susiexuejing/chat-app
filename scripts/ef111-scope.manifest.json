@@ -269,29 +269,6 @@
       ]
     },
     {
-      "id": "ef-194-ef161-pr93-12048a1-governance-advance-v1",
-      "kind": "exact-fixed-candidate-governance-advanced-r1-frontend-admission",
-      "ticketId": "EF-161",
-      "pullRequestNumber": 93,
-      "candidateSha": "12048a16386edf34e6527341ffda64181d98e4ce",
-      "candidateParentSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
-      "approvedOriginalBaseSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
-      "approvedMergeBaseSha": "2284f0479316e3eb5a29b86854c82792aaa5a1c5",
-      "targetBranch": "dev",
-      "sourceRepository": "susiexuejing/chat-app",
-      "sourceBranch": "cell3/ef-161-web-same-origin-backend",
-      "allowedPaths": [
-        "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx",
-        "client/screens/chat/stores/sessionStore.ts"
-      ],
-      "allowedPathCount": 2,
-      "allowedPathSetSha": "a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29",
-      "targetId": "chat-ui-jest-path",
-      "affectedTestPaths": [
-        "client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx"
-      ]
-    },
-    {
       "id": "ef-194-ef107-final-259a9bb8-bounded-advance-v1",
       "kind": "exact-fixed-candidate-bounded-governance-advance-admission",
       "ticketId": "EF-107",
@@ -320,11 +297,14 @@
       "allowedBaseAdvancePaths": [
         "scripts/__tests__/ef111-review-manifest.test.mjs",
         "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+        "scripts/__tests__/fixed-pr-admission.test.mjs",
         "scripts/ef111-scope.manifest.json",
+        "scripts/fixed-pr-admission.mjs",
+        "scripts/fixed-pr-admission.profile.json",
         "scripts/review-manifest.mjs"
       ],
-      "allowedBaseAdvancePathCount": 4,
-      "allowedBaseAdvancePathSetSha": "de12e1a7a8acdb8a405a116d087ada05c1ab9593385507d1a72a26a6bb9271e2"
+      "allowedBaseAdvancePathCount": 7,
+      "allowedBaseAdvancePathSetSha": "c02c0a80bcc92fa4eee8d1f56c513ef34866ce78a0c08342ac46b87b36716dab"
     }
   ]
 }

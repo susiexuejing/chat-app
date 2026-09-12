@@ -47,7 +47,7 @@ test('pull requests use exact fixed authority and candidate checkouts', async ()
   ]);
 });
 
-test('fixed EF-161 successor uses Base-owned admission and bypasses only the legacy PR-number manifest path', async () => {
+test('fixed admission falls through to Base-owned review manifest when the profile delegates release validation', async () => {
   const workflow = await text(workflowUrl);
   assert.match(workflow, /name: Select Base-owned fixed successor admission[\s\S]*working-directory: authority/);
   assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs[\s\S]*--release-gate-output "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"[\s\S]*--candidate-root "\$GITHUB_WORKSPACE\/candidate"/);
@@ -58,28 +58,42 @@ test('fixed EF-161 successor uses Base-owned admission and bypasses only the leg
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('EF-161 replacement authority freezes the Candidate, parent, source, and patch contract', async () => {
+test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact governance closure', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
   ]);
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
-  assert.equal(profile.authorityFloorSha, '63761f81e7a8e05472812e7a95674bb34d6c3d57');
+  assert.equal(profile.ticket, 'EF-107');
+  assert.equal(profile.authorityFloorSha, '40ddb9ddedcc4c573f26398ca3104dd4003be9fb');
   assert.equal(profile.product.headPolicy, 'fixed-head-single-parent-of-fixed-base');
-  assert.equal(profile.product.headSha, '724bde65ee8ed4085520ff65c0bba38f7dcdb10b');
-  assert.equal(profile.product.parentSha, '7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603');
-  assert.equal(profile.product.patchId, '24321ba636082a1963c8be5ddc9add2915eb4e59');
-  assert.equal(profile.product.sourceBranch, 'cell3/ef-161-successor-7fb7fe9');
+  assert.equal(profile.product.headSha, '259a9bb8e2d60cbce2f30235ce288badb39b673a');
+  assert.equal(profile.product.parentSha, '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b');
+  assert.equal(profile.product.originalBaseSha, 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7');
+  assert.equal(profile.product.patchId, '5dbdf01ab6391ab9dff6b564ea3f37545b21a766');
+  assert.equal(profile.product.sourceBranch, 'cell2/ef107-final-259a9bb8');
   assert.deepEqual(profile.product.paths, [
-    'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-    'client/screens/chat/stores/sessionStore.ts',
+    '.gitleaks.toml',
+    'server/src/__tests__/ef75-anonymous-session.test.ts',
+    'server/src/__tests__/ef75-chat-ownership.test.ts',
+    'server/src/__tests__/ef75-conversation-ownership.test.ts',
+    'server/src/index.ts',
+    'server/src/routes/conversations.ts',
+    'server/src/security/anonymousSession.ts',
+    'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+    'server/src/storage/database/rds-owner-binding-store.ts',
+    'server/src/storage/database/rds-runtime-config.ts',
   ]);
-  assert.equal(profile.product.pathDigest, 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29');
+  assert.equal(profile.product.pathDigest, 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803');
+  assert.equal(profile.product.releaseGateRoute, 'base-owned-review-manifest');
   assert.deepEqual(profile.product.allowedTargetBaseAdvancePaths, [
+    'scripts/__tests__/ef111-review-manifest.test.mjs',
     'scripts/__tests__/ef94-ci-release-gate.test.mjs',
     'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/ef111-scope.manifest.json',
     'scripts/fixed-pr-admission.mjs',
     'scripts/fixed-pr-admission.profile.json',
+    'scripts/review-manifest.mjs',
   ]);
   assert.deepEqual(profile.legacyPullRequestNumbers, [93, 99]);
   assert.match(verifier, /candidate must have exactly one parent/);
@@ -373,29 +387,6 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       ],
     },
     {
-      id: 'ef-194-ef161-pr93-12048a1-governance-advance-v1',
-      kind: 'exact-fixed-candidate-governance-advanced-r1-frontend-admission',
-      ticketId: 'EF-161',
-      pullRequestNumber: 93,
-      candidateSha: '12048a16386edf34e6527341ffda64181d98e4ce',
-      candidateParentSha: '2284f0479316e3eb5a29b86854c82792aaa5a1c5',
-      approvedOriginalBaseSha: '2284f0479316e3eb5a29b86854c82792aaa5a1c5',
-      approvedMergeBaseSha: '2284f0479316e3eb5a29b86854c82792aaa5a1c5',
-      targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell3/ef-161-web-same-origin-backend',
-      allowedPaths: [
-        'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-        'client/screens/chat/stores/sessionStore.ts',
-      ],
-      allowedPathCount: 2,
-      allowedPathSetSha: 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29',
-      targetId: 'chat-ui-jest-path',
-      affectedTestPaths: [
-        'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-      ],
-    },
-    {
       id: 'ef-194-ef107-final-259a9bb8-bounded-advance-v1',
       kind: 'exact-fixed-candidate-bounded-governance-advance-admission',
       ticketId: 'EF-107',
@@ -424,11 +415,14 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       allowedBaseAdvancePaths: [
         'scripts/__tests__/ef111-review-manifest.test.mjs',
         'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+        'scripts/__tests__/fixed-pr-admission.test.mjs',
         'scripts/ef111-scope.manifest.json',
+        'scripts/fixed-pr-admission.mjs',
+        'scripts/fixed-pr-admission.profile.json',
         'scripts/review-manifest.mjs',
       ],
-      allowedBaseAdvancePathCount: 4,
-      allowedBaseAdvancePathSetSha: 'de12e1a7a8acdb8a405a116d087ada05c1ab9593385507d1a72a26a6bb9271e2',
+      allowedBaseAdvancePathCount: 7,
+      allowedBaseAdvancePathSetSha: 'c02c0a80bcc92fa4eee8d1f56c513ef34866ce78a0c08342ac46b87b36716dab',
     },
   ]);
 });

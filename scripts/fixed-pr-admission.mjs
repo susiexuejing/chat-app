@@ -6,34 +6,50 @@ import { fileURLToPath } from 'node:url';
 
 const PROFILE_URL = new URL('./fixed-pr-admission.profile.json', import.meta.url);
 const PROFILE_REPOSITORY_PATH = 'scripts/fixed-pr-admission.profile.json';
-const RELEASE_GATE_SCOPE_ID = 'ef-194-ef161-fixed-successor-release-gate-v1';
 const SHA = /^[0-9a-f]{40}$/;
 const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
   '.github/workflows/protected-fixed-pr-admission.yml',
   '.github/workflows/release-gate.yml',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/ef111-scope.manifest.json',
   'scripts/fixed-pr-admission.mjs',
   'scripts/fixed-pr-admission.profile.json',
+  'scripts/review-manifest.mjs',
 ]);
 const FIXED = Object.freeze({
-  authorityFloorSha: '63761f81e7a8e05472812e7a95674bb34d6c3d57',
+  authorityFloorSha: '40ddb9ddedcc4c573f26398ca3104dd4003be9fb',
   headPolicy: 'fixed-head-single-parent-of-fixed-base',
-  headSha: '724bde65ee8ed4085520ff65c0bba38f7dcdb10b',
-  parentSha: '7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603',
-  patchId: '24321ba636082a1963c8be5ddc9add2915eb4e59',
+  headSha: '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+  parentSha: '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+  originalBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+  patchId: '5dbdf01ab6391ab9dff6b564ea3f37545b21a766',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell3/ef-161-successor-7fb7fe9',
+  sourceBranch: 'cell2/ef107-final-259a9bb8',
   targetBranch: 'dev',
   paths: [
-    'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-    'client/screens/chat/stores/sessionStore.ts',
+    '.gitleaks.toml',
+    'server/src/__tests__/ef75-anonymous-session.test.ts',
+    'server/src/__tests__/ef75-chat-ownership.test.ts',
+    'server/src/__tests__/ef75-conversation-ownership.test.ts',
+    'server/src/index.ts',
+    'server/src/routes/conversations.ts',
+    'server/src/security/anonymousSession.ts',
+    'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+    'server/src/storage/database/rds-owner-binding-store.ts',
+    'server/src/storage/database/rds-runtime-config.ts',
   ],
-  pathDigest: 'a3fb653a81b68dd607f6cba114c6743c7453d973754783e76ea4177bb2c6bc29',
-  targetedRegression: 'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
+  pathDigest: 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803',
+  releaseGateRoute: 'base-owned-review-manifest',
   allowedTargetBaseAdvancePaths: [
+    'scripts/__tests__/ef111-review-manifest.test.mjs',
     'scripts/__tests__/ef94-ci-release-gate.test.mjs',
     'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/ef111-scope.manifest.json',
     'scripts/fixed-pr-admission.mjs',
     'scripts/fixed-pr-admission.profile.json',
+    'scripts/review-manifest.mjs',
   ],
 });
 
@@ -68,7 +84,7 @@ export function canonicalPathDigest(paths) {
 }
 
 export function validateProfile(profile) {
-  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'integrated-successor-pr-admission' || profile.ticket !== 'EF-161') {
+  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'integrated-successor-pr-admission' || profile.ticket !== 'EF-107') {
     reject('malformed profile');
   }
   if (profile.governanceSelfAdmission !== 'forbidden') reject('self-admission is not forbidden');
@@ -84,19 +100,20 @@ export function validateProfile(profile) {
   if (!product) reject('missing product profile');
   sha(product.headSha, 'product head SHA');
   sha(product.parentSha, 'product parent SHA');
+  sha(product.originalBaseSha, 'product original base SHA');
   sha(product.patchId, 'product patch ID');
   if (product.headPolicy !== FIXED.headPolicy
     || product.headSha !== FIXED.headSha
     || product.parentSha !== FIXED.parentSha
+    || product.originalBaseSha !== FIXED.originalBaseSha
     || product.patchId !== FIXED.patchId
     || product.sourceRepository !== FIXED.sourceRepository
     || product.sourceBranch !== FIXED.sourceBranch
     || product.targetBranch !== FIXED.targetBranch
-    || product.targetedRegression !== FIXED.targetedRegression) {
+    || product.releaseGateRoute !== FIXED.releaseGateRoute) {
     reject('malformed fixed product identity');
   }
   if (!Array.isArray(product.paths) || product.pathCount !== product.paths.length
-    || !product.paths.includes(product.targetedRegression)
     || product.paths.length !== FIXED.paths.length
     || product.paths.some((entry, index) => entry !== FIXED.paths[index])
     || product.pathDigest !== FIXED.pathDigest
@@ -115,19 +132,16 @@ export function validateProfile(profile) {
 export function isFixedSuccessorAttempt(profileInput, event) {
   const profile = validateProfile(profileInput);
   const head = event?.pullRequest?.head;
-  return head?.ref === profile.product.sourceBranch;
+  return head?.ref === profile.product.sourceBranch
+    && profile.product.releaseGateRoute !== 'base-owned-review-manifest';
 }
 
 export function fixedSuccessorRegressionManifest(profileInput) {
   const profile = validateProfile(profileInput);
-  return {
-    schemaVersion: 1,
-    kind: 'fixed-successor-release-gate-regression',
-    scopeId: RELEASE_GATE_SCOPE_ID,
-    targetedRegressionIds: ['chat-ui-jest-path'],
-    targetedTestPath: profile.product.targetedRegression,
-    affectedTestPaths: null,
-  };
+  if (profile.product.releaseGateRoute === 'base-owned-review-manifest') {
+    reject('release gate must use Base-owned review manifest');
+  }
+  reject('unsupported release gate route');
 }
 
 export function validateAdmission(profileInput, event, evidence, options = {}) {
@@ -148,12 +162,12 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   exact(evidence?.protectedBaseCheckoutSha, pullRequest.base.sha, 'protected base checkout SHA');
   exact(evidence?.candidateResolvedSha, pullRequest.head.sha, 'candidate resolved SHA');
   if (!evidence?.authorityFloorIncluded) reject('authority floor not integrated into target base');
-  if (!evidence?.productParentIncludedInTargetBase) reject('fixed product parent not integrated into target base');
+  if (!evidence?.productOriginalBaseIncludedInTargetBase) reject('fixed product original base not integrated into target base');
   if (!Array.isArray(evidence.candidateParentShas) || evidence.candidateParentShas.length !== 1) {
     reject('candidate must have exactly one parent');
   }
   exact(evidence.candidateParentShas[0], product.parentSha, 'candidate parent SHA');
-  exact(evidence.candidateMergeBaseSha, product.parentSha, 'candidate merge-base SHA');
+  exact(evidence.candidateMergeBaseSha, product.originalBaseSha, 'candidate merge-base SHA');
   exact(evidence.candidatePatchId, product.patchId, 'candidate patch ID');
   if (!Array.isArray(evidence.changedPaths)) reject('missing changed paths');
   if (!Array.isArray(evidence.candidateControlPlanePaths) || evidence.candidateControlPlanePaths.length !== 0) {
@@ -166,14 +180,15 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     reject('changed path set or digest mismatch');
   }
   if (!Array.isArray(evidence.targetBaseAdvancePaths)) reject('missing target base advance paths');
-  canonicalPathDigest(evidence.targetBaseAdvancePaths);
+  const targetBaseAdvanceDigest = canonicalPathDigest(evidence.targetBaseAdvancePaths);
   if (evidence.targetBaseAdvancePaths.some(entry => product.paths.includes(entry))) {
     reject('target base overlaps fixed product paths');
   }
-  if (evidence.targetBaseAdvancePaths.some(entry => !product.allowedTargetBaseAdvancePaths.includes(entry))) {
-    reject('target base contains non-EF194 path');
+  if (evidence.targetBaseAdvancePaths.length !== product.allowedTargetBaseAdvancePaths.length
+    || targetBaseAdvanceDigest !== canonicalPathDigest(product.allowedTargetBaseAdvancePaths)
+    || evidence.targetBaseAdvancePaths.some((entry, index) => entry !== product.allowedTargetBaseAdvancePaths[index])) {
+    reject('target base does not match exact EF194 governance path set');
   }
-  exact(evidence.targetedRegression, product.targetedRegression, 'targeted regression');
   if (!evidence.profilePresentAtBase) reject('authority profile absent from target base');
   if (!evidence.profileMatchesBase) reject('authority profile differs from target base');
   return { accepted: true, profile };
@@ -192,8 +207,8 @@ function gitSucceeded(args, cwd = process.cwd()) {
   }
 }
 
-function gitPatchId(headSha, cwd = process.cwd()) {
-  const patch = execFileSync('git', ['show', '--pretty=email', '--no-ext-diff', '--binary', headSha], {
+function gitPatchId(baseSha, headSha, cwd = process.cwd()) {
+  const patch = execFileSync('git', ['diff', '--no-ext-diff', '--binary', `${baseSha}..${headSha}`], {
     cwd,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -205,7 +220,7 @@ function gitPatchId(headSha, cwd = process.cwd()) {
     stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
   const [patchId, resolvedHead, ...extra] = result.split(/\s+/);
-  if (!SHA.test(patchId ?? '') || resolvedHead !== headSha || extra.length !== 0) {
+  if (!SHA.test(patchId ?? '') || resolvedHead !== '0000000000000000000000000000000000000000' || extra.length !== 0) {
     reject('candidate patch ID unavailable');
   }
   return patchId;
@@ -244,23 +259,22 @@ function evidenceFromRepositories({ profile, event, rawProfile, candidateRoot })
     : [];
   const candidateResolvedSha = revision.shift();
   const changedPaths = typeof headSha === 'string'
-    ? git(['diff', '--name-only', profile.product.parentSha, headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
+    ? git(['diff', '--name-only', profile.product.originalBaseSha, headSha], candidateRoot).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
     : [];
   const targetBaseAdvancePaths = typeof baseSha === 'string'
-    ? git(['diff', '--name-only', profile.product.parentSha, baseSha]).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
+    ? git(['diff', '--name-only', profile.product.originalBaseSha, baseSha]).split('\n').filter(Boolean).sort((left, right) => left.localeCompare(right))
     : [];
   return {
     protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
     authorityFloorIncluded: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.authorityFloorSha, baseSha]),
-    productParentIncludedInTargetBase: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.product.parentSha, baseSha]),
+    productOriginalBaseIncludedInTargetBase: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.product.originalBaseSha, baseSha]),
     candidateResolvedSha,
     candidateParentShas: revision,
     candidateMergeBaseSha: git(['merge-base', baseSha, headSha], candidateRoot),
-    candidatePatchId: gitPatchId(headSha, candidateRoot),
+    candidatePatchId: gitPatchId(profile.product.originalBaseSha, headSha, candidateRoot),
     changedPaths,
     targetBaseAdvancePaths,
     candidateControlPlanePaths: changedPaths.filter(entry => CANDIDATE_CONTROL_PLANE_PATHS.includes(entry)),
-    targetedRegression: profile.product.targetedRegression,
     profilePresentAtBase: profileAtBase !== null,
     profileMatchesBase: profileAtBase !== null && sameValue(profileAtBase, rawProfile.trim()),
   };

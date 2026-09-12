@@ -40,15 +40,14 @@ function acceptedEvidence() {
   return {
     protectedBaseCheckoutSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     authorityFloorIncluded: true,
-    productParentIncludedInTargetBase: true,
+    productOriginalBaseIncludedInTargetBase: true,
     candidateResolvedSha: PROFILE.product.headSha,
     candidateParentShas: [PROFILE.product.parentSha],
-    candidateMergeBaseSha: PROFILE.product.parentSha,
+    candidateMergeBaseSha: PROFILE.product.originalBaseSha,
     candidatePatchId: PROFILE.product.patchId,
     changedPaths: [...PROFILE.product.paths],
     targetBaseAdvancePaths: [...PROFILE.product.allowedTargetBaseAdvancePaths],
     candidateControlPlanePaths: [],
-    targetedRegression: PROFILE.product.targetedRegression,
     profilePresentAtBase: true,
     profileMatchesBase: true,
   };
@@ -66,19 +65,19 @@ test('accepts only the fixed replacement Candidate after the authority profile i
   assert.deepEqual(validateAdmission(PROFILE, acceptedEvent(), acceptedEvidence()).accepted, true);
 });
 
-test('accepts a bounded subset of EF-194-only target Base advancement', () => {
+test('rejects a partial EF-194 target Base advancement', () => {
   const evidence = acceptedEvidence();
   evidence.targetBaseAdvancePaths = [PROFILE.product.allowedTargetBaseAdvancePaths[0]];
-  assert.deepEqual(validateAdmission(PROFILE, acceptedEvent(), evidence).accepted, true);
+  assert.throws(() => validateAdmission(PROFILE, acceptedEvent(), evidence), /exact EF194 governance path set/);
 });
 
-test('release gate accepts the same exact replacement identity only on ordinary pull_request', () => {
+test('release gate delegates the exact EF-107 identity to the Base-owned review manifest', () => {
   const event = acceptedEvent();
   event.eventName = 'pull_request';
-  assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
+  assert.equal(isFixedSuccessorAttempt(PROFILE, event), false);
   assert.equal(validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }).accepted, true);
   event.pullRequest.head.sha = 'cccccccccccccccccccccccccccccccccccccccc';
-  assert.equal(isFixedSuccessorAttempt(PROFILE, event), true);
+  assert.equal(isFixedSuccessorAttempt(PROFILE, event), false);
   assert.throws(() => validateAdmission(PROFILE, event, acceptedEvidence(), { expectedEventName: 'pull_request' }), /product head SHA/);
 });
 
@@ -90,15 +89,8 @@ test('unrelated pull requests remain on the legacy release gate path', () => {
   assert.equal(isFixedSuccessorAttempt(PROFILE, event), false);
 });
 
-test('fixed successor manifest selects only the frozen chat UI regression', () => {
-  assert.deepEqual(fixedSuccessorRegressionManifest(PROFILE), {
-    schemaVersion: 1,
-    kind: 'fixed-successor-release-gate-regression',
-    scopeId: 'ef-194-ef161-fixed-successor-release-gate-v1',
-    targetedRegressionIds: ['chat-ui-jest-path'],
-    targetedTestPath: PROFILE.product.targetedRegression,
-    affectedTestPaths: null,
-  });
+test('fixed admission cannot replace the Base-owned EF-107 review manifest', () => {
+  assert.throws(() => fixedSuccessorRegressionManifest(PROFILE), /Base-owned review manifest/);
 });
 
 test('uses the canonical LF-sorted path digest', () => {
@@ -149,22 +141,22 @@ test('rejects successor identity mismatches', () => {
   rejected(({ event }) => { event.pullRequest.base.repoFullName = 'other/repo'; }, /target repository/);
 });
 
-test('rejects the superseded product Candidate and source identity', () => {
+test('rejects the superseded EF-161 product Candidate and source identity', () => {
   rejected(({ event, evidence }) => {
-    event.pullRequest.head.sha = '17caa29c9dfb2c3488986951171775a3e667651f';
+    event.pullRequest.head.sha = '724bde65ee8ed4085520ff65c0bba38f7dcdb10b';
     evidence.candidateResolvedSha = event.pullRequest.head.sha;
   }, /product head SHA/);
   rejected(({ event }) => {
-    event.pullRequest.head.ref = 'cell3/ef-161-successor-105a71d';
+    event.pullRequest.head.ref = 'cell3/ef-161-successor-7fb7fe9';
   }, /source branch/);
   rejected(({ evidence }) => {
-    evidence.candidateParentShas = ['105a71db994e8a579923b309bd3f7aad7b70ecab'];
+    evidence.candidateParentShas = ['7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603'];
   }, /parent/);
 });
 
 test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {
   rejected(({ evidence }) => { evidence.authorityFloorIncluded = false; }, /authority floor/);
-  rejected(({ evidence }) => { evidence.productParentIncludedInTargetBase = false; }, /fixed product parent/);
+  rejected(({ evidence }) => { evidence.productOriginalBaseIncludedInTargetBase = false; }, /fixed product original base/);
   rejected(({ evidence }) => { evidence.protectedBaseCheckoutSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /protected base checkout/);
   rejected(({ evidence }) => { evidence.candidateParentShas = []; }, /exactly one parent/);
   rejected(({ evidence }) => { evidence.candidateParentShas = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'dddddddddddddddddddddddddddddddddddddddd']; }, /exactly one parent/);
@@ -174,8 +166,7 @@ test('rejects authority, parent, merge-base, patch, paths, digest, and regressio
   rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0]]; }, /path set/);
   rejected(({ evidence }) => { evidence.changedPaths = [...PROFILE.product.paths, 'unexpected']; }, /path set/);
   rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0], PROFILE.product.paths[0]]; }, /canonical/);
-  rejected(({ evidence }) => { evidence.targetedRegression = 'client/other.test.tsx'; }, /targeted regression/);
-  rejected(({ evidence }) => { evidence.targetBaseAdvancePaths = ['docs/unrelated.md']; }, /non-EF194/);
+  rejected(({ evidence }) => { evidence.targetBaseAdvancePaths = ['docs/unrelated.md']; }, /exact EF194/);
   rejected(({ evidence }) => { evidence.targetBaseAdvancePaths = [PROFILE.product.paths[0]]; }, /overlaps fixed product/);
 });
 
@@ -185,14 +176,14 @@ test('rejects candidate attempts to authorize itself or alter the control plane'
   }, /self-authorization/);
 });
 
-test('rejects targeted regression substitution or omission in the profile itself', () => {
+test('rejects product path omission and release route substitution in the profile itself', () => {
   const missing = clone(PROFILE);
   missing.product.paths = [PROFILE.product.paths[1]];
   missing.product.pathCount = 1;
   missing.product.pathDigest = canonicalPathDigest(missing.product.paths);
   assert.throws(() => validateProfile(missing), /fixed path contract/);
   const substituted = clone(PROFILE);
-  substituted.product.targetedRegression = PROFILE.product.paths[1];
+  substituted.product.releaseGateRoute = 'fixed-successor-regression';
   assert.throws(() => validateProfile(substituted), /fixed product identity/);
 });
 
