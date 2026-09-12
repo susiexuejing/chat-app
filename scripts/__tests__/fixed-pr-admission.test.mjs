@@ -149,6 +149,19 @@ test('rejects successor identity mismatches', () => {
   rejected(({ event }) => { event.pullRequest.base.repoFullName = 'other/repo'; }, /target repository/);
 });
 
+test('rejects the superseded product Candidate and source identity', () => {
+  rejected(({ event, evidence }) => {
+    event.pullRequest.head.sha = '17caa29c9dfb2c3488986951171775a3e667651f';
+    evidence.candidateResolvedSha = event.pullRequest.head.sha;
+  }, /product head SHA/);
+  rejected(({ event }) => {
+    event.pullRequest.head.ref = 'cell3/ef-161-successor-105a71d';
+  }, /source branch/);
+  rejected(({ evidence }) => {
+    evidence.candidateParentShas = ['105a71db994e8a579923b309bd3f7aad7b70ecab'];
+  }, /parent/);
+});
+
 test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {
   rejected(({ evidence }) => { evidence.authorityFloorIncluded = false; }, /authority floor/);
   rejected(({ evidence }) => { evidence.productParentIncludedInTargetBase = false; }, /fixed product parent/);

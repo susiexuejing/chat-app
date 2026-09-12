@@ -17,11 +17,11 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
 const FIXED = Object.freeze({
   authorityFloorSha: '63761f81e7a8e05472812e7a95674bb34d6c3d57',
   headPolicy: 'fixed-head-single-parent-of-fixed-base',
-  headSha: '17caa29c9dfb2c3488986951171775a3e667651f',
-  parentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
+  headSha: '724bde65ee8ed4085520ff65c0bba38f7dcdb10b',
+  parentSha: '7fb7fe970a5dfc4c78eb2bc97fb5ba4f09ed3603',
   patchId: '24321ba636082a1963c8be5ddc9add2915eb4e59',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell3/ef-161-successor-105a71d',
+  sourceBranch: 'cell3/ef-161-successor-7fb7fe9',
   targetBranch: 'dev',
   paths: [
     'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
