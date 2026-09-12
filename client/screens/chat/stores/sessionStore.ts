@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { ChatSession, ChatMessage } from '../types';
 import { PsychologistRole } from '../constants/roles';
 import {
@@ -206,7 +207,23 @@ export async function getSession(sessionId: string): Promise<ChatSession | null>
 
 // 获取后端基础 URL
 function getBackendBaseUrl(): string | null {
-  return process.env.EXPO_PUBLIC_BACKEND_BASE_URL || null;
+  const configuredBaseUrl = process.env.EXPO_PUBLIC_BACKEND_BASE_URL;
+  if (configuredBaseUrl) return configuredBaseUrl;
+
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
+
+  try {
+    const currentOrigin = window.location?.origin;
+    if (!currentOrigin || currentOrigin === 'null') return null;
+
+    const parsedOrigin = new URL(currentOrigin);
+    if (parsedOrigin.protocol !== 'http:' && parsedOrigin.protocol !== 'https:') return null;
+    if (parsedOrigin.origin !== currentOrigin) return null;
+
+    return parsedOrigin.origin;
+  } catch {
+    return null;
+  }
 }
 
 // EF-59: 持久化消息到后端
