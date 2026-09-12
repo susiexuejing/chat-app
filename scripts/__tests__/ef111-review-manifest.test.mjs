@@ -81,6 +81,32 @@ const EF194_EF161_ADVANCED_PATH_SET_SHA = 'a3fb653a81b68dd607f6cba114c6743c7453d
 const EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
 ];
+const EF194_EF107_SCOPE = 'ef-194-ef107-final-259a9bb8-bounded-advance-v1';
+const EF194_EF107_HEAD = '259a9bb8e2d60cbce2f30235ce288badb39b673a';
+const EF194_EF107_PARENT = '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b';
+const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
+const EF194_EF107_PATCH_ID = '5dbdf01ab6391ab9dff6b564ea3f37545b21a766';
+const EF194_EF107_AUTHORITY = 'e'.repeat(40);
+const EF194_EF107_PATHS = [
+  '.gitleaks.toml',
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/index.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/rds-runtime-config.ts',
+];
+const EF194_EF107_PATH_SET_SHA = 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803';
+const EF194_EF107_BASE_ADVANCE_PATHS = [
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/review-manifest.mjs',
+];
+const EF194_EF107_BASE_ADVANCE_PATH_SET_SHA = 'de12e1a7a8acdb8a405a116d087ada05c1ab9593385507d1a72a26a6bb9271e2';
 const EF189_REBUILT_SCOPE = 'ef-189-pr-79-8741c63-fixed-head';
 const EF189_REBUILT_HEAD = '8741c6318a89a8064ac36c42fda09c19e72c9215';
 const EF189_REBUILT_MERGE_BASE = 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0';
@@ -278,6 +304,16 @@ const scopeObject = {
       allowedPaths: EF194_EF161_ADVANCED_PATHS, allowedPathCount: 2, allowedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA,
       targetId: 'chat-ui-jest-path', affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
     },
+    {
+      id: EF194_EF107_SCOPE, kind: 'exact-fixed-candidate-bounded-governance-advance-admission', ticketId: 'EF-107',
+      candidateSha: EF194_EF107_HEAD, candidateParentSha: EF194_EF107_PARENT,
+      candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
+      approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, targetBranch: 'dev',
+      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-final-259a9bb8',
+      allowedPaths: EF194_EF107_PATHS, allowedPathCount: 10, allowedPathSetSha: EF194_EF107_PATH_SET_SHA,
+      allowedBaseAdvancePaths: EF194_EF107_BASE_ADVANCE_PATHS, allowedBaseAdvancePathCount: 4,
+      allowedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
+    },
   ],
 };
 const scope = JSON.stringify(scopeObject);
@@ -295,11 +331,16 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, changed = LEGACY_PATHS, mergeBase = MERGE_BASE, governanceAuthorityBase = null, governanceAuthorityMergeBase = null, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, candidateOriginalBase = null, changed = LEGACY_PATHS, baseAdvancePaths = null, mergeBase = MERGE_BASE, governanceAuthorityBase = null, governanceAuthorityMergeBase = null, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : (String(args[1]).endsWith('^') ? (candidateParent ?? head) : head);
+    if (operation === 'rev-list') {
+      const object = args.at(-1);
+      if (object === candidateParent && candidateOriginalBase !== null) return `${candidateParent} ${candidateOriginalBase}`;
+      return `${head} ${candidateParent ?? head}`;
+    }
     if (operation === 'cat-file') return '';
     if (operation === 'merge-base') {
       if (governanceAuthorityBase !== null
@@ -307,7 +348,12 @@ function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixe
         && args.includes(governanceAuthorityBase)) return governanceAuthorityMergeBase ?? mergeBase;
       return mergeBase;
     }
-    if (operation === 'diff') return `${changed.join('\n')}\n`;
+    if (operation === 'diff') {
+      if (String(args[2]).includes('..') && !String(args[2]).includes('...') && baseAdvancePaths !== null) {
+        return `${baseAdvancePaths.join('\n')}\n`;
+      }
+      return `${changed.join('\n')}\n`;
+    }
     throw new Error(`unexpected git operation: ${args.join(' ')}`);
   };
 }
@@ -664,6 +710,65 @@ test('EF-194 admits only PR 93 after its exact governance profile advances the a
         approvedOriginalBaseSha: EF194_EF161_ADVANCED_BASE, approvedMergeBaseSha: EF194_EF161_ADVANCED_BASE,
         approvedPathSetSha: EF194_EF161_ADVANCED_PATH_SET_SHA, targetId: 'chat-ui-jest-path',
         affectedTestPaths: EF194_EF161_ADVANCED_AFFECTED_TEST_PATHS,
+      });
+    } else {
+      await assert.rejects(promise, entry.error);
+    }
+  }
+});
+
+test('EF-194 admits only the final two-commit EF-107 candidate after the exact four-path governance advance', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const cases = [
+    { pass: true },
+    { head: EF194_EF107_PARENT, error: /candidate SHA/ },
+    { head: HEAD, error: /candidate SHA/ },
+    { parent: HEAD, error: /direct parent/ },
+    { originalBase: HEAD, error: /ancestry/ },
+    { patch: 'f'.repeat(40), error: /patch ID/ },
+    { headRef: 'other-branch', error: /source identity/ },
+    { headRepository: 'attacker/chat-app', error: /source identity/ },
+    { changed: [...EF194_EF107_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
+    { baseAdvancePaths: [...EF194_EF107_BASE_ADVANCE_PATHS, 'scripts/extra.mjs'], error: /non-governance or overlapping paths/ },
+    { baseAdvancePaths: [...EF194_EF107_BASE_ADVANCE_PATHS.slice(0, 3), EF194_EF107_PATHS[0]], error: /non-governance or overlapping paths/ },
+    { changed: [...EF194_EF107_PATHS.slice(0, 9), 'scripts/review-manifest.mjs'], error: /exact approved path set/ },
+    { base: EF194_EF107_ORIGINAL_BASE, error: /not integrated into an advanced authority base/ },
+  ];
+  for (const entry of cases) {
+    const head = entry.head ?? EF194_EF107_HEAD;
+    const parent = entry.parent ?? EF194_EF107_PARENT;
+    const originalBase = entry.originalBase ?? EF194_EF107_ORIGINAL_BASE;
+    const base = entry.base ?? EF194_EF107_AUTHORITY;
+    const changed = entry.changed ?? EF194_EF107_PATHS;
+    const baseAdvancePaths = entry.baseAdvancePaths ?? EF194_EF107_BASE_ADVANCE_PATHS;
+    const { root, file } = await eventFixture({
+      head, base, body: `Review-Scope: ${EF194_EF107_SCOPE}`,
+      headRef: entry.headRef ?? 'cell2/ef107-final-259a9bb8',
+      headRepository: entry.headRepository ?? 'susiexuejing/chat-app',
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const options = optionsFor(file, layout, gitFixture({
+      authority: base, head, candidateParent: parent, candidateOriginalBase: originalBase,
+      mergeBase: EF194_EF107_ORIGINAL_BASE,
+      changed, baseAdvancePaths, governanceAuthorityBase: base,
+      governanceAuthorityMergeBase: EF194_EF107_ORIGINAL_BASE,
+    }));
+    options.patchId = () => entry.patch ?? EF194_EF107_PATCH_ID;
+    const promise = createReviewManifest(
+      { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
+      options,
+    );
+    if (entry.pass) {
+      const manifest = await promise;
+      assert.equal(manifest.scopeId, EF194_EF107_SCOPE);
+      assert.deepEqual(manifest.targetedRegressionIds, ['review-manifest-contract', 'release-gate-contract']);
+      assert.deepEqual(manifest.structuralProof, {
+        kind: 'exact-fixed-candidate-bounded-governance-advance-admission',
+        ticketId: 'EF-107',
+        candidateSha: EF194_EF107_HEAD, candidateParentSha: EF194_EF107_PARENT,
+        candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
+        approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, approvedPathSetSha: EF194_EF107_PATH_SET_SHA,
+        approvedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
       });
     } else {
       await assert.rejects(promise, entry.error);
