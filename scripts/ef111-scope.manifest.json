@@ -254,7 +254,7 @@
       "candidateParentSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
       "candidatePatchId": "13048554cc0abb329720a51fe69d0afbeb0a05d0",
       "approvedOriginalBaseSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
-      "approvedCurrentBaseSha": "dc7c319422571eaef3a45eac74e58a89d5a09757",
+      "approvedCurrentBaseSha": "a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d",
       "approvedMergeBaseSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
       "targetBranch": "dev",
       "targetRepository": "susiexuejing/chat-app",
