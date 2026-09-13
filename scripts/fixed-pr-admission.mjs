@@ -19,13 +19,13 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
   'scripts/review-manifest.mjs',
 ]);
 const FIXED = Object.freeze({
-  authorityFloorSha: 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d',
+  authorityFloorSha: '8602c69e34bcec0994eaa42bea574dcd8c83986f',
   pullRequestNumber: 101,
   headPolicy: 'fixed-head-exact-parent-and-base-advance',
   headSha: 'cccf87a33e454535f086174f75fd97a87e2c8968',
   parentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
   originalBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-  currentBaseSha: 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d',
+  currentBaseSha: '8602c69e34bcec0994eaa42bea574dcd8c83986f',
   ancestryShas: [
     '105a71db994e8a579923b309bd3f7aad7b70ecab',
     'cccf87a33e454535f086174f75fd97a87e2c8968',

@@ -65,13 +65,13 @@ test('EF-111 authority freezes PR 101, its three-path patch, and the exact 17-pa
   ]);
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
   assert.equal(profile.ticket, 'EF-177');
-  assert.equal(profile.authorityFloorSha, 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d');
+  assert.equal(profile.authorityFloorSha, '8602c69e34bcec0994eaa42bea574dcd8c83986f');
   assert.equal(profile.product.pullRequestNumber, 101);
   assert.equal(profile.product.headPolicy, 'fixed-head-exact-parent-and-base-advance');
   assert.equal(profile.product.headSha, 'cccf87a33e454535f086174f75fd97a87e2c8968');
   assert.equal(profile.product.parentSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
   assert.equal(profile.product.originalBaseSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
-  assert.equal(profile.product.currentBaseSha, 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d');
+  assert.equal(profile.product.currentBaseSha, '8602c69e34bcec0994eaa42bea574dcd8c83986f');
   assert.deepEqual(profile.product.ancestryShas, [
     '105a71db994e8a579923b309bd3f7aad7b70ecab',
     'cccf87a33e454535f086174f75fd97a87e2c8968',
@@ -387,7 +387,7 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       candidateParentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
       candidatePatchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
       approvedOriginalBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-      approvedCurrentBaseSha: 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d',
+      approvedCurrentBaseSha: '8602c69e34bcec0994eaa42bea574dcd8c83986f',
       approvedMergeBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
       targetBranch: 'dev',
       targetRepository: 'susiexuejing/chat-app',
