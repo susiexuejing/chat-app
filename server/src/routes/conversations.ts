@@ -402,7 +402,7 @@ router.get('/:id/messages', async (req, res) => {
 // DELETE /api/v1/conversations/:id - revoke the private binding before
 // deleting the owned conversation. A later delete failure leaves it fail-closed.
 router.delete('/:id', async (req, res) => {
-  let failureCode: ConversationFailureCode = 'conversation_delete_error';
+  let failureCode: ConversationFailureCode = 'conversation_storage_error';
   try {
     const { id } = req.params;
     const owner = getVerifiedAnonymousSession(res);

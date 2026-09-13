@@ -13,7 +13,11 @@ export interface RdsOwnerBindingStore {
 let protectedStore: RdsOwnerBindingStore | undefined;
 
 class PostgresOwnerBindingStore implements RdsOwnerBindingStore {
-  constructor(private readonly pool: Pool) {}
+  private readonly pool: Pool;
+
+  constructor(pool: Pool) {
+    this.pool = pool;
+  }
 
   async createBinding(conversationRef: string, ownerPrincipalId: string): Promise<void> {
     const result = await this.pool.query(
