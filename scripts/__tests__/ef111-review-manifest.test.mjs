@@ -70,11 +70,11 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
 const RETIRED_EF161_SCOPE = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
-const EF194_EF107_SCOPE = 'ef-194-ef107-final-259a9bb8-bounded-advance-v1';
-const EF194_EF107_HEAD = '259a9bb8e2d60cbce2f30235ce288badb39b673a';
-const EF194_EF107_PARENT = '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b';
+const EF194_EF107_SCOPE = 'ef-194-ef107-final-e1607d7-bounded-advance-v1';
+const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
+const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
 const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
-const EF194_EF107_PATCH_ID = '5dbdf01ab6391ab9dff6b564ea3f37545b21a766';
+const EF194_EF107_PATCH_ID = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
 const EF194_EF107_AUTHORITY = 'e'.repeat(40);
 const EF194_EF107_PATHS = [
   '.gitleaks.toml',
@@ -292,7 +292,7 @@ const scopeObject = {
       candidateSha: EF194_EF107_HEAD, candidateParentSha: EF194_EF107_PARENT,
       candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
       approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-final-259a9bb8',
+      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-final-e1607d7',
       allowedPaths: EF194_EF107_PATHS, allowedPathCount: 10, allowedPathSetSha: EF194_EF107_PATH_SET_SHA,
       allowedBaseAdvancePaths: EF194_EF107_BASE_ADVANCE_PATHS, allowedBaseAdvancePathCount: 7,
       allowedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
@@ -677,7 +677,7 @@ test('retired EF-161 scope is explicitly rejected by Base-owned authority', asyn
   );
 });
 
-test('EF-194 admits only the final two-commit EF-107 candidate after the exact seven-path governance closure', async t => {
+test('EF-194 admits only the final four-commit EF-107 candidate after the exact seven-path governance closure', async t => {
   const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
   const cases = [
     { pass: true },
@@ -703,7 +703,7 @@ test('EF-194 admits only the final two-commit EF-107 candidate after the exact s
     const baseAdvancePaths = entry.baseAdvancePaths ?? EF194_EF107_BASE_ADVANCE_PATHS;
     const { root, file } = await eventFixture({
       head, base, body: `Review-Scope: ${EF194_EF107_SCOPE}`,
-      headRef: entry.headRef ?? 'cell2/ef107-final-259a9bb8',
+      headRef: entry.headRef ?? 'cell2/ef107-final-e1607d7',
       headRepository: entry.headRepository ?? 'susiexuejing/chat-app',
     });
     t.after(() => rm(root, { recursive: true, force: true }));
