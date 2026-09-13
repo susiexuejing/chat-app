@@ -62,7 +62,7 @@ const EF111_R2_EF177_SCOPE = 'ef-111-r2-ef177-fixed-candidate-v1';
 const EF111_R2_EF177_HEAD = 'cccf87a33e454535f086174f75fd97a87e2c8968';
 const EF111_R2_EF177_PARENT = '105a71db994e8a579923b309bd3f7aad7b70ecab';
 const EF111_R2_EF177_ORIGINAL_BASE = EF111_R2_EF177_PARENT;
-const EF111_R2_EF177_CURRENT_BASE = 'dc7c319422571eaef3a45eac74e58a89d5a09757';
+const EF111_R2_EF177_CURRENT_BASE = 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d';
 const EF111_R2_EF177_PATCH_ID = '13048554cc0abb329720a51fe69d0afbeb0a05d0';
 const EF111_R2_EF177_PATHS = [
   'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
