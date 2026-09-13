@@ -40,6 +40,7 @@ import {
 // Server SSE deadline is 150 seconds; retain a bounded client-side guard with
 // enough transport grace to observe the server's terminal event.
 export const EF38_STREAM_TIMEOUT_MS = 165000;
+export const SAFE_RETRYABLE_CHAT_FAILURE_PROMPT = '暂时无法完成回复，请重试。';
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -1392,7 +1393,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       try {
         installationUserId = (await getOrCreateInstallationIdentity()).userId;
       } catch (identityError) {
-        if (mountedRef.current) setError('无法安全保存本机身份，请重试');
+        if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
         retrySnapshotRef.current = snapshot;
         console.error('[EF-105] Installation identity unavailable:', getEf77ErrorType(identityError));
         return 'chatstart_failed';
@@ -1550,7 +1551,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setSessions(prepared.sessions);
           backendConvId = prepared.conversationId;
         } catch (mappingError) {
-          if (mountedRef.current) setError('无法创建安全的对话连接，请重试');
+          if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
           retrySnapshotRef.current = snapshot;
           console.error('[EF-105] Canonical conversation unavailable:', getEf77ErrorType(mappingError));
           await markTurnFailed(snapshot.sessionId, 'outer_catch_mark_failed');
@@ -2094,6 +2095,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38 CTO Fix: Handle stream error immediately, don't wait for UI completion
         if (streamOutcome === 'stream_error') {
           console.log('[EF-38] Stream error detected, calling markTurnFailed');
+          if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
           await markTurnFailed(snapshot.sessionId, 'stream_error_mark_failed');
           emitEf77Trace('retry_final_transition', {
             timestamp: Date.now(), nextTurnStatus: 'failed',
@@ -2105,6 +2107,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38 CTO Fix: Handle timed_out
         if (streamOutcome === 'timed_out') {
           console.warn('[EF-38] Stream timed out, marking turn interrupted');
+          if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
           await markTurnInterrupted(snapshot.sessionId);
           emitEf77Trace('retry_final_transition', {
             timestamp: Date.now(), nextTurnStatus: 'interrupted',
@@ -2116,6 +2119,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         // EF-38 CTO Fix: Handle empty stream
         if (streamOutcome === 'empty') {
           console.log('[EF-38] Empty stream, marking turn interrupted');
+          if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
           await markTurnInterrupted(snapshot.sessionId);
           emitEf77Trace('retry_final_transition', {
             timestamp: Date.now(), nextTurnStatus: 'interrupted',
@@ -2214,7 +2218,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           return 'interrupted';
         }
         if (mountedRef.current) {
-          setError(err instanceof Error ? err.message : '请求失败');
+          setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
         }
 
         // EF-38: Persist failed/interrupted state

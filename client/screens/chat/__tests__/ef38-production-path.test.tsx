@@ -199,7 +199,7 @@ jest.mock('../utils/textAnalyzer', () => ({
 // Now import the modules after mocks are set up
 import React from 'react';
 import { render, act, waitFor, fireEvent } from '@testing-library/react-native';
-import { ChatProvider, useChat } from '../contexts/ChatContext';
+import { ChatProvider, SAFE_RETRYABLE_CHAT_FAILURE_PROMPT, useChat } from '../contexts/ChatContext';
 import * as cozeApi from '../api/cozeApi';
 import * as sessionStore from '../stores/sessionStore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -1357,5 +1357,13 @@ describe.skip('EF-38 Production Path Tests (legacy Harness)', () => {
         renderResultB.unmount();
       });
     });
+  });
+});
+
+describe('EF-107 safe first-message failure presentation', () => {
+  it('keeps the retryable prompt fixed and transport-detail free', () => {
+    expect(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT).toBe('暂时无法完成回复，请重试。');
+    expect(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT).not.toContain('HTTP');
+    expect(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT).not.toContain('Error');
   });
 });
