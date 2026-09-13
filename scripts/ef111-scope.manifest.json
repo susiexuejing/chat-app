@@ -247,25 +247,30 @@
     },
     {
       "id": "ef-111-r2-ef177-fixed-candidate-v1",
-      "kind": "exact-fixed-candidate-r1-frontend-admission",
+      "kind": "exact-fixed-candidate-r1-frontend-exact-base-advance-admission",
       "ticketId": "EF-177",
-      "candidateSha": "461dbd90ad3c727293bdd759f113ac2feb034266",
-      "candidateParentSha": "72bdec30003daae4d8c8eedef4aee08b28b76461",
-      "approvedBaseSha": "18ef7702c237ed89120bf069b6fb02827b2b5190",
-      "approvedMergeBaseSha": "18ef7702c237ed89120bf069b6fb02827b2b5190",
+      "pullRequestNumber": 101,
+      "candidateSha": "cccf87a33e454535f086174f75fd97a87e2c8968",
+      "candidateParentSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
+      "candidatePatchId": "13048554cc0abb329720a51fe69d0afbeb0a05d0",
+      "approvedOriginalBaseSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
+      "approvedCurrentBaseSha": "340c5942a2839d812982dff43ff634c7e84c1bbf",
+      "approvedMergeBaseSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
       "targetBranch": "dev",
       "sourceRepository": "susiexuejing/chat-app",
-      "sourceBranch": "cell1/ef-177-history-new-conversation",
+      "sourceBranch": "cell1/ef177-history-new-conversation-r1",
       "allowedPaths": [
+        "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
+        "client/screens/chat/__tests__/ef177-chat-actions.test.tsx",
         "client/screens/chat/components/RoleHeader.tsx"
       ],
-      "allowedPathCount": 1,
-      "allowedPathSetSha": "ad134788b54107e328aa4d50605e9e39987099b95bac236a22ba0b9aed748fb4",
+      "allowedPathCount": 3,
+      "allowedPathSetSha": "bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb",
+      "approvedBaseAdvancePathSetSha": "a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a",
       "targetId": "chat-ui-jest-path",
       "affectedTestPaths": [
         "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
-        "client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx",
-        "client/screens/chat/__tests__/em54-persist-refresh.test.tsx"
+        "client/screens/chat/__tests__/ef177-chat-actions.test.tsx"
       ]
     },
     {

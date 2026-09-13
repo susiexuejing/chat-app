@@ -59,16 +59,22 @@ const EF211_PATHS = [
 ];
 const EF211_PATH_SET_SHA = '9791e8f1de73f3522bafada6239ebd00e86d060f473ae808efe35c28fc5167b1';
 const EF111_R2_EF177_SCOPE = 'ef-111-r2-ef177-fixed-candidate-v1';
-const EF111_R2_EF177_HEAD = '461dbd90ad3c727293bdd759f113ac2feb034266';
-const EF111_R2_EF177_PARENT = '72bdec30003daae4d8c8eedef4aee08b28b76461';
-const EF111_R2_EF177_BASE = '18ef7702c237ed89120bf069b6fb02827b2b5190';
-const EF111_R2_EF177_PATHS = ['client/screens/chat/components/RoleHeader.tsx'];
-const EF111_R2_EF177_PATH_SET_SHA = 'ad134788b54107e328aa4d50605e9e39987099b95bac236a22ba0b9aed748fb4';
+const EF111_R2_EF177_HEAD = 'cccf87a33e454535f086174f75fd97a87e2c8968';
+const EF111_R2_EF177_PARENT = '105a71db994e8a579923b309bd3f7aad7b70ecab';
+const EF111_R2_EF177_ORIGINAL_BASE = EF111_R2_EF177_PARENT;
+const EF111_R2_EF177_CURRENT_BASE = '340c5942a2839d812982dff43ff634c7e84c1bbf';
+const EF111_R2_EF177_PATCH_ID = '13048554cc0abb329720a51fe69d0afbeb0a05d0';
+const EF111_R2_EF177_PATHS = [
+  'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
+  'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
+  'client/screens/chat/components/RoleHeader.tsx',
+];
+const EF111_R2_EF177_PATH_SET_SHA = 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb';
 const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
-  'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
-  'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
+  'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
 ];
+const EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA = 'a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a';
 const RETIRED_EF161_SCOPE = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
 const EF194_EF107_SCOPE = 'ef-194-ef107-final-edb772d7-bounded-advance-v1';
 const EF194_EF107_HEAD = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
@@ -283,12 +289,17 @@ const scopeObject = {
       uniqueRegressionId: 'ef164-ownership-regression',
     },
     {
-      id: EF111_R2_EF177_SCOPE, kind: 'exact-fixed-candidate-r1-frontend-admission', ticketId: 'EF-177',
+      id: EF111_R2_EF177_SCOPE, kind: 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission', ticketId: 'EF-177',
+      pullRequestNumber: 101,
       candidateSha: EF111_R2_EF177_HEAD, candidateParentSha: EF111_R2_EF177_PARENT,
-      approvedBaseSha: EF111_R2_EF177_BASE, approvedMergeBaseSha: EF111_R2_EF177_BASE,
+      candidatePatchId: EF111_R2_EF177_PATCH_ID,
+      approvedOriginalBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
+      approvedCurrentBaseSha: EF111_R2_EF177_CURRENT_BASE,
+      approvedMergeBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
       targetBranch: 'dev', sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell1/ef-177-history-new-conversation',
-      allowedPaths: EF111_R2_EF177_PATHS, allowedPathCount: 1, allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
+      sourceBranch: 'cell1/ef177-history-new-conversation-r1',
+      allowedPaths: EF111_R2_EF177_PATHS, allowedPathCount: 3, allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
+      approvedBaseAdvancePathSetSha: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
       targetId: 'chat-ui-jest-path', affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
     },
     {
@@ -617,31 +628,45 @@ test('EF-211 admits fixed EF-164 identity without binding a PR number', async t 
   assert.deepEqual(manifest.structuralProof.approvedPathSetSha, EF211_PATH_SET_SHA);
 });
 
-test('EF-111 R2 admits only the fixed EF-177 frontend candidate and its baseline tests', async t => {
+test('EF-111 R2 admits only PR 101 at the fixed current Base with the approved patch and three paths', async t => {
   const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
   const cases = [
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', pass: true },
-    { head: HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /fixed R1 candidate SHA/ },
-    { head: EF111_R2_EF177_HEAD, parent: HEAD, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /fixed R1 candidate parent SHA/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /fixed R1 candidate base SHA/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: MERGE_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /fixed R1 candidate merge-base SHA/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'other-branch', repository: 'susiexuejing/chat-app', error: /fixed R1 candidate source identity/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: EF111_R2_EF177_PATHS, headRef: 'cell1/ef-177-history-new-conversation', repository: 'other/chat-app', error: /fixed R1 candidate source identity/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: [], headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /no changed paths/ },
-    { head: EF111_R2_EF177_HEAD, parent: EF111_R2_EF177_PARENT, base: EF111_R2_EF177_BASE, mergeBase: EF111_R2_EF177_BASE, changed: [...EF111_R2_EF177_PATHS, 'client/screens/chat/index.tsx'], headRef: 'cell1/ef-177-history-new-conversation', repository: 'susiexuejing/chat-app', error: /exact approved path set/ },
+    { pass: true },
+    { number: 102, error: /PR identity/ },
+    { head: HEAD, error: /candidate SHA/ },
+    { parent: HEAD, error: /direct parent/ },
+    { base: BASE, error: /current Base SHA/ },
+    { mergeBase: MERGE_BASE, error: /merge-base SHA/ },
+    { patch: 'f'.repeat(40), error: /patch ID/ },
+    { headRef: 'other-branch', error: /source identity/ },
+    { repository: 'other/chat-app', error: /source identity/ },
+    { changed: [], error: /no changed paths/ },
+    { changed: [...EF111_R2_EF177_PATHS, 'client/screens/chat/index.tsx'], error: /exact approved path set/ },
+    { changed: [...EF111_R2_EF177_PATHS.slice(0, 2), 'scripts/review-manifest.mjs'], error: /exact approved path set/ },
+    { baseAdvancePaths: [EF111_R2_EF177_PATHS[0]], error: /product-path separation/ },
+    { baseAdvanceDigest: 'f'.repeat(64), error: /advance identity/ },
   ];
   for (const entry of cases) {
+    const head = entry.head ?? EF111_R2_EF177_HEAD;
+    const base = entry.base ?? EF111_R2_EF177_CURRENT_BASE;
+    const changed = entry.changed ?? EF111_R2_EF177_PATHS;
+    const baseAdvancePaths = entry.baseAdvancePaths ?? ['synthetic/exact-base-advance'];
     const { root, file } = await eventFixture({
-      number: 999, head: entry.head, base: entry.base, body: `Review-Scope: ${EF111_R2_EF177_SCOPE}`,
-      headRef: entry.headRef, headRepository: entry.repository,
+      number: entry.number ?? 101, head, base, body: `Review-Scope: ${EF111_R2_EF177_SCOPE}`,
+      headRef: entry.headRef ?? 'cell1/ef177-history-new-conversation-r1',
+      headRepository: entry.repository ?? 'susiexuejing/chat-app',
     });
     t.after(() => rm(root, { recursive: true, force: true }));
+    const options = optionsFor(file, layout, gitFixture({
+      authority: base, head, candidateParent: entry.parent ?? EF111_R2_EF177_PARENT,
+      mergeBase: entry.mergeBase ?? EF111_R2_EF177_ORIGINAL_BASE,
+      changed, baseAdvancePaths,
+    }));
+    options.patchId = () => entry.patch ?? EF111_R2_EF177_PATCH_ID;
+    options.baseAdvancePathSetSha = () => entry.baseAdvanceDigest ?? EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA;
     const promise = createReviewManifest(
       { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
-      optionsFor(file, layout, gitFixture({
-        authority: entry.base, head: entry.head, candidateParent: entry.parent,
-        mergeBase: entry.mergeBase, changed: entry.changed,
-      })),
+      options,
     );
     if (entry.pass) {
       const manifest = await promise;
@@ -650,10 +675,15 @@ test('EF-111 R2 admits only the fixed EF-177 frontend candidate and its baseline
       assert.equal(manifest.targetedTestPath, null);
       assert.deepEqual(manifest.affectedTestPaths, EF111_R2_EF177_AFFECTED_TEST_PATHS);
       assert.deepEqual(manifest.structuralProof, {
-        kind: 'exact-fixed-candidate-r1-frontend-admission', ticketId: 'EF-177',
+        kind: 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission', ticketId: 'EF-177',
+        pullRequestNumber: 101,
         candidateSha: EF111_R2_EF177_HEAD, candidateParentSha: EF111_R2_EF177_PARENT,
-        approvedBaseSha: EF111_R2_EF177_BASE, approvedMergeBaseSha: EF111_R2_EF177_BASE,
+        candidatePatchId: EF111_R2_EF177_PATCH_ID,
+        approvedOriginalBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
+        approvedCurrentBaseSha: EF111_R2_EF177_CURRENT_BASE,
+        approvedMergeBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
         approvedPathSetSha: EF111_R2_EF177_PATH_SET_SHA, targetId: 'chat-ui-jest-path',
+        approvedBaseAdvancePathSetSha: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
         affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
       });
     } else {
