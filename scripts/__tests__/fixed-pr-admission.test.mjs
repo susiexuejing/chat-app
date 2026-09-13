@@ -154,6 +154,22 @@ test('rejects the superseded EF-161 product Candidate and source identity', () =
   }, /parent/);
 });
 
+test('rejects the superseded EF-107 Candidate and source identity', () => {
+  rejected(({ event, evidence }) => {
+    event.pullRequest.head.sha = '259a9bb8e2d60cbce2f30235ce288badb39b673a';
+    evidence.candidateResolvedSha = event.pullRequest.head.sha;
+  }, /product head SHA/);
+  rejected(({ event }) => {
+    event.pullRequest.head.ref = 'cell2/ef107-final-259a9bb8';
+  }, /source branch/);
+  rejected(({ evidence }) => {
+    evidence.candidateParentShas = ['59f70e9d7b47de238e1e0564c3ce42d2912d8b5b'];
+  }, /parent/);
+  rejected(({ evidence }) => {
+    evidence.candidatePatchId = '5dbdf01ab6391ab9dff6b564ea3f37545b21a766';
+  }, /patch ID/);
+});
+
 test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {
   rejected(({ evidence }) => { evidence.authorityFloorIncluded = false; }, /authority floor/);
   rejected(({ evidence }) => { evidence.productOriginalBaseIncludedInTargetBase = false; }, /fixed product original base/);
