@@ -77,7 +77,7 @@ const EF111_R2_EF177_SCOPE_ID = 'ef-111-r2-ef177-fixed-candidate-v1';
 const EF111_R2_EF177_HEAD = 'cccf87a33e454535f086174f75fd97a87e2c8968';
 const EF111_R2_EF177_PARENT = '105a71db994e8a579923b309bd3f7aad7b70ecab';
 const EF111_R2_EF177_ORIGINAL_BASE = EF111_R2_EF177_PARENT;
-const EF111_R2_EF177_CURRENT_BASE = '340c5942a2839d812982dff43ff634c7e84c1bbf';
+const EF111_R2_EF177_CURRENT_BASE = 'dc7c319422571eaef3a45eac74e58a89d5a09757';
 const EF111_R2_EF177_PATCH_ID = '13048554cc0abb329720a51fe69d0afbeb0a05d0';
 const EF111_R2_EF177_PATHS = [
   'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
@@ -90,6 +90,25 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
 ];
 const EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA = 'a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a';
+const EF111_R2_EF177_BASE_ADVANCE_PATHS = [
+  '.gitleaks.toml',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+  'scripts/review-manifest.mjs',
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/index.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/rds-runtime-config.ts',
+];
 const EF194_EF107_SCOPE_ID = 'ef-194-ef107-final-edb772d7-bounded-advance-v1';
 const EF194_EF107_HEAD = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
 const EF194_EF107_PARENT = '0585c2371b27af1dd5db420e526742d29a836e4d';
@@ -283,11 +302,14 @@ const EXACT_APPROVED_PROFILES = [{
   approvedCurrentBaseSha: EF111_R2_EF177_CURRENT_BASE,
   approvedMergeBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
   targetBranch: 'dev',
+  targetRepository: 'susiexuejing/chat-app',
   sourceRepository: 'susiexuejing/chat-app',
   sourceBranch: 'cell1/ef177-history-new-conversation-r1',
   allowedPaths: EF111_R2_EF177_PATHS,
   allowedPathCount: 3,
   allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
+  approvedBaseAdvancePaths: EF111_R2_EF177_BASE_ADVANCE_PATHS,
+  approvedBaseAdvancePathCount: 17,
   approvedBaseAdvancePathSetSha: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
   targetId: 'chat-ui-jest-path',
   affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
@@ -516,7 +538,7 @@ export async function loadScope(read = readFile) {
             : expected.kind === 'exact-fixed-candidate-r1-frontend-admission'
               ? ['id', 'kind', 'ticketId', 'candidateSha', 'candidateParentSha', 'approvedBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'targetId', 'affectedTestPaths']
               : expected.kind === 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission'
-                ? ['id', 'kind', 'ticketId', 'pullRequestNumber', 'candidateSha', 'candidateParentSha', 'candidatePatchId', 'approvedOriginalBaseSha', 'approvedCurrentBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'approvedBaseAdvancePathSetSha', 'targetId', 'affectedTestPaths']
+                ? ['id', 'kind', 'ticketId', 'pullRequestNumber', 'candidateSha', 'candidateParentSha', 'candidatePatchId', 'approvedOriginalBaseSha', 'approvedCurrentBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'targetRepository', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'approvedBaseAdvancePaths', 'approvedBaseAdvancePathCount', 'approvedBaseAdvancePathSetSha', 'targetId', 'affectedTestPaths']
               : expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission'
                 ? ['id', 'kind', 'ticketId', 'pullRequestNumber', 'candidateSha', 'candidateParentSha', 'approvedOriginalBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'targetId', 'affectedTestPaths']
               : expected.kind === 'exact-fixed-candidate-bounded-governance-advance-admission'
@@ -532,6 +554,7 @@ export async function loadScope(read = readFile) {
           || actual.candidateParentSha !== expected.candidateParentSha
           || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha
           || actual.targetBranch !== expected.targetBranch
+          || actual.targetRepository !== expected.targetRepository
           || actual.sourceRepository !== expected.sourceRepository
           || actual.sourceBranch !== expected.sourceBranch
           || actual.allowedPathCount !== expected.allowedPathCount
@@ -574,6 +597,7 @@ export async function loadScope(read = readFile) {
           || actual.sourceBranch !== expected.sourceBranch
           || actual.allowedPathCount !== expected.allowedPathCount
           || actual.allowedPathSetSha !== expected.allowedPathSetSha
+          || actual.approvedBaseAdvancePathCount !== expected.approvedBaseAdvancePathCount
           || actual.approvedBaseAdvancePathSetSha !== expected.approvedBaseAdvancePathSetSha
           || actual.targetId !== expected.targetId))
       || (expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission'
@@ -669,9 +693,14 @@ export async function loadScope(read = readFile) {
       if (!Number.isInteger(actual.pullRequestNumber) || actual.pullRequestNumber < 1
         || !Number.isInteger(actual.allowedPathCount) || actual.allowedPathCount !== actual.allowedPaths.length
         || actual.allowedPathSetSha !== fixedCandidatePathSetSha(actual.allowedPaths)
+        || !Number.isInteger(actual.approvedBaseAdvancePathCount)
+        || actual.approvedBaseAdvancePathCount !== actual.approvedBaseAdvancePaths.length
+        || actual.approvedBaseAdvancePathSetSha !== pathSetSha(actual.approvedBaseAdvancePaths)
+        || actual.approvedBaseAdvancePaths.some(entry => actual.allowedPaths.includes(entry))
         || actual.targetId !== 'chat-ui-jest-path') {
         fail('exact-base R1 candidate profile is malformed');
       }
+      exactPathList(actual.approvedBaseAdvancePaths, expected.approvedBaseAdvancePaths, 'exact-base R1 base-advance paths');
       exactPathList(actual.affectedTestPaths, expected.affectedTestPaths, 'exact-base R1 affected test paths');
     }
     if (expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission') {
@@ -718,6 +747,9 @@ export async function loadScope(read = readFile) {
     profiles.set(actual.id, {
       ...actual,
       allowedPaths: new Set(actual.allowedPaths),
+      ...(actual.kind === 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission'
+        ? { approvedBaseAdvancePaths: new Set(actual.approvedBaseAdvancePaths) }
+        : {}),
       ...(actual.kind === 'exact-fixed-candidate-bounded-governance-advance-admission'
         ? { allowedBaseAdvancePaths: new Set(actual.allowedBaseAdvancePaths) }
         : {}),
@@ -913,6 +945,7 @@ function verifyExactBaseAdvanceR1FrontendAdmission({ profile, baseSha, headSha, 
     fail('exact-base R1 authority lineage is not approved');
   }
   if (event?.pull_request?.base?.ref !== profile.targetBranch
+    || event?.pull_request?.base?.repo?.full_name !== profile.targetRepository
     || event?.pull_request?.head?.repo?.full_name !== profile.sourceRepository
     || event?.pull_request?.head?.ref !== profile.sourceBranch) {
     fail('exact-base R1 candidate source identity is not approved');
@@ -923,7 +956,9 @@ function verifyExactBaseAdvanceR1FrontendAdmission({ profile, baseSha, headSha, 
   }
   const baseAdvancePaths = git(candidateRoot, ['diff', '--name-only', `${profile.approvedOriginalBaseSha}..${baseSha}`])
     .split('\n').filter(Boolean);
-  if (new Set(baseAdvancePaths).size !== baseAdvancePaths.length
+  if (baseAdvancePaths.length !== profile.approvedBaseAdvancePathCount
+    || new Set(baseAdvancePaths).size !== baseAdvancePaths.length
+    || baseAdvancePaths.some(entry => !profile.approvedBaseAdvancePaths.has(entry))
     || baseAdvancePathSetSha(baseAdvancePaths) !== profile.approvedBaseAdvancePathSetSha
     || baseAdvancePaths.some(entry => profile.allowedPaths.has(entry))) {
     fail('exact-base R1 authority advance identity or product-path separation is not approved');
@@ -939,6 +974,7 @@ function verifyExactBaseAdvanceR1FrontendAdmission({ profile, baseSha, headSha, 
     approvedCurrentBaseSha: profile.approvedCurrentBaseSha,
     approvedMergeBaseSha: profile.approvedMergeBaseSha,
     approvedPathSetSha: profile.allowedPathSetSha,
+    approvedBaseAdvancePathCount: profile.approvedBaseAdvancePathCount,
     approvedBaseAdvancePathSetSha: profile.approvedBaseAdvancePathSetSha,
     targetId: profile.targetId,
     affectedTestPaths: [...profile.affectedTestPaths],
@@ -1100,6 +1136,20 @@ export async function createReviewManifest(env = process.env, options = {}) {
     if (authoritySha !== baseSha) fail('authority checkout does not match pull_request.base.sha');
 
     const scope = await loadScope(options.read ?? readFile);
+    const canonicalFixedProfiles = [...scope.profiles.values()].filter(profile => (
+      profile.kind === 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission'
+      && event?.pull_request?.number === profile.pullRequestNumber
+      && headSha === profile.candidateSha
+      && baseSha === profile.approvedCurrentBaseSha
+      && event?.pull_request?.base?.ref === profile.targetBranch
+      && event?.pull_request?.base?.repo?.full_name === profile.targetRepository
+      && event?.pull_request?.head?.repo?.full_name === profile.sourceRepository
+      && event?.pull_request?.head?.ref === profile.sourceBranch
+    ));
+    if (canonicalFixedProfiles.length > 1) fail('fixed PR scope identity is ambiguous');
+    if (canonicalFixedProfiles.length === 1 && requestedScopeId !== canonicalFixedProfiles[0].id) {
+      fail('fixed PR scope declaration does not match its Base-owned identity');
+    }
     let scopeId = LEGACY_SCOPE_ID;
     let allowedPaths = scope.legacyAllowedPaths;
     let structuralProof = null;

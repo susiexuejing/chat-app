@@ -19,21 +19,37 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
   'scripts/review-manifest.mjs',
 ]);
 const FIXED = Object.freeze({
-  authorityFloorSha: '40ddb9ddedcc4c573f26398ca3104dd4003be9fb',
-  headPolicy: 'fixed-head-exact-multihop-ancestry',
-  headSha: 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
-  parentSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
-  originalBaseSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
+  authorityFloorSha: 'dc7c319422571eaef3a45eac74e58a89d5a09757',
+  pullRequestNumber: 101,
+  headPolicy: 'fixed-head-exact-parent-and-base-advance',
+  headSha: 'cccf87a33e454535f086174f75fd97a87e2c8968',
+  parentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
+  originalBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
+  currentBaseSha: 'dc7c319422571eaef3a45eac74e58a89d5a09757',
   ancestryShas: [
-    '0585c2371b27af1dd5db420e526742d29a836e4d',
-    'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
+    '105a71db994e8a579923b309bd3f7aad7b70ecab',
+    'cccf87a33e454535f086174f75fd97a87e2c8968',
   ],
-  patchId: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe',
+  patchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell2/ef107-reentry-edb772d7',
+  sourceBranch: 'cell1/ef177-history-new-conversation-r1',
   targetBranch: 'dev',
   paths: [
+    'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
+    'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
+    'client/screens/chat/components/RoleHeader.tsx',
+  ],
+  pathDigest: 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb',
+  releaseGateRoute: 'base-owned-review-manifest',
+  allowedTargetBaseAdvancePaths: [
     '.gitleaks.toml',
+    'scripts/__tests__/ef111-review-manifest.test.mjs',
+    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/ef111-scope.manifest.json',
+    'scripts/fixed-pr-admission.mjs',
+    'scripts/fixed-pr-admission.profile.json',
+    'scripts/review-manifest.mjs',
     'server/src/__tests__/ef75-anonymous-session.test.ts',
     'server/src/__tests__/ef75-chat-ownership.test.ts',
     'server/src/__tests__/ef75-conversation-ownership.test.ts',
@@ -43,17 +59,6 @@ const FIXED = Object.freeze({
     'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
     'server/src/storage/database/rds-owner-binding-store.ts',
     'server/src/storage/database/rds-runtime-config.ts',
-  ],
-  pathDigest: 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803',
-  releaseGateRoute: 'base-owned-review-manifest',
-  allowedTargetBaseAdvancePaths: [
-    'scripts/__tests__/ef111-review-manifest.test.mjs',
-    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-    'scripts/__tests__/fixed-pr-admission.test.mjs',
-    'scripts/ef111-scope.manifest.json',
-    'scripts/fixed-pr-admission.mjs',
-    'scripts/fixed-pr-admission.profile.json',
-    'scripts/review-manifest.mjs',
   ],
 });
 
@@ -88,7 +93,7 @@ export function canonicalPathDigest(paths) {
 }
 
 export function validateProfile(profile) {
-  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'integrated-successor-pr-admission' || profile.ticket !== 'EF-107') {
+  if (!profile || profile.schemaVersion !== 1 || profile.kind !== 'integrated-successor-pr-admission' || profile.ticket !== 'EF-177') {
     reject('malformed profile');
   }
   if (profile.governanceSelfAdmission !== 'forbidden') reject('self-admission is not forbidden');
@@ -105,11 +110,14 @@ export function validateProfile(profile) {
   sha(product.headSha, 'product head SHA');
   sha(product.parentSha, 'product parent SHA');
   sha(product.originalBaseSha, 'product original base SHA');
+  sha(product.currentBaseSha, 'product current base SHA');
   sha(product.patchId, 'product patch ID');
-  if (product.headPolicy !== FIXED.headPolicy
+  if (product.pullRequestNumber !== FIXED.pullRequestNumber
+    || product.headPolicy !== FIXED.headPolicy
     || product.headSha !== FIXED.headSha
     || product.parentSha !== FIXED.parentSha
     || product.originalBaseSha !== FIXED.originalBaseSha
+    || product.currentBaseSha !== FIXED.currentBaseSha
     || product.patchId !== FIXED.patchId
     || product.sourceRepository !== FIXED.sourceRepository
     || product.sourceBranch !== FIXED.sourceBranch
@@ -167,6 +175,7 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   if (!pullRequest || !Number.isInteger(pullRequest.number)) reject('missing pull request identity');
   if (profile.legacyPullRequestNumbers.includes(pullRequest.number)) reject('legacy PR rejected');
   const product = profile.product;
+  exact(pullRequest.number, product.pullRequestNumber, 'pull request number');
   sha(pullRequest.head?.sha, 'product head SHA');
   exact(pullRequest.head.sha, product.headSha, 'product head SHA');
   exact(pullRequest.head?.ref, product.sourceBranch, 'source branch');
@@ -174,6 +183,7 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   exact(pullRequest.base?.ref, product.targetBranch, 'target branch');
   exact(pullRequest.base?.repoFullName, product.sourceRepository, 'target repository');
   sha(pullRequest.base?.sha, 'target base SHA');
+  exact(pullRequest.base.sha, product.currentBaseSha, 'target current base SHA');
   exact(evidence?.protectedBaseCheckoutSha, pullRequest.base.sha, 'protected base checkout SHA');
   exact(evidence?.candidateResolvedSha, pullRequest.head.sha, 'candidate resolved SHA');
   if (!evidence?.authorityFloorIncluded) reject('authority floor not integrated into target base');

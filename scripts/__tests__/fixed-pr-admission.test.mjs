@@ -28,7 +28,7 @@ function acceptedEvent() {
         repoFullName: PROFILE.product.sourceRepository,
       },
       base: {
-        sha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        sha: PROFILE.product.currentBaseSha,
         ref: PROFILE.product.targetBranch,
         repoFullName: PROFILE.product.sourceRepository,
       },
@@ -38,7 +38,7 @@ function acceptedEvent() {
 
 function acceptedEvidence() {
   return {
-    protectedBaseCheckoutSha: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    protectedBaseCheckoutSha: PROFILE.product.currentBaseSha,
     authorityFloorIncluded: true,
     productOriginalBaseIncludedInTargetBase: true,
     candidateResolvedSha: PROFILE.product.headSha,
@@ -72,7 +72,7 @@ test('rejects a partial EF-194 target Base advancement', () => {
   assert.throws(() => validateAdmission(PROFILE, acceptedEvent(), evidence), /exact EF194 governance path set/);
 });
 
-test('release gate delegates the exact EF-107 identity to the Base-owned review manifest', () => {
+test('release gate delegates the exact EF-177 PR 101 identity to the Base-owned review manifest', () => {
   const event = acceptedEvent();
   event.eventName = 'pull_request';
   assert.equal(isFixedSuccessorAttempt(PROFILE, event), false);
@@ -141,11 +141,16 @@ test('rejects legacy PRs #93 and #99 and unexpected events', () => {
 });
 
 test('rejects successor identity mismatches', () => {
+  rejected(({ event }) => { event.pullRequest.number = 102; }, /pull request number/);
   rejected(({ event }) => { event.pullRequest.head.sha = 'cccccccccccccccccccccccccccccccccccccccc'; }, /product head SHA/);
   rejected(({ event }) => { event.pullRequest.head.ref = 'cell3\/ef-161-current-dev-integration'; }, /source branch/);
   rejected(({ event }) => { event.pullRequest.head.repoFullName = 'other/repo'; }, /source repository/);
   rejected(({ event }) => { event.pullRequest.base.ref = 'main'; }, /target branch/);
   rejected(({ event }) => { event.pullRequest.base.repoFullName = 'other/repo'; }, /target repository/);
+  rejected(({ event, evidence }) => {
+    event.pullRequest.base.sha = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    evidence.protectedBaseCheckoutSha = event.pullRequest.base.sha;
+  }, /target current base SHA/);
 });
 
 test('rejects the superseded EF-161 product Candidate and source identity', () => {
@@ -178,6 +183,14 @@ test('rejects the superseded EF-107 Candidate and source identity', () => {
   rejected(({ evidence }) => {
     evidence.candidatePatchId = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
   }, /patch ID/);
+});
+
+test('does not admit the prior EF-107 fixed identity as PR 101', () => {
+  rejected(({ event, evidence }) => {
+    event.pullRequest.head.sha = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
+    event.pullRequest.head.ref = 'cell2/ef107-reentry-edb772d7';
+    evidence.candidateResolvedSha = event.pullRequest.head.sha;
+  }, /product head SHA/);
 });
 
 test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {

@@ -62,7 +62,7 @@ const EF111_R2_EF177_SCOPE = 'ef-111-r2-ef177-fixed-candidate-v1';
 const EF111_R2_EF177_HEAD = 'cccf87a33e454535f086174f75fd97a87e2c8968';
 const EF111_R2_EF177_PARENT = '105a71db994e8a579923b309bd3f7aad7b70ecab';
 const EF111_R2_EF177_ORIGINAL_BASE = EF111_R2_EF177_PARENT;
-const EF111_R2_EF177_CURRENT_BASE = '340c5942a2839d812982dff43ff634c7e84c1bbf';
+const EF111_R2_EF177_CURRENT_BASE = 'dc7c319422571eaef3a45eac74e58a89d5a09757';
 const EF111_R2_EF177_PATCH_ID = '13048554cc0abb329720a51fe69d0afbeb0a05d0';
 const EF111_R2_EF177_PATHS = [
   'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
@@ -75,6 +75,25 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
 ];
 const EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA = 'a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a';
+const EF111_R2_EF177_BASE_ADVANCE_PATHS = [
+  '.gitleaks.toml',
+  'scripts/__tests__/ef111-review-manifest.test.mjs',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/ef111-scope.manifest.json',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+  'scripts/review-manifest.mjs',
+  'server/src/__tests__/ef75-anonymous-session.test.ts',
+  'server/src/__tests__/ef75-chat-ownership.test.ts',
+  'server/src/__tests__/ef75-conversation-ownership.test.ts',
+  'server/src/index.ts',
+  'server/src/routes/conversations.ts',
+  'server/src/security/anonymousSession.ts',
+  'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+  'server/src/storage/database/rds-owner-binding-store.ts',
+  'server/src/storage/database/rds-runtime-config.ts',
+];
 const RETIRED_EF161_SCOPE = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
 const EF194_EF107_SCOPE = 'ef-194-ef107-final-edb772d7-bounded-advance-v1';
 const EF194_EF107_HEAD = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
@@ -296,9 +315,10 @@ const scopeObject = {
       approvedOriginalBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
       approvedCurrentBaseSha: EF111_R2_EF177_CURRENT_BASE,
       approvedMergeBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
-      targetBranch: 'dev', sourceRepository: 'susiexuejing/chat-app',
+      targetBranch: 'dev', targetRepository: 'susiexuejing/chat-app', sourceRepository: 'susiexuejing/chat-app',
       sourceBranch: 'cell1/ef177-history-new-conversation-r1',
       allowedPaths: EF111_R2_EF177_PATHS, allowedPathCount: 3, allowedPathSetSha: EF111_R2_EF177_PATH_SET_SHA,
+      approvedBaseAdvancePaths: EF111_R2_EF177_BASE_ADVANCE_PATHS, approvedBaseAdvancePathCount: 17,
       approvedBaseAdvancePathSetSha: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
       targetId: 'chat-ui-jest-path', affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
     },
@@ -317,13 +337,13 @@ const scopeObject = {
 };
 const scope = JSON.stringify(scopeObject);
 
-async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null, headRef, headRepository } = {}) {
+async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = 'dev', body = null, headRef, headRepository, baseRepository = 'susiexuejing/chat-app' } = {}) {
   const root = await mkdtemp(path.join(tmpdir(), 'ef111-event-'));
   const file = path.join(root, 'event.json');
   await writeFile(file, JSON.stringify({
     number,
     pull_request: {
-      number, body, base: { ref: baseRef, sha: base },
+      number, body, base: { ref: baseRef, sha: base, repo: { full_name: baseRepository } },
       head: { sha: head, ...(headRef ? { ref: headRef } : {}), ...(headRepository ? { repo: { full_name: headRepository } } : {}) },
     },
   }));
@@ -640,21 +660,28 @@ test('EF-111 R2 admits only PR 101 at the fixed current Base with the approved p
     { patch: 'f'.repeat(40), error: /patch ID/ },
     { headRef: 'other-branch', error: /source identity/ },
     { repository: 'other/chat-app', error: /source identity/ },
+    { baseRepository: 'other/chat-app', error: /source identity/ },
     { changed: [], error: /no changed paths/ },
     { changed: [...EF111_R2_EF177_PATHS, 'client/screens/chat/index.tsx'], error: /exact approved path set/ },
     { changed: [...EF111_R2_EF177_PATHS.slice(0, 2), 'scripts/review-manifest.mjs'], error: /exact approved path set/ },
     { baseAdvancePaths: [EF111_R2_EF177_PATHS[0]], error: /product-path separation/ },
+    {
+      baseAdvancePaths: [...EF111_R2_EF177_BASE_ADVANCE_PATHS.slice(0, 16), 'docs/unapproved.md'],
+      baseAdvanceDigest: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
+      error: /advance identity/,
+    },
     { baseAdvanceDigest: 'f'.repeat(64), error: /advance identity/ },
   ];
   for (const entry of cases) {
     const head = entry.head ?? EF111_R2_EF177_HEAD;
     const base = entry.base ?? EF111_R2_EF177_CURRENT_BASE;
     const changed = entry.changed ?? EF111_R2_EF177_PATHS;
-    const baseAdvancePaths = entry.baseAdvancePaths ?? ['synthetic/exact-base-advance'];
+    const baseAdvancePaths = entry.baseAdvancePaths ?? EF111_R2_EF177_BASE_ADVANCE_PATHS;
     const { root, file } = await eventFixture({
       number: entry.number ?? 101, head, base, body: `Review-Scope: ${EF111_R2_EF177_SCOPE}`,
       headRef: entry.headRef ?? 'cell1/ef177-history-new-conversation-r1',
       headRepository: entry.repository ?? 'susiexuejing/chat-app',
+      baseRepository: entry.baseRepository ?? 'susiexuejing/chat-app',
     });
     t.after(() => rm(root, { recursive: true, force: true }));
     const options = optionsFor(file, layout, gitFixture({
@@ -683,12 +710,48 @@ test('EF-111 R2 admits only PR 101 at the fixed current Base with the approved p
         approvedCurrentBaseSha: EF111_R2_EF177_CURRENT_BASE,
         approvedMergeBaseSha: EF111_R2_EF177_ORIGINAL_BASE,
         approvedPathSetSha: EF111_R2_EF177_PATH_SET_SHA, targetId: 'chat-ui-jest-path',
+        approvedBaseAdvancePathCount: 17,
         approvedBaseAdvancePathSetSha: EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA,
         affectedTestPaths: EF111_R2_EF177_AFFECTED_TEST_PATHS,
       });
     } else {
       await assert.rejects(promise, entry.error);
     }
+  }
+});
+
+test('EF-111 R2 rejects missing, malformed, duplicate, incorrect, and old EF-107 scope claims', async t => {
+  const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
+  const bodies = [
+    null,
+    'Review-Scope: malformed scope',
+    `Review-Scope: ${EF111_R2_EF177_SCOPE}\nReview-Scope: ${EF111_R2_EF177_SCOPE}`,
+    'Review-Scope: r1-chat-ui-affected-v1',
+    `Review-Scope: ${EF194_EF107_SCOPE}`,
+  ];
+  for (const body of bodies) {
+    const { root, file } = await eventFixture({
+      number: 101,
+      head: EF111_R2_EF177_HEAD,
+      base: EF111_R2_EF177_CURRENT_BASE,
+      body,
+      headRef: 'cell1/ef177-history-new-conversation-r1',
+      headRepository: 'susiexuejing/chat-app',
+    });
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const options = optionsFor(file, layout, gitFixture({
+      authority: EF111_R2_EF177_CURRENT_BASE,
+      head: EF111_R2_EF177_HEAD,
+      candidateParent: EF111_R2_EF177_PARENT,
+      mergeBase: EF111_R2_EF177_ORIGINAL_BASE,
+      changed: EF111_R2_EF177_PATHS,
+      baseAdvancePaths: EF111_R2_EF177_BASE_ADVANCE_PATHS,
+    }));
+    options.patchId = () => EF111_R2_EF177_PATCH_ID;
+    options.baseAdvancePathSetSha = () => EF111_R2_EF177_BASE_ADVANCE_PATH_SET_SHA;
+    await assert.rejects(
+      createReviewManifest({ GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file }, options),
+    );
   }
 });
 
