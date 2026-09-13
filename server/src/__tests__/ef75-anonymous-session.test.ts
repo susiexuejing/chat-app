@@ -10,6 +10,7 @@ const {
   requireAnonymousSession,
   getVerifiedAnonymousSession,
 } = await import('../security/anonymousSession');
+const { parseRdsRuntimeConfig } = await import('../storage/database/rds-runtime-config');
 
 const TOKEN = 'A'.repeat(43);
 const OWNER = '11111111-1111-4111-8111-111111111111';
@@ -80,5 +81,24 @@ describe('EF-75 native anonymous session verification', () => {
       .set('Origin', 'https://dev.douhaoyu.cn');
     expect(response.status).toBe(403);
     expect(response.body).toEqual({ error: 'request_not_allowed' });
+  });
+
+  test('accepts only a dedicated, well-formed RDS runtime login configuration', () => {
+    const valid = parseRdsRuntimeConfig({
+      EF_RDS_RUNTIME_HOST: 'rds.internal',
+      EF_RDS_RUNTIME_PORT: '5432',
+      EF_RDS_RUNTIME_DATABASE: 'emotionflow_identity_dev',
+      EF_RDS_RUNTIME_USER: 'ef_identity_runtime',
+      EF_RDS_RUNTIME_PASSWORD: 'synthetic-password-value',
+    });
+    expect(valid.ok).toBe(true);
+    expect(parseRdsRuntimeConfig({
+      EF_RDS_RUNTIME_HOST: 'rds.internal',
+      EF_RDS_RUNTIME_PORT: '5432',
+      EF_RDS_RUNTIME_DATABASE: 'emotionflow_identity_dev',
+      EF_RDS_RUNTIME_USER: 'bootstrap-admin',
+      EF_RDS_RUNTIME_PASSWORD: 'synthetic-password-value',
+    }).ok).toBe(false);
+    expect(parseRdsRuntimeConfig({}).ok).toBe(false);
   });
 });

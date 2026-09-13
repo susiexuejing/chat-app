@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import { getSupabaseClient } from '../storage/database/supabase-client';
-import { verifyExactOwnerBinding } from '../storage/database/rds-owner-binding-store';
+import {
+  hasRegisteredOwnerBindingStore,
+  verifyExactOwnerBinding,
+} from '../storage/database/rds-owner-binding-store';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 export const EF75_WEB_ORIGIN = 'https://dev.douhaoyu.cn';
@@ -185,6 +188,22 @@ export async function requireAnonymousSession(
     return;
   }
   res.locals.anonymousSession = result.session;
+  next();
+}
+
+export function hasOwnerBindingRuntime(): boolean {
+  return hasRegisteredOwnerBindingStore();
+}
+
+export function requireOwnerBindingRuntime(
+  _req: Request,
+  res: Response,
+  next: NextFunction,
+): void {
+  if (!hasOwnerBindingRuntime()) {
+    sendAnonymousFailure(res, 'internal');
+    return;
+  }
   next();
 }
 
