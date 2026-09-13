@@ -30,8 +30,7 @@ type ConversationFailureCode =
   | 'conversation_verify_error'
   | 'idempotency_guard_error'
   | 'message_insert_error'
-  | 'conversation_update_error'
-  | 'conversation_delete_error';
+  | 'conversation_update_error';
 
 function writeSafeInternalError(
   res: { status: (status: number) => { json: (body: unknown) => unknown } },
