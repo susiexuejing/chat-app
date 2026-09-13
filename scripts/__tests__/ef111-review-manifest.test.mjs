@@ -75,6 +75,13 @@ const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
 const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
 const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
 const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
+const EF194_EF107_ANCESTRY_SHAS = [
+  EF194_EF107_ORIGINAL_BASE,
+  '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+  '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+  EF194_EF107_PARENT,
+  EF194_EF107_HEAD,
+];
 const EF194_EF107_AUTHORITY = 'e'.repeat(40);
 const EF194_EF107_PATHS = [
   '.gitleaks.toml',
@@ -291,7 +298,8 @@ const scopeObject = {
       id: EF194_EF107_SCOPE, kind: 'exact-fixed-candidate-bounded-governance-advance-admission', ticketId: 'EF-107',
       candidateSha: EF194_EF107_HEAD, candidateParentSha: EF194_EF107_PARENT,
       candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
-      approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, targetBranch: 'dev',
+      approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, approvedAncestryShas: EF194_EF107_ANCESTRY_SHAS,
+      targetBranch: 'dev',
       sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-final-e1607d7',
       allowedPaths: EF194_EF107_PATHS, allowedPathCount: 10, allowedPathSetSha: EF194_EF107_PATH_SET_SHA,
       allowedBaseAdvancePaths: EF194_EF107_BASE_ADVANCE_PATHS, allowedBaseAdvancePathCount: 7,
@@ -314,13 +322,17 @@ async function eventFixture({ number = 17, head = HEAD, base = BASE, baseRef = '
   return { root, file };
 }
 
-function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, candidateOriginalBase = null, changed = LEGACY_PATHS, baseAdvancePaths = null, mergeBase = MERGE_BASE, governanceAuthorityBase = null, governanceAuthorityMergeBase = null, failAt = null } = {}) {
+function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixed/candidate', authority = BASE, head = HEAD, candidateParent = null, candidateOriginalBase = null, candidateAncestry = null, changed = LEGACY_PATHS, baseAdvancePaths = null, mergeBase = MERGE_BASE, governanceAuthorityBase = null, governanceAuthorityMergeBase = null, failAt = null } = {}) {
   return (root, args) => {
     const operation = args[0];
     if (operation === failAt) throw new Error('synthetic git failure');
     if (operation === 'rev-parse') return root === authorityRoot ? authority : (String(args[1]).endsWith('^') ? (candidateParent ?? head) : head);
     if (operation === 'rev-list') {
       const object = args.at(-1);
+      if (Array.isArray(candidateAncestry)) {
+        const ancestryIndex = candidateAncestry.indexOf(object);
+        if (ancestryIndex > 0) return `${object} ${candidateAncestry[ancestryIndex - 1]}`;
+      }
       if (object === candidateParent && candidateOriginalBase !== null) return `${candidateParent} ${candidateOriginalBase}`;
       return `${head} ${candidateParent ?? head}`;
     }
@@ -685,6 +697,9 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
     { head: HEAD, error: /candidate SHA/ },
     { parent: HEAD, error: /direct parent/ },
     { originalBase: HEAD, error: /ancestry/ },
+    { ancestry: EF194_EF107_ANCESTRY_SHAS.slice(1), error: /ancestry/ },
+    { ancestry: [EF194_EF107_ORIGINAL_BASE, EF194_EF107_ANCESTRY_SHAS[2], EF194_EF107_ANCESTRY_SHAS[1], EF194_EF107_PARENT, EF194_EF107_HEAD], error: /ancestry/ },
+    { ancestry: [EF194_EF107_ORIGINAL_BASE, EF194_EF107_ANCESTRY_SHAS[1], 'f'.repeat(40), EF194_EF107_PARENT, EF194_EF107_HEAD], error: /ancestry/ },
     { patch: 'f'.repeat(40), error: /patch ID/ },
     { patch: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe', error: /patch ID/ },
     { headRef: 'other-branch', error: /source identity/ },
@@ -702,6 +717,7 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
     const base = entry.base ?? EF194_EF107_AUTHORITY;
     const changed = entry.changed ?? EF194_EF107_PATHS;
     const baseAdvancePaths = entry.baseAdvancePaths ?? EF194_EF107_BASE_ADVANCE_PATHS;
+    const ancestry = entry.ancestry ?? [originalBase, ...EF194_EF107_ANCESTRY_SHAS.slice(1, -2), parent, head];
     const { root, file } = await eventFixture({
       head, base, body: `Review-Scope: ${EF194_EF107_SCOPE}`,
       headRef: entry.headRef ?? 'cell2/ef107-final-e1607d7',
@@ -710,6 +726,7 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
     t.after(() => rm(root, { recursive: true, force: true }));
     const options = optionsFor(file, layout, gitFixture({
       authority: base, head, candidateParent: parent, candidateOriginalBase: originalBase,
+      candidateAncestry: ancestry,
       mergeBase: EF194_EF107_ORIGINAL_BASE,
       changed, baseAdvancePaths, governanceAuthorityBase: base,
       governanceAuthorityMergeBase: EF194_EF107_ORIGINAL_BASE,
@@ -733,7 +750,8 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
         ticketId: 'EF-107',
         candidateSha: EF194_EF107_HEAD, candidateParentSha: EF194_EF107_PARENT,
         candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
-        approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, approvedPathSetSha: EF194_EF107_PATH_SET_SHA,
+        approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, approvedAncestryShas: EF194_EF107_ANCESTRY_SHAS,
+        approvedPathSetSha: EF194_EF107_PATH_SET_SHA,
         approvedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
       });
     } else {
