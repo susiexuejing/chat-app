@@ -89,6 +89,13 @@ const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
 const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
 const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
 const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
+const EF194_EF107_ANCESTRY_SHAS = [
+  EF194_EF107_ORIGINAL_BASE,
+  '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+  '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+  EF194_EF107_PARENT,
+  EF194_EF107_HEAD,
+];
 const EF194_EF107_PATHS = [
   '.gitleaks.toml',
   'server/src/__tests__/ef75-anonymous-session.test.ts',
@@ -286,6 +293,7 @@ const EXACT_APPROVED_PROFILES = [{
   candidatePatchId: EF194_EF107_PATCH_ID,
   approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
   approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE,
+  approvedAncestryShas: EF194_EF107_ANCESTRY_SHAS,
   targetBranch: 'dev',
   sourceRepository: 'susiexuejing/chat-app',
   sourceBranch: 'cell2/ef107-final-e1607d7',
@@ -503,7 +511,7 @@ export async function loadScope(read = readFile) {
               : expected.kind === 'exact-fixed-candidate-governance-advanced-r1-frontend-admission'
                 ? ['id', 'kind', 'ticketId', 'pullRequestNumber', 'candidateSha', 'candidateParentSha', 'approvedOriginalBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'targetId', 'affectedTestPaths']
               : expected.kind === 'exact-fixed-candidate-bounded-governance-advance-admission'
-                ? ['id', 'kind', 'ticketId', 'candidateSha', 'candidateParentSha', 'candidatePatchId', 'approvedOriginalBaseSha', 'approvedMergeBaseSha', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'allowedBaseAdvancePaths', 'allowedBaseAdvancePathCount', 'allowedBaseAdvancePathSetSha']
+                ? ['id', 'kind', 'ticketId', 'candidateSha', 'candidateParentSha', 'candidatePatchId', 'approvedOriginalBaseSha', 'approvedMergeBaseSha', 'approvedAncestryShas', 'targetBranch', 'sourceRepository', 'sourceBranch', 'allowedPaths', 'allowedPathCount', 'allowedPathSetSha', 'allowedBaseAdvancePaths', 'allowedBaseAdvancePathCount', 'allowedBaseAdvancePathSetSha']
           : ['id', 'kind', 'pullRequestNumber', 'baseRef', 'approvedHeadSha', 'allowedPaths'];
     exactKeys(actual, profileKeys, 'approved profile');
     if (actual.id !== expected.id || actual.kind !== expected.kind
@@ -550,6 +558,9 @@ export async function loadScope(read = readFile) {
           || actual.candidateParentSha !== expected.candidateParentSha
           || actual.approvedOriginalBaseSha !== expected.approvedOriginalBaseSha
           || actual.approvedMergeBaseSha !== expected.approvedMergeBaseSha
+          || !Array.isArray(actual.approvedAncestryShas)
+          || actual.approvedAncestryShas.length !== expected.approvedAncestryShas.length
+          || actual.approvedAncestryShas.some((entry, index) => entry !== expected.approvedAncestryShas[index])
           || actual.targetBranch !== expected.targetBranch
           || actual.sourceRepository !== expected.sourceRepository
           || actual.sourceBranch !== expected.sourceBranch
@@ -640,6 +651,14 @@ export async function loadScope(read = readFile) {
       sha(actual.candidatePatchId, 'bounded-advance candidate patch ID');
       sha(actual.approvedOriginalBaseSha, 'bounded-advance original base SHA');
       sha(actual.approvedMergeBaseSha, 'bounded-advance merge-base SHA');
+      if (!Array.isArray(actual.approvedAncestryShas)
+        || actual.approvedAncestryShas.length < 2
+        || actual.approvedAncestryShas.some((entry, index) => sha(entry, `bounded-advance ancestry SHA ${index + 1}`) !== entry)
+        || actual.approvedAncestryShas[0] !== actual.approvedOriginalBaseSha
+        || actual.approvedAncestryShas.at(-2) !== actual.candidateParentSha
+        || actual.approvedAncestryShas.at(-1) !== actual.candidateSha) {
+        fail('bounded governance-advance ancestry profile is malformed');
+      }
       sha256(actual.allowedPathSetSha, 'bounded-advance candidate path-set SHA');
       sha256(actual.allowedBaseAdvancePathSetSha, 'bounded-advance base path-set SHA');
       if (!Number.isInteger(actual.allowedPathCount) || actual.allowedPathCount !== actual.allowedPaths.length
@@ -877,10 +896,13 @@ function verifyBoundedGovernanceAdvanceAdmission({ profile, baseSha, headSha, me
   if (parentLine.length !== 2 || parentLine[0] !== headSha || parentLine[1] !== profile.candidateParentSha) {
     fail('bounded-advance candidate direct parent is not approved');
   }
-  const originalParentLine = git(candidateRoot, ['rev-list', '--parents', '-n', '1', profile.candidateParentSha]).trim().split(/\s+/);
-  if (originalParentLine.length !== 2 || originalParentLine[0] !== profile.candidateParentSha
-    || originalParentLine[1] !== profile.approvedOriginalBaseSha) {
-    fail('bounded-advance candidate ancestry is not approved');
+  for (let index = 1; index < profile.approvedAncestryShas.length; index += 1) {
+    const commitSha = profile.approvedAncestryShas[index];
+    const expectedParentSha = profile.approvedAncestryShas[index - 1];
+    const ancestryLine = git(candidateRoot, ['rev-list', '--parents', '-n', '1', commitSha]).trim().split(/\s+/);
+    if (ancestryLine.length !== 2 || ancestryLine[0] !== commitSha || ancestryLine[1] !== expectedParentSha) {
+      fail('bounded-advance candidate ancestry is not approved');
+    }
   }
   if (patchId(candidateRoot, profile.candidateParentSha, headSha) !== profile.candidatePatchId) {
     fail('bounded-advance candidate patch ID is not approved');
@@ -918,6 +940,7 @@ function verifyBoundedGovernanceAdvanceAdmission({ profile, baseSha, headSha, me
     candidatePatchId: profile.candidatePatchId,
     approvedOriginalBaseSha: profile.approvedOriginalBaseSha,
     approvedMergeBaseSha: profile.approvedMergeBaseSha,
+    approvedAncestryShas: [...profile.approvedAncestryShas],
     approvedPathSetSha: profile.allowedPathSetSha,
     approvedBaseAdvancePathSetSha: profile.allowedBaseAdvancePathSetSha,
   };

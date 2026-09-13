@@ -20,10 +20,17 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
 ]);
 const FIXED = Object.freeze({
   authorityFloorSha: '40ddb9ddedcc4c573f26398ca3104dd4003be9fb',
-  headPolicy: 'fixed-head-single-parent-of-fixed-base',
+  headPolicy: 'fixed-head-exact-multihop-ancestry',
   headSha: 'e1607d7149fe205b49e601609d59649c1c8afab8',
   parentSha: '6a0d3dec582fd28bd5a425c9e438134387a781d8',
   originalBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+  ancestryShas: [
+    'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+    '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+    '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+    '6a0d3dec582fd28bd5a425c9e438134387a781d8',
+    'e1607d7149fe205b49e601609d59649c1c8afab8',
+  ],
   patchId: '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0',
   sourceRepository: 'susiexuejing/chat-app',
   sourceBranch: 'cell2/ef107-final-e1607d7',
@@ -113,6 +120,17 @@ export function validateProfile(profile) {
     || product.releaseGateRoute !== FIXED.releaseGateRoute) {
     reject('malformed fixed product identity');
   }
+  if (!Array.isArray(product.ancestryShas)
+    || product.ancestryShas.length !== FIXED.ancestryShas.length
+    || product.ancestryShas.some((entry, index) => {
+      sha(entry, `product ancestry SHA ${index + 1}`);
+      return entry !== FIXED.ancestryShas[index];
+    })
+    || product.ancestryShas[0] !== product.originalBaseSha
+    || product.ancestryShas.at(-2) !== product.parentSha
+    || product.ancestryShas.at(-1) !== product.headSha) {
+    reject('malformed fixed product ancestry');
+  }
   if (!Array.isArray(product.paths) || product.pathCount !== product.paths.length
     || product.paths.length !== FIXED.paths.length
     || product.paths.some((entry, index) => entry !== FIXED.paths[index])
@@ -167,6 +185,11 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     reject('candidate must have exactly one parent');
   }
   exact(evidence.candidateParentShas[0], product.parentSha, 'candidate parent SHA');
+  if (!Array.isArray(evidence.candidateAncestryShas)
+    || evidence.candidateAncestryShas.length !== product.ancestryShas.length
+    || evidence.candidateAncestryShas.some((entry, index) => entry !== product.ancestryShas[index])) {
+    reject('candidate ancestry chain mismatch');
+  }
   exact(evidence.candidateMergeBaseSha, product.originalBaseSha, 'candidate merge-base SHA');
   exact(evidence.candidatePatchId, product.patchId, 'candidate patch ID');
   if (!Array.isArray(evidence.changedPaths)) reject('missing changed paths');
@@ -226,6 +249,18 @@ function gitPatchId(baseSha, headSha, cwd = process.cwd()) {
   return patchId;
 }
 
+function firstParentChain(headSha, expectedLength, cwd = process.cwd()) {
+  const reverseChain = [headSha];
+  let cursor = headSha;
+  for (let index = 1; index < expectedLength; index += 1) {
+    const revision = git(['rev-list', '--parents', '-n', '1', cursor], cwd).split(/\s+/);
+    if (revision.length !== 2 || revision[0] !== cursor) return [];
+    cursor = revision[1];
+    reverseChain.push(cursor);
+  }
+  return reverseChain.reverse();
+}
+
 function eventFromPayload(githubEvent) {
   const baseSha = githubEvent.pull_request?.base?.sha;
   return {
@@ -270,6 +305,9 @@ function evidenceFromRepositories({ profile, event, rawProfile, candidateRoot })
     productOriginalBaseIncludedInTargetBase: typeof baseSha === 'string' && gitSucceeded(['merge-base', '--is-ancestor', profile.product.originalBaseSha, baseSha]),
     candidateResolvedSha,
     candidateParentShas: revision,
+    candidateAncestryShas: typeof headSha === 'string'
+      ? firstParentChain(headSha, profile.product.ancestryShas.length, candidateRoot)
+      : [],
     candidateMergeBaseSha: git(['merge-base', baseSha, headSha], candidateRoot),
     candidatePatchId: gitPatchId(profile.product.parentSha, headSha, candidateRoot),
     changedPaths,

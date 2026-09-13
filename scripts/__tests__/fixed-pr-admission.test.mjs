@@ -43,6 +43,7 @@ function acceptedEvidence() {
     productOriginalBaseIncludedInTargetBase: true,
     candidateResolvedSha: PROFILE.product.headSha,
     candidateParentShas: [PROFILE.product.parentSha],
+    candidateAncestryShas: [...PROFILE.product.ancestryShas],
     candidateMergeBaseSha: PROFILE.product.originalBaseSha,
     candidatePatchId: PROFILE.product.patchId,
     changedPaths: [...PROFILE.product.paths],
@@ -115,6 +116,13 @@ test('rejects malformed, self-admitting, or missing authority profiles', () => {
   const wrongParent = clone(PROFILE);
   wrongParent.product.parentSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.throws(() => validateProfile(wrongParent), /fixed product identity/);
+  const incompleteAncestry = clone(PROFILE);
+  incompleteAncestry.product.ancestryShas.splice(2, 1);
+  assert.throws(() => validateProfile(incompleteAncestry), /ancestry/);
+  const reorderedAncestry = clone(PROFILE);
+  [reorderedAncestry.product.ancestryShas[1], reorderedAncestry.product.ancestryShas[2]]
+    = [reorderedAncestry.product.ancestryShas[2], reorderedAncestry.product.ancestryShas[1]];
+  assert.throws(() => validateProfile(reorderedAncestry), /ancestry/);
   const wrongPatch = clone(PROFILE);
   wrongPatch.product.patchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.throws(() => validateProfile(wrongPatch), /fixed product identity/);
@@ -180,6 +188,12 @@ test('rejects authority, parent, merge-base, patch, paths, digest, and regressio
   rejected(({ evidence }) => { evidence.candidateParentShas = []; }, /exactly one parent/);
   rejected(({ evidence }) => { evidence.candidateParentShas = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'dddddddddddddddddddddddddddddddddddddddd']; }, /exactly one parent/);
   rejected(({ evidence }) => { evidence.candidateParentShas = ['dddddddddddddddddddddddddddddddddddddddd']; }, /parent/);
+  rejected(({ evidence }) => { evidence.candidateAncestryShas = evidence.candidateAncestryShas.slice(1); }, /ancestry/);
+  rejected(({ evidence }) => {
+    [evidence.candidateAncestryShas[1], evidence.candidateAncestryShas[2]]
+      = [evidence.candidateAncestryShas[2], evidence.candidateAncestryShas[1]];
+  }, /ancestry/);
+  rejected(({ evidence }) => { evidence.candidateAncestryShas[2] = 'd'.repeat(40); }, /ancestry/);
   rejected(({ evidence }) => { evidence.candidateMergeBaseSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /merge-base/);
   rejected(({ evidence }) => { evidence.candidatePatchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /patch ID/);
   rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0]]; }, /path set/);

@@ -66,10 +66,17 @@ test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
   assert.equal(profile.ticket, 'EF-107');
   assert.equal(profile.authorityFloorSha, '40ddb9ddedcc4c573f26398ca3104dd4003be9fb');
-  assert.equal(profile.product.headPolicy, 'fixed-head-single-parent-of-fixed-base');
+  assert.equal(profile.product.headPolicy, 'fixed-head-exact-multihop-ancestry');
   assert.equal(profile.product.headSha, 'e1607d7149fe205b49e601609d59649c1c8afab8');
   assert.equal(profile.product.parentSha, '6a0d3dec582fd28bd5a425c9e438134387a781d8');
   assert.equal(profile.product.originalBaseSha, 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7');
+  assert.deepEqual(profile.product.ancestryShas, [
+    'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+    '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+    '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+    '6a0d3dec582fd28bd5a425c9e438134387a781d8',
+    'e1607d7149fe205b49e601609d59649c1c8afab8',
+  ]);
   assert.equal(profile.product.patchId, '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0');
   assert.equal(profile.product.sourceBranch, 'cell2/ef107-final-e1607d7');
   assert.deepEqual(profile.product.paths, [
@@ -98,6 +105,8 @@ test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact
   assert.deepEqual(profile.legacyPullRequestNumbers, [93, 99]);
   assert.match(verifier, /candidate must have exactly one parent/);
   assert.match(verifier, /candidate parent SHA/);
+  assert.match(verifier, /candidate ancestry chain mismatch/);
+  assert.match(verifier, /firstParentChain/);
   assert.match(verifier, /candidate patch ID/);
   assert.match(verifier, /gitPatchId\(profile\.product\.parentSha, headSha, candidateRoot\)/);
   assert.doesNotMatch(verifier, /gitPatchId\(profile\.product\.originalBaseSha, headSha, candidateRoot\)/);
@@ -397,6 +406,13 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       candidatePatchId: '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0',
       approvedOriginalBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
       approvedMergeBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+      approvedAncestryShas: [
+        'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+        '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
+        '259a9bb8e2d60cbce2f30235ce288badb39b673a',
+        '6a0d3dec582fd28bd5a425c9e438134387a781d8',
+        'e1607d7149fe205b49e601609d59649c1c8afab8',
+      ],
       targetBranch: 'dev',
       sourceRepository: 'susiexuejing/chat-app',
       sourceBranch: 'cell2/ef107-final-e1607d7',
