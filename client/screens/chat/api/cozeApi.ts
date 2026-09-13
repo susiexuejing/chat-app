@@ -456,8 +456,9 @@ export async function chatStart(
     });
     httpStatus = response.status;
     if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      throw new Error(`chatStart failed (${response.status}): ${text}`);
+      // Never read or propagate an HTTP error body into the client error path.
+      // The caller maps this opaque failure to the single safe retryable prompt.
+      throw new Error('chat_start_request_failed');
     }
     const result: ChatStartResponse = await response.json();
     emitEf77Trace('chat_start_completed', {

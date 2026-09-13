@@ -23,6 +23,7 @@ describe('EM-43: chatStart serialization', () => {
     mockFetch.mockClear();
     mockFetch.mockResolvedValue({
       ok: true,
+      status: 200,
       json: () => Promise.resolve({
         sessionId: 'test-session-id',
         emotion: 'neutral',
@@ -102,5 +103,16 @@ describe('EM-43: chatStart serialization', () => {
     });
     expect(JSON.stringify(callArgs)).not.toContain('X-EmotionFlow-User-Id');
     expect(JSON.stringify(callArgs)).not.toContain('X-EmotionFlow-Conversation-Id');
+  });
+
+  it('does not read or expose a non-success response body', async () => {
+    const rawBody = 'provider error: internal detail that must stay private';
+    const text = jest.fn(async () => rawBody);
+    mockFetch.mockResolvedValue({ ok: false, status: 502, text });
+
+    await expect(chatStart('role-1', 'hello', 'conv-123', 'req-456'))
+      .rejects.toThrow('chat_start_request_failed');
+
+    expect(text).not.toHaveBeenCalled();
   });
 });
