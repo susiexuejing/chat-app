@@ -28,9 +28,11 @@ import anonymousSessionsRouter from './routes/anonymousSessions';
 import {
   authenticateAnonymousRequest,
   EF75_WEB_ORIGIN,
+  hasOwnerBindingRuntime,
   sendAnonymousFailure,
   verifyOwnedConversation,
 } from './security/anonymousSession';
+import { registerRuntimeOwnerBindingStore } from './storage/database/rds-owner-binding-store';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
 import { writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
@@ -41,6 +43,10 @@ console.log('DASHSCOPE_API_KEY_DEEP:', process.env.DASHSCOPE_API_KEY_DEEP ? 'SET
 
 export const app = express();
 const port = process.env.PORT || 9091;
+
+// The registration performs configuration validation only; the pool remains
+// lazy and no database operation is issued during application startup.
+registerRuntimeOwnerBindingStore();
 
 // Middleware
 app.use(cors({
@@ -810,6 +816,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
   try {
     const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
     if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
+    if (!hasOwnerBindingRuntime()) return sendAnonymousFailure(res, 'internal');
 
     const { roleId, message, conversationId } = req.body;
     const userId = authenticated.session.id;
@@ -1045,6 +1052,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
 app.get('/api/v1/chat/stream', async (req, res) => {
   const authenticated = await authenticateAnonymousRequest(req);
   if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
+  if (!hasOwnerBindingRuntime()) return sendAnonymousFailure(res, 'internal');
 
   const { sessionId } = req.query;
 
