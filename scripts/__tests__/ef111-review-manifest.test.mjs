@@ -70,16 +70,13 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
 const RETIRED_EF161_SCOPE = 'ef-194-ef161-pr93-12048a1-governance-advance-v1';
-const EF194_EF107_SCOPE = 'ef-194-ef107-final-e1607d7-bounded-advance-v1';
-const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
-const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
-const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
-const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
+const EF194_EF107_SCOPE = 'ef-194-ef107-final-edb772d7-bounded-advance-v1';
+const EF194_EF107_HEAD = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
+const EF194_EF107_PARENT = '0585c2371b27af1dd5db420e526742d29a836e4d';
+const EF194_EF107_ORIGINAL_BASE = '0585c2371b27af1dd5db420e526742d29a836e4d';
+const EF194_EF107_PATCH_ID = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
 const EF194_EF107_ANCESTRY_SHAS = [
   EF194_EF107_ORIGINAL_BASE,
-  '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
-  '259a9bb8e2d60cbce2f30235ce288badb39b673a',
-  EF194_EF107_PARENT,
   EF194_EF107_HEAD,
 ];
 const EF194_EF107_AUTHORITY = 'e'.repeat(40);
@@ -300,7 +297,7 @@ const scopeObject = {
       candidatePatchId: EF194_EF107_PATCH_ID, approvedOriginalBaseSha: EF194_EF107_ORIGINAL_BASE,
       approvedMergeBaseSha: EF194_EF107_ORIGINAL_BASE, approvedAncestryShas: EF194_EF107_ANCESTRY_SHAS,
       targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-final-e1607d7',
+      sourceRepository: 'susiexuejing/chat-app', sourceBranch: 'cell2/ef107-reentry-edb772d7',
       allowedPaths: EF194_EF107_PATHS, allowedPathCount: 10, allowedPathSetSha: EF194_EF107_PATH_SET_SHA,
       allowedBaseAdvancePaths: EF194_EF107_BASE_ADVANCE_PATHS, allowedBaseAdvancePathCount: 7,
       allowedBaseAdvancePathSetSha: EF194_EF107_BASE_ADVANCE_PATH_SET_SHA,
@@ -332,6 +329,7 @@ function gitFixture({ authorityRoot = '/fixed/authority', candidateRoot = '/fixe
       if (Array.isArray(candidateAncestry)) {
         const ancestryIndex = candidateAncestry.indexOf(object);
         if (ancestryIndex > 0) return `${object} ${candidateAncestry[ancestryIndex - 1]}`;
+        if (ancestryIndex === 0) return object;
       }
       if (object === candidateParent && candidateOriginalBase !== null) return `${candidateParent} ${candidateOriginalBase}`;
       return `${head} ${candidateParent ?? head}`;
@@ -689,19 +687,19 @@ test('retired EF-161 scope is explicitly rejected by Base-owned authority', asyn
   );
 });
 
-test('EF-194 admits only the final four-commit EF-107 candidate after the exact seven-path governance closure', async t => {
+test('EF-194 admits only the fixed EF-107 re-entry candidate after the exact seven-path governance closure', async t => {
   const layout = { mode: 'dual', authorityRoot: '/fixed/authority', candidateRoot: '/fixed/candidate' };
   const cases = [
     { pass: true },
     { head: EF194_EF107_PARENT, error: /candidate SHA/ },
     { head: HEAD, error: /candidate SHA/ },
     { parent: HEAD, error: /direct parent/ },
-    { originalBase: HEAD, error: /ancestry/ },
-    { ancestry: EF194_EF107_ANCESTRY_SHAS.slice(1), error: /ancestry/ },
-    { ancestry: [EF194_EF107_ORIGINAL_BASE, EF194_EF107_ANCESTRY_SHAS[2], EF194_EF107_ANCESTRY_SHAS[1], EF194_EF107_PARENT, EF194_EF107_HEAD], error: /ancestry/ },
-    { ancestry: [EF194_EF107_ORIGINAL_BASE, EF194_EF107_ANCESTRY_SHAS[1], 'f'.repeat(40), EF194_EF107_PARENT, EF194_EF107_HEAD], error: /ancestry/ },
+    { mergeBase: HEAD, error: /lineage|merge-base/ },
+    { ancestry: EF194_EF107_ANCESTRY_SHAS.slice(1), error: /direct parent|ancestry/ },
+    { ancestry: [...EF194_EF107_ANCESTRY_SHAS].reverse(), error: /direct parent|ancestry/ },
+    { ancestry: ['f'.repeat(40), EF194_EF107_HEAD], error: /direct parent|ancestry/ },
     { patch: 'f'.repeat(40), error: /patch ID/ },
-    { patch: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe', error: /patch ID/ },
+    { patch: '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0', error: /patch ID/ },
     { headRef: 'other-branch', error: /source identity/ },
     { headRepository: 'attacker/chat-app', error: /source identity/ },
     { changed: [...EF194_EF107_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
@@ -717,17 +715,17 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
     const base = entry.base ?? EF194_EF107_AUTHORITY;
     const changed = entry.changed ?? EF194_EF107_PATHS;
     const baseAdvancePaths = entry.baseAdvancePaths ?? EF194_EF107_BASE_ADVANCE_PATHS;
-    const ancestry = entry.ancestry ?? [originalBase, ...EF194_EF107_ANCESTRY_SHAS.slice(1, -2), parent, head];
+    const ancestry = entry.ancestry ?? [parent, head];
     const { root, file } = await eventFixture({
       head, base, body: `Review-Scope: ${EF194_EF107_SCOPE}`,
-      headRef: entry.headRef ?? 'cell2/ef107-final-e1607d7',
+      headRef: entry.headRef ?? 'cell2/ef107-reentry-edb772d7',
       headRepository: entry.headRepository ?? 'susiexuejing/chat-app',
     });
     t.after(() => rm(root, { recursive: true, force: true }));
     const options = optionsFor(file, layout, gitFixture({
       authority: base, head, candidateParent: parent, candidateOriginalBase: originalBase,
       candidateAncestry: ancestry,
-      mergeBase: EF194_EF107_ORIGINAL_BASE,
+      mergeBase: entry.mergeBase ?? EF194_EF107_ORIGINAL_BASE,
       changed, baseAdvancePaths, governanceAuthorityBase: base,
       governanceAuthorityMergeBase: EF194_EF107_ORIGINAL_BASE,
     }));

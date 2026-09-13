@@ -84,16 +84,13 @@ const EF111_R2_EF177_AFFECTED_TEST_PATHS = [
   'client/screens/chat/__tests__/em50-new-chat-clear-input.test.tsx',
   'client/screens/chat/__tests__/em54-persist-refresh.test.tsx',
 ];
-const EF194_EF107_SCOPE_ID = 'ef-194-ef107-final-e1607d7-bounded-advance-v1';
-const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
-const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
-const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
-const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
+const EF194_EF107_SCOPE_ID = 'ef-194-ef107-final-edb772d7-bounded-advance-v1';
+const EF194_EF107_HEAD = 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a';
+const EF194_EF107_PARENT = '0585c2371b27af1dd5db420e526742d29a836e4d';
+const EF194_EF107_ORIGINAL_BASE = '0585c2371b27af1dd5db420e526742d29a836e4d';
+const EF194_EF107_PATCH_ID = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
 const EF194_EF107_ANCESTRY_SHAS = [
   EF194_EF107_ORIGINAL_BASE,
-  '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
-  '259a9bb8e2d60cbce2f30235ce288badb39b673a',
-  EF194_EF107_PARENT,
   EF194_EF107_HEAD,
 ];
 const EF194_EF107_PATHS = [
@@ -296,7 +293,7 @@ const EXACT_APPROVED_PROFILES = [{
   approvedAncestryShas: EF194_EF107_ANCESTRY_SHAS,
   targetBranch: 'dev',
   sourceRepository: 'susiexuejing/chat-app',
-  sourceBranch: 'cell2/ef107-final-e1607d7',
+  sourceBranch: 'cell2/ef107-reentry-edb772d7',
   allowedPaths: EF194_EF107_PATHS,
   allowedPathCount: 10,
   allowedPathSetSha: EF194_EF107_PATH_SET_SHA,

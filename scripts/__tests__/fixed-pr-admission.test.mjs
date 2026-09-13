@@ -117,11 +117,10 @@ test('rejects malformed, self-admitting, or missing authority profiles', () => {
   wrongParent.product.parentSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
   assert.throws(() => validateProfile(wrongParent), /fixed product identity/);
   const incompleteAncestry = clone(PROFILE);
-  incompleteAncestry.product.ancestryShas.splice(2, 1);
+  incompleteAncestry.product.ancestryShas.pop();
   assert.throws(() => validateProfile(incompleteAncestry), /ancestry/);
   const reorderedAncestry = clone(PROFILE);
-  [reorderedAncestry.product.ancestryShas[1], reorderedAncestry.product.ancestryShas[2]]
-    = [reorderedAncestry.product.ancestryShas[2], reorderedAncestry.product.ancestryShas[1]];
+  reorderedAncestry.product.ancestryShas.reverse();
   assert.throws(() => validateProfile(reorderedAncestry), /ancestry/);
   const wrongPatch = clone(PROFILE);
   wrongPatch.product.patchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
@@ -164,20 +163,20 @@ test('rejects the superseded EF-161 product Candidate and source identity', () =
 
 test('rejects the superseded EF-107 Candidate and source identity', () => {
   rejected(({ event, evidence }) => {
-    event.pullRequest.head.sha = '259a9bb8e2d60cbce2f30235ce288badb39b673a';
+    event.pullRequest.head.sha = 'e1607d7149fe205b49e601609d59649c1c8afab8';
     evidence.candidateResolvedSha = event.pullRequest.head.sha;
   }, /product head SHA/);
   rejected(({ event }) => {
-    event.pullRequest.head.ref = 'cell2/ef107-final-259a9bb8';
+    event.pullRequest.head.ref = 'cell2/ef107-final-e1607d7';
   }, /source branch/);
   rejected(({ evidence }) => {
-    evidence.candidateParentShas = ['59f70e9d7b47de238e1e0564c3ce42d2912d8b5b'];
+    evidence.candidateParentShas = ['6a0d3dec582fd28bd5a425c9e438134387a781d8'];
   }, /parent/);
   rejected(({ evidence }) => {
     evidence.candidatePatchId = '5dbdf01ab6391ab9dff6b564ea3f37545b21a766';
   }, /patch ID/);
   rejected(({ evidence }) => {
-    evidence.candidatePatchId = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
+    evidence.candidatePatchId = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
   }, /patch ID/);
 });
 
@@ -189,11 +188,8 @@ test('rejects authority, parent, merge-base, patch, paths, digest, and regressio
   rejected(({ evidence }) => { evidence.candidateParentShas = ['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'dddddddddddddddddddddddddddddddddddddddd']; }, /exactly one parent/);
   rejected(({ evidence }) => { evidence.candidateParentShas = ['dddddddddddddddddddddddddddddddddddddddd']; }, /parent/);
   rejected(({ evidence }) => { evidence.candidateAncestryShas = evidence.candidateAncestryShas.slice(1); }, /ancestry/);
-  rejected(({ evidence }) => {
-    [evidence.candidateAncestryShas[1], evidence.candidateAncestryShas[2]]
-      = [evidence.candidateAncestryShas[2], evidence.candidateAncestryShas[1]];
-  }, /ancestry/);
-  rejected(({ evidence }) => { evidence.candidateAncestryShas[2] = 'd'.repeat(40); }, /ancestry/);
+  rejected(({ evidence }) => { evidence.candidateAncestryShas.reverse(); }, /ancestry/);
+  rejected(({ evidence }) => { evidence.candidateAncestryShas[1] = 'd'.repeat(40); }, /ancestry/);
   rejected(({ evidence }) => { evidence.candidateMergeBaseSha = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /merge-base/);
   rejected(({ evidence }) => { evidence.candidatePatchId = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'; }, /patch ID/);
   rejected(({ evidence }) => { evidence.changedPaths = [PROFILE.product.paths[0]]; }, /path set/);

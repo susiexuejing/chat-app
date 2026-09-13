@@ -58,7 +58,7 @@ test('fixed admission falls through to Base-owned review manifest when the profi
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact governance closure', async () => {
+test('EF-107 authority freezes the re-entry Candidate, ancestry, source, patch, and exact governance closure', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
@@ -67,18 +67,15 @@ test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact
   assert.equal(profile.ticket, 'EF-107');
   assert.equal(profile.authorityFloorSha, '40ddb9ddedcc4c573f26398ca3104dd4003be9fb');
   assert.equal(profile.product.headPolicy, 'fixed-head-exact-multihop-ancestry');
-  assert.equal(profile.product.headSha, 'e1607d7149fe205b49e601609d59649c1c8afab8');
-  assert.equal(profile.product.parentSha, '6a0d3dec582fd28bd5a425c9e438134387a781d8');
-  assert.equal(profile.product.originalBaseSha, 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7');
+  assert.equal(profile.product.headSha, 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a');
+  assert.equal(profile.product.parentSha, '0585c2371b27af1dd5db420e526742d29a836e4d');
+  assert.equal(profile.product.originalBaseSha, '0585c2371b27af1dd5db420e526742d29a836e4d');
   assert.deepEqual(profile.product.ancestryShas, [
-    'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
-    '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
-    '259a9bb8e2d60cbce2f30235ce288badb39b673a',
-    '6a0d3dec582fd28bd5a425c9e438134387a781d8',
-    'e1607d7149fe205b49e601609d59649c1c8afab8',
+    '0585c2371b27af1dd5db420e526742d29a836e4d',
+    'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
   ]);
-  assert.equal(profile.product.patchId, '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0');
-  assert.equal(profile.product.sourceBranch, 'cell2/ef107-final-e1607d7');
+  assert.equal(profile.product.patchId, '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe');
+  assert.equal(profile.product.sourceBranch, 'cell2/ef107-reentry-edb772d7');
   assert.deepEqual(profile.product.paths, [
     '.gitleaks.toml',
     'server/src/__tests__/ef75-anonymous-session.test.ts',
@@ -398,24 +395,21 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       ],
     },
     {
-      id: 'ef-194-ef107-final-e1607d7-bounded-advance-v1',
+      id: 'ef-194-ef107-final-edb772d7-bounded-advance-v1',
       kind: 'exact-fixed-candidate-bounded-governance-advance-admission',
       ticketId: 'EF-107',
-      candidateSha: 'e1607d7149fe205b49e601609d59649c1c8afab8',
-      candidateParentSha: '6a0d3dec582fd28bd5a425c9e438134387a781d8',
-      candidatePatchId: '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0',
-      approvedOriginalBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
-      approvedMergeBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
+      candidateSha: 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
+      candidateParentSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
+      candidatePatchId: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe',
+      approvedOriginalBaseSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
+      approvedMergeBaseSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
       approvedAncestryShas: [
-        'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
-        '59f70e9d7b47de238e1e0564c3ce42d2912d8b5b',
-        '259a9bb8e2d60cbce2f30235ce288badb39b673a',
-        '6a0d3dec582fd28bd5a425c9e438134387a781d8',
-        'e1607d7149fe205b49e601609d59649c1c8afab8',
+        '0585c2371b27af1dd5db420e526742d29a836e4d',
+        'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
       ],
       targetBranch: 'dev',
       sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell2/ef107-final-e1607d7',
+      sourceBranch: 'cell2/ef107-reentry-edb772d7',
       allowedPaths: [
         '.gitleaks.toml',
         'server/src/__tests__/ef75-anonymous-session.test.ts',
