@@ -74,7 +74,7 @@ const EF194_EF107_SCOPE = 'ef-194-ef107-final-e1607d7-bounded-advance-v1';
 const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
 const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
 const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
-const EF194_EF107_PATCH_ID = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
+const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
 const EF194_EF107_AUTHORITY = 'e'.repeat(40);
 const EF194_EF107_PATHS = [
   '.gitleaks.toml',
@@ -686,6 +686,7 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
     { parent: HEAD, error: /direct parent/ },
     { originalBase: HEAD, error: /ancestry/ },
     { patch: 'f'.repeat(40), error: /patch ID/ },
+    { patch: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe', error: /patch ID/ },
     { headRef: 'other-branch', error: /source identity/ },
     { headRepository: 'attacker/chat-app', error: /source identity/ },
     { changed: [...EF194_EF107_PATHS, 'server/src/extra.ts'], error: /exact approved path set/ },
@@ -713,13 +714,18 @@ test('EF-194 admits only the final four-commit EF-107 candidate after the exact 
       changed, baseAdvancePaths, governanceAuthorityBase: base,
       governanceAuthorityMergeBase: EF194_EF107_ORIGINAL_BASE,
     }));
-    options.patchId = () => entry.patch ?? EF194_EF107_PATCH_ID;
+    let observedPatchBase;
+    options.patchId = (_root, patchBase) => {
+      observedPatchBase = patchBase;
+      return entry.patch ?? EF194_EF107_PATCH_ID;
+    };
     const promise = createReviewManifest(
       { GITHUB_EVENT_NAME: 'pull_request', GITHUB_EVENT_PATH: file },
       options,
     );
     if (entry.pass) {
       const manifest = await promise;
+      assert.equal(observedPatchBase, EF194_EF107_PARENT);
       assert.equal(manifest.scopeId, EF194_EF107_SCOPE);
       assert.deepEqual(manifest.targetedRegressionIds, ['review-manifest-contract', 'release-gate-contract']);
       assert.deepEqual(manifest.structuralProof, {

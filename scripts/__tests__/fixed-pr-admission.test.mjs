@@ -168,6 +168,9 @@ test('rejects the superseded EF-107 Candidate and source identity', () => {
   rejected(({ evidence }) => {
     evidence.candidatePatchId = '5dbdf01ab6391ab9dff6b564ea3f37545b21a766';
   }, /patch ID/);
+  rejected(({ evidence }) => {
+    evidence.candidatePatchId = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
+  }, /patch ID/);
 });
 
 test('rejects authority, parent, merge-base, patch, paths, digest, and regression mismatches', () => {

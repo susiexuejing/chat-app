@@ -88,7 +88,7 @@ const EF194_EF107_SCOPE_ID = 'ef-194-ef107-final-e1607d7-bounded-advance-v1';
 const EF194_EF107_HEAD = 'e1607d7149fe205b49e601609d59649c1c8afab8';
 const EF194_EF107_PARENT = '6a0d3dec582fd28bd5a425c9e438134387a781d8';
 const EF194_EF107_ORIGINAL_BASE = 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7';
-const EF194_EF107_PATCH_ID = '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe';
+const EF194_EF107_PATCH_ID = '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0';
 const EF194_EF107_PATHS = [
   '.gitleaks.toml',
   'server/src/__tests__/ef75-anonymous-session.test.ts',
@@ -882,7 +882,7 @@ function verifyBoundedGovernanceAdvanceAdmission({ profile, baseSha, headSha, me
     || originalParentLine[1] !== profile.approvedOriginalBaseSha) {
     fail('bounded-advance candidate ancestry is not approved');
   }
-  if (patchId(candidateRoot, profile.approvedOriginalBaseSha, headSha) !== profile.candidatePatchId) {
+  if (patchId(candidateRoot, profile.candidateParentSha, headSha) !== profile.candidatePatchId) {
     fail('bounded-advance candidate patch ID is not approved');
   }
   if (baseSha === profile.approvedOriginalBaseSha) {

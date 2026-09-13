@@ -70,7 +70,7 @@ test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact
   assert.equal(profile.product.headSha, 'e1607d7149fe205b49e601609d59649c1c8afab8');
   assert.equal(profile.product.parentSha, '6a0d3dec582fd28bd5a425c9e438134387a781d8');
   assert.equal(profile.product.originalBaseSha, 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7');
-  assert.equal(profile.product.patchId, '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe');
+  assert.equal(profile.product.patchId, '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0');
   assert.equal(profile.product.sourceBranch, 'cell2/ef107-final-e1607d7');
   assert.deepEqual(profile.product.paths, [
     '.gitleaks.toml',
@@ -99,6 +99,8 @@ test('EF-107 authority freezes the Candidate, ancestry, source, patch, and exact
   assert.match(verifier, /candidate must have exactly one parent/);
   assert.match(verifier, /candidate parent SHA/);
   assert.match(verifier, /candidate patch ID/);
+  assert.match(verifier, /gitPatchId\(profile\.product\.parentSha, headSha, candidateRoot\)/);
+  assert.doesNotMatch(verifier, /gitPatchId\(profile\.product\.originalBaseSha, headSha, candidateRoot\)/);
   assert.match(verifier, /candidate self-authorization or control-plane change/);
 });
 
@@ -392,7 +394,7 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       ticketId: 'EF-107',
       candidateSha: 'e1607d7149fe205b49e601609d59649c1c8afab8',
       candidateParentSha: '6a0d3dec582fd28bd5a425c9e438134387a781d8',
-      candidatePatchId: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe',
+      candidatePatchId: '3f083ee7b5c79d5cecc41f0aa036f05f52fabcf0',
       approvedOriginalBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
       approvedMergeBaseSha: 'ac9008f84959b55ccefd5a6bb1561d5ff83ed1f7',
       targetBranch: 'dev',
