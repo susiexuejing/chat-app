@@ -58,26 +58,42 @@ test('fixed admission falls through to Base-owned review manifest when the profi
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('EF-107 authority freezes the re-entry Candidate, ancestry, source, patch, and exact governance closure', async () => {
+test('EF-111 authority freezes PR 101, its three-path patch, and the exact 17-path Base advance', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
   ]);
   assert.equal(profile.kind, 'integrated-successor-pr-admission');
-  assert.equal(profile.ticket, 'EF-107');
-  assert.equal(profile.authorityFloorSha, '40ddb9ddedcc4c573f26398ca3104dd4003be9fb');
-  assert.equal(profile.product.headPolicy, 'fixed-head-exact-multihop-ancestry');
-  assert.equal(profile.product.headSha, 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a');
-  assert.equal(profile.product.parentSha, '0585c2371b27af1dd5db420e526742d29a836e4d');
-  assert.equal(profile.product.originalBaseSha, '0585c2371b27af1dd5db420e526742d29a836e4d');
+  assert.equal(profile.ticket, 'EF-177');
+  assert.equal(profile.authorityFloorSha, 'dc7c319422571eaef3a45eac74e58a89d5a09757');
+  assert.equal(profile.product.pullRequestNumber, 101);
+  assert.equal(profile.product.headPolicy, 'fixed-head-exact-parent-and-base-advance');
+  assert.equal(profile.product.headSha, 'cccf87a33e454535f086174f75fd97a87e2c8968');
+  assert.equal(profile.product.parentSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
+  assert.equal(profile.product.originalBaseSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
+  assert.equal(profile.product.currentBaseSha, 'dc7c319422571eaef3a45eac74e58a89d5a09757');
   assert.deepEqual(profile.product.ancestryShas, [
-    '0585c2371b27af1dd5db420e526742d29a836e4d',
-    'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
+    '105a71db994e8a579923b309bd3f7aad7b70ecab',
+    'cccf87a33e454535f086174f75fd97a87e2c8968',
   ]);
-  assert.equal(profile.product.patchId, '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe');
-  assert.equal(profile.product.sourceBranch, 'cell2/ef107-reentry-edb772d7');
+  assert.equal(profile.product.patchId, '13048554cc0abb329720a51fe69d0afbeb0a05d0');
+  assert.equal(profile.product.sourceBranch, 'cell1/ef177-history-new-conversation-r1');
   assert.deepEqual(profile.product.paths, [
+    'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
+    'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
+    'client/screens/chat/components/RoleHeader.tsx',
+  ]);
+  assert.equal(profile.product.pathDigest, 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb');
+  assert.equal(profile.product.releaseGateRoute, 'base-owned-review-manifest');
+  assert.deepEqual(profile.product.allowedTargetBaseAdvancePaths, [
     '.gitleaks.toml',
+    'scripts/__tests__/ef111-review-manifest.test.mjs',
+    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+    'scripts/__tests__/fixed-pr-admission.test.mjs',
+    'scripts/ef111-scope.manifest.json',
+    'scripts/fixed-pr-admission.mjs',
+    'scripts/fixed-pr-admission.profile.json',
+    'scripts/review-manifest.mjs',
     'server/src/__tests__/ef75-anonymous-session.test.ts',
     'server/src/__tests__/ef75-chat-ownership.test.ts',
     'server/src/__tests__/ef75-conversation-ownership.test.ts',
@@ -87,17 +103,6 @@ test('EF-107 authority freezes the re-entry Candidate, ancestry, source, patch, 
     'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
     'server/src/storage/database/rds-owner-binding-store.ts',
     'server/src/storage/database/rds-runtime-config.ts',
-  ]);
-  assert.equal(profile.product.pathDigest, 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803');
-  assert.equal(profile.product.releaseGateRoute, 'base-owned-review-manifest');
-  assert.deepEqual(profile.product.allowedTargetBaseAdvancePaths, [
-    'scripts/__tests__/ef111-review-manifest.test.mjs',
-    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-    'scripts/__tests__/fixed-pr-admission.test.mjs',
-    'scripts/ef111-scope.manifest.json',
-    'scripts/fixed-pr-admission.mjs',
-    'scripts/fixed-pr-admission.profile.json',
-    'scripts/review-manifest.mjs',
   ]);
   assert.deepEqual(profile.legacyPullRequestNumbers, [93, 99]);
   assert.match(verifier, /candidate must have exactly one parent/);
@@ -382,9 +387,10 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       candidateParentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
       candidatePatchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
       approvedOriginalBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-      approvedCurrentBaseSha: '340c5942a2839d812982dff43ff634c7e84c1bbf',
+      approvedCurrentBaseSha: 'dc7c319422571eaef3a45eac74e58a89d5a09757',
       approvedMergeBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
       targetBranch: 'dev',
+      targetRepository: 'susiexuejing/chat-app',
       sourceRepository: 'susiexuejing/chat-app',
       sourceBranch: 'cell1/ef177-history-new-conversation-r1',
       allowedPaths: [
@@ -394,6 +400,26 @@ test('scope manifest preserves exact legacy and bounded structural profile bound
       ],
       allowedPathCount: 3,
       allowedPathSetSha: 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb',
+      approvedBaseAdvancePaths: [
+        '.gitleaks.toml',
+        'scripts/__tests__/ef111-review-manifest.test.mjs',
+        'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+        'scripts/__tests__/fixed-pr-admission.test.mjs',
+        'scripts/ef111-scope.manifest.json',
+        'scripts/fixed-pr-admission.mjs',
+        'scripts/fixed-pr-admission.profile.json',
+        'scripts/review-manifest.mjs',
+        'server/src/__tests__/ef75-anonymous-session.test.ts',
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/__tests__/ef75-conversation-ownership.test.ts',
+        'server/src/index.ts',
+        'server/src/routes/conversations.ts',
+        'server/src/security/anonymousSession.ts',
+        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
+        'server/src/storage/database/rds-owner-binding-store.ts',
+        'server/src/storage/database/rds-runtime-config.ts',
+      ],
+      approvedBaseAdvancePathCount: 17,
       approvedBaseAdvancePathSetSha: 'a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a',
       targetId: 'chat-ui-jest-path',
       affectedTestPaths: [
