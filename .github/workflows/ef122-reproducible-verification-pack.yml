@@ -1,0 +1,93 @@
+name: EF-122 Reproducible Verification Pack
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ef122-verification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verification-pack:
+    name: EF-122 Reproducible Verification Pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Confirm checked-out candidate identity
+        id: identity
+        shell: bash
+        run: |
+          CHECKED_OUT_SHA="$(git rev-parse HEAD)"
+          if [ -z "$CHECKED_OUT_SHA" ]; then
+            echo "Unable to determine checked-out candidate SHA" >&2
+            exit 1
+          fi
+          echo "checked_out_sha=$CHECKED_OUT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Set up pnpm 9
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 9.0.0
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint server
+        run: pnpm run lint:server
+
+      - name: Build server
+        run: pnpm --dir server run build
+
+      - name: Run approved server verification suites
+        working-directory: server
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: >-
+          ./node_modules/.bin/jest --no-cache --runInBand
+          src/__tests__/ef110-index-runtime-sanitization.test.ts
+          src/__tests__/ef110-security-sanitization.test.ts
+          src/__tests__/ef102-stream-events.test.ts
+
+      - name: Verify protected manifests remain unchanged
+        run: >-
+          git diff --exit-code HEAD --
+          package.json pnpm-lock.yaml client/package.json server/package.json
+
+      - name: Write reproducibility evidence
+        env:
+          CHECKED_OUT_SHA: ${{ steps.identity.outputs.checked_out_sha }}
+        run: >-
+          node -e "const fs=require('fs'); const sha=process.env.CHECKED_OUT_SHA;
+          if(!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Invalid candidate SHA');
+          fs.writeFileSync('ef122-verification-evidence.json', JSON.stringify({
+          checkedOutSha:sha,pnpm:'9.0.0',commands:['pnpm install --frozen-lockfile',
+          'pnpm run lint:server','pnpm --dir server run build'],approvedSuites:[
+          'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
+          'server/src/__tests__/ef110-security-sanitization.test.ts',
+          'server/src/__tests__/ef102-stream-events.test.ts'],
+          externalServiceAccess:'not-run',deliveryAction:'none'},null,2)+'\\n');"
+
+      - name: Upload verification evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ef122-verification-evidence-${{ steps.identity.outputs.checked_out_sha }}
+          path: ef122-verification-evidence.json
+          if-no-files-found: error
+          retention-days: 30
