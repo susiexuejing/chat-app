@@ -1,51 +1,11 @@
 {
-  "schemaVersion": 1,
-  "kind": "integrated-successor-pr-admission",
-  "ticket": "EF-177",
-  "legacyPullRequestNumbers": [93, 99],
-  "authorityFloorSha": "a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d",
-  "governanceSelfAdmission": "forbidden",
-  "product": {
-    "pullRequestNumber": 101,
-    "headPolicy": "fixed-head-exact-parent-and-base-advance",
-    "headSha": "cccf87a33e454535f086174f75fd97a87e2c8968",
-    "parentSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
-    "originalBaseSha": "105a71db994e8a579923b309bd3f7aad7b70ecab",
-    "currentBaseSha": "a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d",
-    "ancestryShas": [
-      "105a71db994e8a579923b309bd3f7aad7b70ecab",
-      "cccf87a33e454535f086174f75fd97a87e2c8968"
-    ],
-    "patchId": "13048554cc0abb329720a51fe69d0afbeb0a05d0",
-    "sourceRepository": "susiexuejing/chat-app",
-    "sourceBranch": "cell1/ef177-history-new-conversation-r1",
+  "schemaVersion": 2,
+  "kind": "base-owned-current-base-integration-registry",
+  "authority": {
+    "repository": "susiexuejing/chat-app",
     "targetBranch": "dev",
-    "paths": [
-      "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
-      "client/screens/chat/__tests__/ef177-chat-actions.test.tsx",
-      "client/screens/chat/components/RoleHeader.tsx"
-    ],
-    "pathCount": 3,
-    "pathDigest": "bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb",
-    "releaseGateRoute": "base-owned-review-manifest",
-    "allowedTargetBaseAdvancePaths": [
-      ".gitleaks.toml",
-      "scripts/__tests__/ef111-review-manifest.test.mjs",
-      "scripts/__tests__/ef94-ci-release-gate.test.mjs",
-      "scripts/__tests__/fixed-pr-admission.test.mjs",
-      "scripts/ef111-scope.manifest.json",
-      "scripts/fixed-pr-admission.mjs",
-      "scripts/fixed-pr-admission.profile.json",
-      "scripts/review-manifest.mjs",
-      "server/src/__tests__/ef75-anonymous-session.test.ts",
-      "server/src/__tests__/ef75-chat-ownership.test.ts",
-      "server/src/__tests__/ef75-conversation-ownership.test.ts",
-      "server/src/index.ts",
-      "server/src/routes/conversations.ts",
-      "server/src/security/anonymousSession.ts",
-      "server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql",
-      "server/src/storage/database/rds-owner-binding-store.ts",
-      "server/src/storage/database/rds-runtime-config.ts"
-    ]
-  }
+    "governanceSelfAdmission": "forbidden",
+    "recordOrder": "id-lf-ascending"
+  },
+  "records": []
 }
