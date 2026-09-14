@@ -64,7 +64,7 @@ test('current-Base integration authority is a generic Base-owned registry with t
     text(fixedAdmissionVerifierUrl),
   ]);
   assert.deepEqual({ ...profile, records: [] }, {
-    schemaVersion: 2,
+    schemaVersion: 4,
     kind: 'base-owned-current-base-integration-registry',
     authority: {
       repository: 'susiexuejing/chat-app',
@@ -78,6 +78,35 @@ test('current-Base integration authority is a generic Base-owned registry with t
   assert.equal(profile.records[0].id, 'ef-177-fa24d37-current-base-v1');
   assert.equal(profile.records[0].integration.headSha, 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
   assert.equal(profile.records[0].integration.currentBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
+  assert.deepEqual(profile.records[0].protectedGovernanceChain, {
+    productBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+    registryMergeSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+    registryHeadSha: 'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
+    registryMergeParentShas: [
+      'fed71b289db431370f8789163d7d3c5602936689',
+      'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
+    ],
+    registryPaths: [
+      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+      'scripts/__tests__/fixed-pr-admission.test.mjs',
+      'scripts/fixed-pr-admission.profile.json',
+    ],
+    registryPathCount: 3,
+    registryPathDigest: '1e96e1eb9ad973b558be9ba2406dd0e0149a35aeccafe54b16d7c3167154e65e',
+    correctiveParentSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+    correctivePaths: [
+      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+      'scripts/__tests__/fixed-pr-admission.test.mjs',
+      'scripts/fixed-pr-admission.mjs',
+      'scripts/fixed-pr-admission.profile.json',
+    ],
+    correctivePathCount: 4,
+    correctivePathDigest: '6b7db69946230e2cbfa8d50d9d10e823de984b88092cb66d86490086acdcc763',
+    permanentlyRejectedCandidateShas: [
+      'a1577f161d644dddcda6b6c6485a344d2869e9ae',
+    ],
+    zeroProductPathOverlap: true,
+  });
   assert.equal(profile.records[0].integration.sourceBranch, 'cell1/ef177-currentbase-fa24d37');
   assert.equal(profile.records[0].integration.targetBranch, 'dev');
   assert.deepEqual(profile.records[0].integration.paths, [
@@ -93,6 +122,10 @@ test('current-Base integration authority is a generic Base-owned registry with t
   assert.match(verifier, /QA product patch equivalence/);
   assert.match(verifier, /Base advance path set or digest mismatch/);
   assert.match(verifier, /Base advance commit count/);
+  assert.match(verifier, /permanently rejected governance candidate/);
+  assert.match(verifier, /corrective merge parent topology mismatch/);
+  assert.match(verifier, /corrective merge tree/);
+  assert.match(verifier, /protected governance chain commit count/);
   assert.match(verifier, /registryAtBase/);
   assert.match(verifier, /fixedSuccessorRegressionManifest/);
   assert.match(verifier, /candidate self-authorization or control-plane change/);
