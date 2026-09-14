@@ -26,11 +26,28 @@ const BASE_ADVANCE_PATHS = Object.freeze([
   'scripts/fixed-pr-admission.mjs',
   'scripts/fixed-pr-admission.profile.json',
 ]);
+const REGISTRY_PATHS = Object.freeze([
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+]);
+const CORRECTIVE_PATHS = Object.freeze([
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+]);
 const QA_BASE = '2'.repeat(40);
 const QA_HEAD = '1'.repeat(40);
 const CURRENT_BASE = '3'.repeat(40);
 const INTEGRATION_HEAD = '4'.repeat(40);
 const PATCH_ID = '5'.repeat(40);
+const REGISTRY_MERGE = '6'.repeat(40);
+const REGISTRY_HEAD = '7'.repeat(40);
+const CORRECTIVE_CANDIDATE = '8'.repeat(40);
+const PROTECTED_BASE = '9'.repeat(40);
+const PROTECTED_TREE = 'a'.repeat(40);
+const PERMANENTLY_REJECTED = 'a1577f161d644dddcda6b6c6485a344d2869e9ae';
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -38,7 +55,7 @@ function clone(value) {
 
 function registryWithRecord() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 4,
     kind: 'base-owned-current-base-integration-registry',
     authority: {
       repository: 'susiexuejing/chat-app',
@@ -81,6 +98,21 @@ function registryWithRecord() {
         pathDigest: canonicalPathDigest(BASE_ADVANCE_PATHS),
         zeroProductPathOverlap: true,
       },
+      protectedGovernanceChain: {
+        productBaseSha: CURRENT_BASE,
+        registryMergeSha: REGISTRY_MERGE,
+        registryHeadSha: REGISTRY_HEAD,
+        registryMergeParentShas: [CURRENT_BASE, REGISTRY_HEAD],
+        registryPaths: [...REGISTRY_PATHS],
+        registryPathCount: REGISTRY_PATHS.length,
+        registryPathDigest: canonicalPathDigest(REGISTRY_PATHS),
+        correctiveParentSha: REGISTRY_MERGE,
+        correctivePaths: [...CORRECTIVE_PATHS],
+        correctivePathCount: CORRECTIVE_PATHS.length,
+        correctivePathDigest: canonicalPathDigest(CORRECTIVE_PATHS),
+        permanentlyRejectedCandidateShas: [PERMANENTLY_REJECTED],
+        zeroProductPathOverlap: true,
+      },
       regression: {
         selector: 'chat-ui-jest-path',
         outputManifest: {
@@ -107,7 +139,7 @@ function acceptedEvent(eventName = 'pull_request_target') {
         repoFullName: record.integration.sourceRepository,
       },
       base: {
-        sha: record.integration.currentBaseSha,
+        sha: PROTECTED_BASE,
         ref: record.integration.targetBranch,
         repoFullName: record.integration.sourceRepository,
       },
@@ -118,7 +150,7 @@ function acceptedEvent(eventName = 'pull_request_target') {
 function acceptedEvidence() {
   const record = registryWithRecord().records[0];
   return {
-    protectedBaseCheckoutSha: record.integration.currentBaseSha,
+    protectedBaseCheckoutSha: PROTECTED_BASE,
     productOriginalBaseIncludedInCurrentBase: true,
     candidateResolvedSha: record.integration.headSha,
     candidateParentShas: [record.integration.currentBaseSha],
@@ -128,6 +160,17 @@ function acceptedEvidence() {
     candidateControlPlanePaths: [],
     baseAdvancePaths: [...record.baseAdvance.paths],
     baseAdvanceCommitCount: record.baseAdvance.commitCount,
+    registryMergeIncludedInProtectedBase: true,
+    registryMergeParentShas: [...record.protectedGovernanceChain.registryMergeParentShas],
+    registryMergePaths: [...record.protectedGovernanceChain.registryPaths],
+    registryMergeCommitCount: 2,
+    correctiveCandidateSha: CORRECTIVE_CANDIDATE,
+    protectedBaseParentShas: [REGISTRY_MERGE, CORRECTIVE_CANDIDATE],
+    correctiveCandidateParentShas: [REGISTRY_MERGE],
+    protectedBaseTreeSha: PROTECTED_TREE,
+    correctiveCandidateTreeSha: PROTECTED_TREE,
+    protectedGovernanceCommitCount: 2,
+    protectedGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
     registryPresentAtBase: true,
     registryMatchesBase: true,
     candidateProvidedAuthority: false,
@@ -180,6 +223,24 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
       pathDigest: canonicalPathDigest([]),
       zeroProductPathOverlap: true,
     },
+    protectedGovernanceChain: {
+      productBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      registryMergeSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+      registryHeadSha: 'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
+      registryMergeParentShas: [
+        'fed71b289db431370f8789163d7d3c5602936689',
+        'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
+      ],
+      registryPaths: [...REGISTRY_PATHS],
+      registryPathCount: REGISTRY_PATHS.length,
+      registryPathDigest: canonicalPathDigest(REGISTRY_PATHS),
+      correctiveParentSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+      correctivePaths: [...CORRECTIVE_PATHS],
+      correctivePathCount: CORRECTIVE_PATHS.length,
+      correctivePathDigest: canonicalPathDigest(CORRECTIVE_PATHS),
+      permanentlyRejectedCandidateShas: [PERMANENTLY_REJECTED],
+      zeroProductPathOverlap: true,
+    },
     regression: {
       selector: 'chat-ui-jest-path',
       outputManifest: {
@@ -203,14 +264,14 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
         repoFullName: record.integration.sourceRepository,
       },
       base: {
-        sha: record.integration.currentBaseSha,
+        sha: PROTECTED_BASE,
         ref: record.integration.targetBranch,
         repoFullName: record.integration.sourceRepository,
       },
     },
   };
   const evidence = {
-    protectedBaseCheckoutSha: record.integration.currentBaseSha,
+    protectedBaseCheckoutSha: PROTECTED_BASE,
     productOriginalBaseIncludedInCurrentBase: true,
     candidateResolvedSha: record.integration.headSha,
     candidateParentShas: [record.integration.currentBaseSha],
@@ -220,6 +281,17 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
     candidateControlPlanePaths: [],
     baseAdvancePaths: [],
     baseAdvanceCommitCount: 0,
+    registryMergeIncludedInProtectedBase: true,
+    registryMergeParentShas: [...record.protectedGovernanceChain.registryMergeParentShas],
+    registryMergePaths: [...record.protectedGovernanceChain.registryPaths],
+    registryMergeCommitCount: 2,
+    correctiveCandidateSha: CORRECTIVE_CANDIDATE,
+    protectedBaseParentShas: [record.protectedGovernanceChain.registryMergeSha, CORRECTIVE_CANDIDATE],
+    correctiveCandidateParentShas: [record.protectedGovernanceChain.registryMergeSha],
+    protectedBaseTreeSha: PROTECTED_TREE,
+    correctiveCandidateTreeSha: PROTECTED_TREE,
+    protectedGovernanceCommitCount: 2,
+    protectedGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
     registryPresentAtBase: true,
     registryMatchesBase: true,
     candidateProvidedAuthority: false,
@@ -317,11 +389,53 @@ test('integration identity requires current Base as exact parent and merge-base'
 
 test('event identity rejects wrong Head, Base, source, target, repository, and event', () => {
   rejected(({ event }) => { event.pullRequest.head.sha = '6'.repeat(40); }, /integration head/);
-  rejected(({ event }) => { event.pullRequest.base.sha = '6'.repeat(40); }, /target current Base/);
+  rejected(({ event }) => { event.pullRequest.base.sha = '6'.repeat(40); }, /protected Base checkout/);
   rejected(({ event }) => { event.pullRequest.head.ref = 'cell2/wrong'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.pullRequest.base.ref = 'main'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.pullRequest.head.repoFullName = 'other/repo'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.eventName = 'push'; }, /event mismatch/);
+});
+
+test('protected governance chain accepts only one audited registry merge plus one Bootstrap corrective merge', () => {
+  rejected(({ evidence }) => { evidence.registryMergeIncludedInProtectedBase = false; }, /registry merge is not included/);
+  rejected(({ evidence }) => { evidence.registryMergeParentShas.reverse(); }, /registry merge parent topology/);
+  rejected(({ evidence }) => { evidence.registryMergeCommitCount = 3; }, /registry merge commit count/);
+  rejected(({ evidence }) => { evidence.registryMergePaths.push('scripts/unapproved-registry.mjs'); }, /registry governance path set/);
+  rejected(({ evidence }) => { evidence.protectedBaseParentShas.reverse(); }, /corrective merge parent topology/);
+  rejected(({ evidence }) => { evidence.correctiveCandidateParentShas = [REGISTRY_MERGE, CURRENT_BASE]; }, /single-parent registry merge/);
+  rejected(({ evidence }) => { evidence.protectedBaseTreeSha = 'b'.repeat(40); }, /corrective merge tree/);
+  rejected(({ evidence }) => { evidence.protectedGovernanceCommitCount = 3; }, /protected governance chain commit count/);
+  rejected(({ evidence }) => { evidence.protectedGovernancePaths.push('scripts/unapproved-corrective.mjs'); }, /corrective governance path set/);
+  rejected(({ evidence }) => { evidence.protectedGovernancePaths.push(PRODUCT_PATHS[0]); evidence.protectedGovernancePaths.sort(); }, /corrective governance path set|overlaps product paths/);
+});
+
+test('the failed a1577f corrective Candidate is permanently rejected', () => {
+  rejected(({ evidence }) => {
+    evidence.correctiveCandidateSha = PERMANENTLY_REJECTED;
+    evidence.protectedBaseParentShas[1] = PERMANENTLY_REJECTED;
+  }, /permanently rejected governance candidate/);
+  rejected(({ event, evidence }) => {
+    event.pullRequest.base.sha = PERMANENTLY_REJECTED;
+    evidence.protectedBaseCheckoutSha = PERMANENTLY_REJECTED;
+  }, /permanently rejected governance candidate/);
+});
+
+test('profile rejects governance topology, path, overlap, and rejected-SHA ambiguity', () => {
+  const wrongRegistryTopology = registryWithRecord();
+  wrongRegistryTopology.records[0].protectedGovernanceChain.registryMergeParentShas.reverse();
+  assert.throws(() => validateProfile(wrongRegistryTopology), /registry merge parent topology/);
+  const wrongCorrectiveParent = registryWithRecord();
+  wrongCorrectiveParent.records[0].protectedGovernanceChain.correctiveParentSha = CURRENT_BASE;
+  assert.throws(() => validateProfile(wrongCorrectiveParent), /corrective parent\/registry merge/);
+  const overlap = registryWithRecord();
+  overlap.records[0].protectedGovernanceChain.correctivePaths.push(PRODUCT_PATHS[0]);
+  overlap.records[0].protectedGovernanceChain.correctivePaths.sort();
+  overlap.records[0].protectedGovernanceChain.correctivePathCount += 1;
+  overlap.records[0].protectedGovernanceChain.correctivePathDigest = canonicalPathDigest(overlap.records[0].protectedGovernanceChain.correctivePaths);
+  assert.throws(() => validateProfile(overlap), /overlaps product paths/);
+  const duplicatedRejected = registryWithRecord();
+  duplicatedRejected.records[0].protectedGovernanceChain.permanentlyRejectedCandidateShas.push(PERMANENTLY_REJECTED);
+  assert.throws(() => validateProfile(duplicatedRejected), /not canonical/);
 });
 
 test('observed patch must match both the QA product and integration records', () => {
