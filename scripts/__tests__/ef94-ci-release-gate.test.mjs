@@ -58,61 +58,33 @@ test('fixed admission falls through to Base-owned review manifest when the profi
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('EF-111 authority freezes PR 101, its three-path patch, and the exact 17-path Base advance', async () => {
+test('current-Base integration authority is a generic empty Base-owned registry', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
   ]);
-  assert.equal(profile.kind, 'integrated-successor-pr-admission');
-  assert.equal(profile.ticket, 'EF-177');
-  assert.equal(profile.authorityFloorSha, 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d');
-  assert.equal(profile.product.pullRequestNumber, 101);
-  assert.equal(profile.product.headPolicy, 'fixed-head-exact-parent-and-base-advance');
-  assert.equal(profile.product.headSha, 'cccf87a33e454535f086174f75fd97a87e2c8968');
-  assert.equal(profile.product.parentSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
-  assert.equal(profile.product.originalBaseSha, '105a71db994e8a579923b309bd3f7aad7b70ecab');
-  assert.equal(profile.product.currentBaseSha, 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d');
-  assert.deepEqual(profile.product.ancestryShas, [
-    '105a71db994e8a579923b309bd3f7aad7b70ecab',
-    'cccf87a33e454535f086174f75fd97a87e2c8968',
-  ]);
-  assert.equal(profile.product.patchId, '13048554cc0abb329720a51fe69d0afbeb0a05d0');
-  assert.equal(profile.product.sourceBranch, 'cell1/ef177-history-new-conversation-r1');
-  assert.deepEqual(profile.product.paths, [
-    'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
-    'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
-    'client/screens/chat/components/RoleHeader.tsx',
-  ]);
-  assert.equal(profile.product.pathDigest, 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb');
-  assert.equal(profile.product.releaseGateRoute, 'base-owned-review-manifest');
-  assert.deepEqual(profile.product.allowedTargetBaseAdvancePaths, [
-    '.gitleaks.toml',
-    'scripts/__tests__/ef111-review-manifest.test.mjs',
-    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-    'scripts/__tests__/fixed-pr-admission.test.mjs',
-    'scripts/ef111-scope.manifest.json',
-    'scripts/fixed-pr-admission.mjs',
-    'scripts/fixed-pr-admission.profile.json',
-    'scripts/review-manifest.mjs',
-    'server/src/__tests__/ef75-anonymous-session.test.ts',
-    'server/src/__tests__/ef75-chat-ownership.test.ts',
-    'server/src/__tests__/ef75-conversation-ownership.test.ts',
-    'server/src/index.ts',
-    'server/src/routes/conversations.ts',
-    'server/src/security/anonymousSession.ts',
-    'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
-    'server/src/storage/database/rds-owner-binding-store.ts',
-    'server/src/storage/database/rds-runtime-config.ts',
-  ]);
-  assert.deepEqual(profile.legacyPullRequestNumbers, [93, 99]);
+  assert.deepEqual(profile, {
+    schemaVersion: 2,
+    kind: 'base-owned-current-base-integration-registry',
+    authority: {
+      repository: 'susiexuejing/chat-app',
+      targetBranch: 'dev',
+      governanceSelfAdmission: 'forbidden',
+      recordOrder: 'id-lf-ascending',
+    },
+    records: [],
+  });
+  assert.match(verifier, /no unique Base-owned registry match/);
   assert.match(verifier, /candidate must have exactly one parent/);
   assert.match(verifier, /candidate parent SHA/);
-  assert.match(verifier, /candidate ancestry chain mismatch/);
-  assert.match(verifier, /firstParentChain/);
-  assert.match(verifier, /candidate patch ID/);
-  assert.match(verifier, /gitPatchId\(profile\.product\.parentSha, headSha, candidateRoot\)/);
-  assert.doesNotMatch(verifier, /gitPatchId\(profile\.product\.originalBaseSha, headSha, candidateRoot\)/);
+  assert.match(verifier, /candidate merge-base SHA/);
+  assert.match(verifier, /QA product patch equivalence/);
+  assert.match(verifier, /Base advance path set or digest mismatch/);
+  assert.match(verifier, /Base advance commit count/);
+  assert.match(verifier, /registryAtBase/);
+  assert.match(verifier, /fixedSuccessorRegressionManifest/);
   assert.match(verifier, /candidate self-authorization or control-plane change/);
+  assert.doesNotMatch(verifier, /secrets\./);
 });
 
 test('scope authority runs before candidate-only install and release regression', async () => {
