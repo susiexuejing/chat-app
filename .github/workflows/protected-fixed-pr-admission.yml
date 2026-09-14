@@ -2,11 +2,13 @@ name: Protected Fixed PR Admission
 
 on:
   pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches:
       - dev
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   fixed-successor-admission:
@@ -15,16 +17,32 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      # pull_request_target loads this workflow from protected dev. The event Head
-      # is data only; this job never checks it out or executes its contents.
-      - name: Checkout protected Base authority
-        uses: actions/checkout@v4
+      # This pinned platform action resolves refs/heads/dev exactly once. The
+      # resolved commit must also be the commit that supplied this workflow.
+      # No pull-request Head file is checked out, read, sourced, or executed.
+      - name: Checkout protected dev authority snapshot
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          repository: susiexuejing/chat-app
+          ref: refs/heads/dev
           path: authority
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify fixed successor admission from protected Base
+      - name: Freeze protected dev authority snapshot
+        id: authority_snapshot
         working-directory: authority
+        shell: bash
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: |
+          set -euo pipefail
+          AUTHORITY_SHA="$(git rev-parse --verify HEAD)"
+          test "$AUTHORITY_SHA" = "$EXPECTED_WORKFLOW_SHA"
+          echo "sha=$AUTHORITY_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Verify fixed admission from protected snapshot
+        working-directory: authority
+        env:
+          EF_AUTHORITY_SNAPSHOT_SHA: ${{ steps.authority_snapshot.outputs.sha }}
         run: node scripts/fixed-pr-admission.mjs

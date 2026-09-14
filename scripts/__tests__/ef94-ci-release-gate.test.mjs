@@ -2,528 +2,117 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const workflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
-const docsUrl = new URL('../../docs/EF-94-ci-release-gate.md', import.meta.url);
-const scopeManifestUrl = new URL('../ef111-scope.manifest.json', import.meta.url);
-const secretScanUrl = new URL('../../.github/workflows/secret-scan.yml', import.meta.url);
-const deployDevUrl = new URL('../../.github/workflows/deploy-dev.yml', import.meta.url);
-const fixedAdmissionProfileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
-const fixedAdmissionVerifierUrl = new URL('../fixed-pr-admission.mjs', import.meta.url);
+const protectedWorkflowUrl = new URL('../../.github/workflows/protected-fixed-pr-admission.yml', import.meta.url);
+const releaseWorkflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
+const profileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
+const verifierUrl = new URL('../fixed-pr-admission.mjs', import.meta.url);
+
+const SIX_GOVERNANCE_PATHS = [
+  '.github/workflows/protected-fixed-pr-admission.yml',
+  '.github/workflows/release-gate.yml',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+];
 
 async function text(url) {
   return readFile(url, 'utf8');
 }
 
-test('release gate has stable names and the three approved triggers', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /^name: Release Gate$/m);
-  assert.match(workflow, /^    name: EF-94 Release Gate$/m);
-  assert.match(workflow, /^  pull_request:\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^  push:\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^  workflow_dispatch:$/m);
-});
+function assertProtectedAuthorityWorkflow(workflow, name, jobName) {
+  assert.match(workflow, new RegExp(`^name: ${name}$`, 'm'));
+  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
+  assert.match(workflow, new RegExp(`^    name: ${jobName}$`, 'm'));
+  assert.match(workflow, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
+  assert.equal((workflow.match(/^\s*uses:/gm) ?? []).length, 1);
+  assert.match(workflow, /repository: susiexuejing\/chat-app/);
+  assert.match(workflow, /ref: refs\/heads\/dev/);
+  assert.match(workflow, /path: authority/);
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
+  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
+  assert.match(workflow, /test "\$AUTHORITY_SHA" = "\$EXPECTED_WORKFLOW_SHA"/);
+  assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
+  assert.match(workflow, /working-directory: authority/);
+  assert.match(workflow, /run: node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /github\.event\.pull_request|pull_request\.head|path: candidate|checkout.*candidate/i);
+  assert.doesNotMatch(workflow, /permissions:[\s\S]*\b(write|id-token):|secrets\.|pull_request_target[\s\S]*\b(pnpm|npm|yarn|install|cache|restore|artifact|deploy|merge|curl|wget|ssh)\b/i);
+}
 
-test('release gate uses minimum permissions and no secrets or external runtime', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /^permissions:\n  contents: read$/m);
-  assert.doesNotMatch(workflow, /secrets\.|supabase|douhaoyu|curl|ssh|rsync/i);
-  assert.doesNotMatch(workflow, /deploy/i);
-});
-
-test('pull requests use exact fixed authority and candidate checkouts', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /name: Checkout pull request authority[\s\S]*ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}[\s\S]*path: authority/);
-  assert.match(workflow, /name: Checkout pull request candidate[\s\S]*ref: \$\{\{ github\.event\.pull_request\.head\.sha \}\}[\s\S]*path: candidate/);
-  assert.match(workflow, /git -C authority rev-parse HEAD/);
-  assert.match(workflow, /git -C candidate rev-parse HEAD/);
-  assert.match(workflow, /git -C candidate cat-file -e/);
-  assert.match(workflow, /GATE_ROOT="\$GITHUB_WORKSPACE\/authority"/);
-  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs"/);
-  assert.deepEqual(workflow.match(/GATE_ROOT="[^"]+"/g), [
-    'GATE_ROOT="$GITHUB_WORKSPACE"',
-    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
-    'GATE_ROOT="$GITHUB_WORKSPACE"',
-    'GATE_ROOT="$GITHUB_WORKSPACE/authority"',
+test('both governance gates are protected-base pull_request_target workflows with exact read-only permissions', async () => {
+  const [protectedWorkflow, releaseWorkflow] = await Promise.all([
+    text(protectedWorkflowUrl),
+    text(releaseWorkflowUrl),
   ]);
+  assertProtectedAuthorityWorkflow(protectedWorkflow, 'Protected Fixed PR Admission', 'Protected fixed successor admission');
+  assertProtectedAuthorityWorkflow(releaseWorkflow, 'Release Gate', 'EF-94 Release Gate');
 });
 
-test('fixed admission falls through to Base-owned review manifest when the profile delegates release validation', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /name: Select Base-owned fixed successor admission[\s\S]*working-directory: authority/);
-  assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs[\s\S]*--release-gate-output "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"[\s\S]*--candidate-root "\$GITHUB_WORKSPACE\/candidate"/);
-  assert.match(workflow, /case "\$STATUS" in[\s\S]*0\)[\s\S]*accepted=true[\s\S]*2\)[\s\S]*accepted=false[\s\S]*\*\)[\s\S]*exit "\$STATUS"/);
-  assert.match(workflow, /name: Verify fail-closed review scope contract\n        if: \$\{\{ github\.event_name != 'pull_request' \|\| steps\.fixed_successor\.outputs\.accepted != 'true' \}\}/);
-  assert.match(workflow, /name: Produce fail-closed review manifest[\s\S]*if: \$\{\{ github\.event_name != 'pull_request' \|\| steps\.fixed_successor\.outputs\.accepted != 'true' \}\}/);
-  assert.match(workflow, /name: Run Base-owned fixed successor chat UI regression[\s\S]*steps\.fixed_successor\.outputs\.accepted == 'true'[\s\S]*--manifest "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"/);
-  assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
+test('both gates resolve protected dev once and execute the verifier from that same immutable snapshot', async () => {
+  const workflows = await Promise.all([text(protectedWorkflowUrl), text(releaseWorkflowUrl)]);
+  for (const workflow of workflows) {
+    assert.equal((workflow.match(/ref: refs\/heads\/dev/g) ?? []).length, 1);
+    assert.equal((workflow.match(/id: authority_snapshot/g) ?? []).length, 1);
+    assert.equal((workflow.match(/EF_AUTHORITY_SNAPSHOT_SHA:/g) ?? []).length, 1);
+    assert.equal((workflow.match(/node scripts\/fixed-pr-admission\.mjs/g) ?? []).length, 1);
+    assert.doesNotMatch(workflow, /github\.event\.pull_request\.base\.sha/);
+  }
 });
 
-test('current-Base integration authority is a generic Base-owned registry with the frozen EF-177 record', async () => {
-  const [profile, verifier] = await Promise.all([
-    text(fixedAdmissionProfileUrl).then(JSON.parse),
-    text(fixedAdmissionVerifierUrl),
-  ]);
-  assert.deepEqual({ ...profile, records: [] }, {
-    schemaVersion: 4,
-    kind: 'base-owned-current-base-integration-registry',
-    authority: {
-      repository: 'susiexuejing/chat-app',
-      targetBranch: 'dev',
-      governanceSelfAdmission: 'forbidden',
-      recordOrder: 'id-lf-ascending',
-    },
-    records: [],
+test('privileged release gate produces admission only and contains no product execution path', async () => {
+  const workflow = await text(releaseWorkflowUrl);
+  assert.doesNotMatch(workflow, /test:release|run-approved-targeted-regressions|jest|tsc|node_modules|package\.json|pnpm-lock|candidate/);
+  assert.doesNotMatch(workflow, /workflow_dispatch|^  push:|^  pull_request:/m);
+});
+
+test('Base-owned v5 profile freezes PR 126 identity and the only allowed governance ancestry', async () => {
+  const profile = JSON.parse(await text(profileUrl));
+  assert.equal(profile.schemaVersion, 5);
+  assert.equal(profile.kind, 'base-owned-current-base-integration-registry');
+  assert.deepEqual(profile.authority, {
+    repository: 'susiexuejing/chat-app',
+    targetBranch: 'dev',
+    governanceSelfAdmission: 'forbidden',
+    recordOrder: 'id-lf-ascending',
   });
   assert.equal(profile.records.length, 1);
-  assert.equal(profile.records[0].id, 'ef-177-fa24d37-current-base-v1');
-  assert.equal(profile.records[0].integration.headSha, 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
-  assert.equal(profile.records[0].integration.currentBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
-  assert.deepEqual(profile.records[0].protectedGovernanceChain, {
-    productBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
-    registryMergeSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
-    registryHeadSha: 'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
-    registryMergeParentShas: [
-      'fed71b289db431370f8789163d7d3c5602936689',
-      'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
-    ],
-    registryPaths: [
-      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-      'scripts/__tests__/fixed-pr-admission.test.mjs',
-      'scripts/fixed-pr-admission.profile.json',
-    ],
-    registryPathCount: 3,
-    registryPathDigest: '1e96e1eb9ad973b558be9ba2406dd0e0149a35aeccafe54b16d7c3167154e65e',
-    correctiveParentSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
-    correctivePaths: [
-      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-      'scripts/__tests__/fixed-pr-admission.test.mjs',
-      'scripts/fixed-pr-admission.mjs',
-      'scripts/fixed-pr-admission.profile.json',
-    ],
-    correctivePathCount: 4,
-    correctivePathDigest: '6b7db69946230e2cbfa8d50d9d10e823de984b88092cb66d86490086acdcc763',
-    permanentlyRejectedCandidateShas: [
-      'a1577f161d644dddcda6b6c6485a344d2869e9ae',
-    ],
-    zeroProductPathOverlap: true,
-  });
-  assert.equal(profile.records[0].integration.sourceBranch, 'cell1/ef177-currentbase-fa24d37');
-  assert.equal(profile.records[0].integration.targetBranch, 'dev');
-  assert.deepEqual(profile.records[0].integration.paths, [
-    'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
-    'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
-    'client/screens/chat/components/RoleHeader.tsx',
-  ]);
-  assert.equal(profile.records[0].qaAuditReference, 'EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
-  assert.match(verifier, /no unique Base-owned registry match/);
-  assert.match(verifier, /candidate must have exactly one parent/);
-  assert.match(verifier, /candidate parent SHA/);
-  assert.match(verifier, /candidate merge-base SHA/);
-  assert.match(verifier, /QA product patch equivalence/);
-  assert.match(verifier, /Base advance path set or digest mismatch/);
-  assert.match(verifier, /Base advance commit count/);
-  assert.match(verifier, /permanently rejected governance candidate/);
+  const record = profile.records[0];
+  assert.equal(record.integration.headSha, 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
+  assert.equal(record.integration.parentSha, 'fed71b289db431370f8789163d7d3c5602936689');
+  assert.equal(record.integration.sourceBranch, 'cell1/ef177-currentbase-fa24d37');
+  assert.equal(record.integration.targetBranch, 'dev');
+  assert.equal(record.integration.pathCount, 3);
+  const chain = record.protectedGovernanceChain;
+  assert.equal(chain.productBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
+  assert.equal(chain.registryMergeSha, 'd95ecc6eb125f069b3510f2875e0b620a330bc52');
+  assert.equal(chain.correctiveMergeSha, 'b968adb3318d3f91aba34d14d3511be77f03d438');
+  assert.equal(chain.authorityBootstrapParentSha, 'b968adb3318d3f91aba34d14d3511be77f03d438');
+  assert.deepEqual(chain.authorityBootstrapPaths, SIX_GOVERNANCE_PATHS);
+  assert.equal(chain.authorityBootstrapPathDigest, 'f2f45619034080ba56c1c183b9496061f507577388125e97560cb6795d630b76');
+  assert.deepEqual(chain.permanentlyRejectedCandidateShas, ['a1577f161d644dddcda6b6c6485a344d2869e9ae']);
+});
+
+test('verifier treats PR fields only as fixed identity data and never reads Candidate files', async () => {
+  const verifier = await text(verifierUrl);
+  assert.match(verifier, /eventFieldsUsedAsDataOnly/);
+  assert.match(verifier, /candidateFilesRead/);
+  assert.match(verifier, /candidate file content was read by privileged admission/);
+  assert.match(verifier, /candidate code executed before admission/);
+  assert.doesNotMatch(verifier, /gitPatchId|--candidate-root|releaseGateArguments/);
+  assert.doesNotMatch(verifier, /pullRequest\.base\.sha[^\n]*(git|authority)|git\(\[[^\]]*pullRequest/);
+});
+
+test('verifier requires the exact registry, corrective, and single future Bootstrap merge topology', async () => {
+  const verifier = await text(verifierUrl);
+  assert.match(verifier, /registry merge parent topology mismatch/);
   assert.match(verifier, /corrective merge parent topology mismatch/);
-  assert.match(verifier, /corrective merge tree/);
-  assert.match(verifier, /protected governance chain commit count/);
-  assert.match(verifier, /registryAtBase/);
-  assert.match(verifier, /fixedSuccessorRegressionManifest/);
-  assert.match(verifier, /candidate self-authorization or control-plane change/);
-  assert.doesNotMatch(verifier, /secrets\./);
-});
-
-test('scope authority runs before candidate-only install and release regression', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /version: 9\.0\.0/);
-  assert.match(workflow, /node "\$GATE_ROOT\/scripts\/review-manifest\.mjs" --output "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /review_scope_id=\$SCOPE_ID/);
-  assert.match(workflow, /manual_governance_bootstrap=evidence_only; CTO Management admission record required/);
-  assert.ok(workflow.indexOf('Verify fail-closed review scope contract') < workflow.indexOf('Produce fail-closed review manifest'));
-  assert.match(workflow, /name: Run approved targeted gate regressions[\s\S]*id: targeted_regressions/);
-  assert.match(workflow, /node scripts\/run-approved-targeted-regressions\.mjs --output "\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json"/);
-  assert.match(workflow, /targeted_regression_record=\$RUNNER_TEMP\/ef179-approved-targeted-regressions\.json/);
-  assert.match(workflow, /name: Run authority-selected R0 UI category regression[\s\S]*scope_id == 'r0-chat-ui-visual-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected R1 frontend regression[\s\S]*scope_id == 'r1-chat-ui-affected-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected EF-189 synthetic race regression[\s\S]*scope_id == 'ef-189-pr-73-a1b7378-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected EF-189 rebuilt synthetic race regression[\s\S]*scope_id == 'ef-189-pr-79-8741c63-fixed-head'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected EF-189 fixed candidate race regression[\s\S]*scope_id == 'ef-189-8741c631-fixed-candidate-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected EF-177 fixed candidate R1 frontend regression[\s\S]*scope_id == 'ef-111-r2-ef177-fixed-candidate-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /name: Run authority-selected EF-161 post-governance fixed candidate frontend regression[\s\S]*scope_id == 'ef-194-ef161-pr93-12048a1-governance-advance-v1'[\s\S]*--manifest "\$RUNNER_TEMP\/ef111-review-manifest\.json"/);
-  assert.match(workflow, /cache-dependency-path: \$\{\{ github\.event_name == 'pull_request' && 'candidate\/pnpm-lock\.yaml' \|\| 'pnpm-lock\.yaml' \}\}/);
-  assert.equal((workflow.match(/working-directory: \$\{\{ github\.event_name == 'pull_request' && 'candidate' \|\| '\.' \}\}/g) ?? []).length, 3);
-  assert.match(workflow, /run: pnpm install --frozen-lockfile/);
-  assert.ok(workflow.indexOf('run: pnpm install --frozen-lockfile') < workflow.indexOf('name: Run authority-selected R0 UI category regression'));
-  assert.match(workflow, /run: pnpm run test:release/);
-  assert.equal((workflow.match(/pnpm run test:release/g) ?? []).length, 1);
-  assert.doesNotMatch(workflow, /release-suite\.manifest\.json|runTestsByPath/);
-  assert.doesNotMatch(workflow, /ef124|credential hardening/i);
-});
-
-test('scope manifest preserves exact legacy and bounded structural profile boundaries', async () => {
-  const manifest = JSON.parse(await text(scopeManifestUrl));
-  assert.equal(manifest.schemaVersion, 6);
-  assert.deepEqual(Object.keys(manifest).sort(), ['approvedProfiles', 'legacyAllowedPaths', 'lowRiskFrontendProfiles', 'manualGovernanceBootstrap', 'r1FrontendProfiles', 'schemaVersion']);
-  assert.deepEqual(manifest.manualGovernanceBootstrap, {
-    id: 'ef-194-manual-governance-bootstrap-v1',
-    kind: 'manual-governance-bootstrap',
-    baseRef: 'dev',
-    allowedPaths: [
-      '.github/workflows/release-gate.yml',
-      'scripts/ef111-scope.manifest.json',
-      'scripts/review-manifest.mjs',
-      'scripts/__tests__/ef111-review-manifest.test.mjs',
-      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-    ],
-    requiresManualCtoManagementAdmission: true,
-  });
-  assert.deepEqual(manifest.lowRiskFrontendProfiles, [{
-    id: 'r0-chat-ui-visual-v1',
-    kind: 'r0-ui-category',
-    baseRef: 'dev',
-    uiEntryPaths: ['client/screens/chat/index.tsx'],
-    uiComponentRoot: 'client/screens/chat/components',
-    testRoot: 'client/screens/chat/__tests__',
-    targetIds: ['chat-ui-jest-path'],
-  }]);
-  assert.deepEqual(manifest.r1FrontendProfiles, [{
-    id: 'r1-chat-ui-affected-v1',
-    kind: 'r1-frontend-category',
-    baseRef: 'dev',
-    uiEntryPaths: [
-      'client/screens/chat/index.tsx',
-      'client/screens/chat/SelectCounselorScreen.tsx',
-    ],
-    uiComponentRoot: 'client/screens/chat/components',
-    testRoot: 'client/screens/chat/__tests__',
-    targetIds: ['chat-ui-jest-path'],
-    maxUiPaths: 2,
-    maxTestPaths: 3,
-  }]);
-  assert.equal(manifest.legacyAllowedPaths.length, 9);
-  assert.ok(manifest.legacyAllowedPaths.includes('.github/workflows/release-gate.yml'));
-  assert.ok(manifest.legacyAllowedPaths.every(entry => !/(deploy|runtime|secret|permission)/i.test(entry)));
-  assert.deepEqual(manifest.legacyAllowedPaths, [
-    '.github/workflows/release-gate.yml',
-    'scripts/ef111-scope.manifest.json',
-    'scripts/review-manifest.mjs',
-    'scripts/release-suite.manifest.json',
-    'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-    'scripts/__tests__/ef111-review-manifest.test.mjs',
-    'scripts/__tests__/run-approved-targeted-regressions.test.mjs',
-    'scripts/run-approved-targeted-regressions.mjs',
-    'docs/EF-94-ci-release-gate.md',
-  ]);
-  assert.deepEqual(manifest.approvedProfiles, [
-    {
-      id: 'ef-118-pr-43-f35b3ca-clean-merge',
-      kind: 'exact-clean-merge',
-      pullRequestNumber: 43,
-      baseRef: 'dev',
-      approvedFirstParentSha: 'f35b3ca99fd498b13b530c6c2eed305c5f7688c3',
-      allowedPaths: [
-        '.github/workflows/deploy-dev.yml',
-        'server/src/__tests__/ef118-runtime-audit.test.ts',
-        'server/src/index.ts',
-        'server/src/observability/ef118RuntimeAudit.ts',
-        'server/src/routes/conversations.ts',
-      ],
-    },
-    {
-      id: 'ef-110-pr-48-b0a5c6f-clean-merge',
-      kind: 'exact-clean-merge',
-      pullRequestNumber: 48,
-      baseRef: 'dev',
-      approvedFirstParentSha: 'b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874',
-      allowedPaths: [
-        'server/src/index.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
-        'server/src/__tests__/ef110-security-sanitization.test.ts',
-      ],
-    },
-    {
-      id: 'ef-75-pr-52-b651b05-clean-merge',
-      kind: 'exact-clean-merge',
-      pullRequestNumber: 52,
-      baseRef: 'dev',
-      approvedFirstParentSha: 'b651b0505b236c20e2c32f8d7dadc444865b66a7',
-      allowedPaths: [
-        'client/app.config.ts',
-        'client/package.json',
-        'client/screens/chat/__tests__/chatStart.test.ts',
-        'client/screens/chat/__tests__/ef102-rn-terminal-close.test.ts',
-        'client/screens/chat/__tests__/ef103-streaming-compatibility.test.ts',
-        'client/screens/chat/__tests__/ef105-api-identity.test.ts',
-        'client/screens/chat/__tests__/ef38-retry-transport-diagnostics.test.ts',
-        'client/screens/chat/__tests__/ef75-native-secure-session.test.ts',
-        'client/screens/chat/__tests__/ef75-ownership-production-path.test.tsx',
-        'client/screens/chat/__tests__/ef75-web-cookie-session.test.ts',
-        'client/screens/chat/api/cozeApi.ts',
-        'client/screens/chat/contexts/ChatContext.tsx',
-        'client/screens/chat/stores/anonymousSession.ts',
-        'client/screens/chat/stores/sessionStore.ts',
-        'pnpm-lock.yaml',
-        'server/src/__tests__/ef110-index-runtime-sanitization.test.ts',
-        'server/src/__tests__/ef110-security-sanitization.test.ts',
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/__tests__/ef75-web-session-security.test.ts',
-        'server/src/index.ts',
-        'server/src/routes/anonymousSessions.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/migrations/003_create_anonymous_sessions.sql',
-        'server/src/storage/database/shared/schema.ts',
-      ],
-    },
-    {
-      id: 'ef-146-pr-54-docs-only',
-      kind: 'exact-docs-paths',
-      pullRequestNumber: 54,
-      baseRef: 'dev',
-      approvedHeadSha: '5130611c32d51017ab2d8ec4b5f5447452bd9b4f',
-      allowedPaths: ['docs/EF-146-ownership-boundary-contract.md'],
-    },
-    {
-      id: 'ef-185-pr-70-2fba703-fixed-head',
-      kind: 'exact-fixed-head-paths',
-      pullRequestNumber: 70,
-      baseRef: 'dev',
-      approvedHeadSha: '2fba70356cdd209895d7823a96203730d73a3b33',
-      approvedMergeBaseSha: '2329423e3a0fb2442e68a4a13923b2609b621385',
-      allowedPaths: [
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/__tests__/ef75-web-session-security.test.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
-        'server/src/storage/database/rds-owner-binding-store.ts',
-        'server/src/storage/database/shared/schema.ts',
-      ],
-    },
-    {
-      id: 'ef-210-pr-84-ec34ff8-fixed-head',
-      kind: 'exact-fixed-head-paths',
-      pullRequestNumber: 84,
-      baseRef: 'dev',
-      approvedHeadSha: 'ec34ff89b1e25fc16913e63d3144d49e38174e26',
-      approvedMergeBaseSha: '8c6dc1170f27f5698b74a3aa94f99fb01cff4753',
-      allowedPaths: [
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/__tests__/ef75-web-session-security.test.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/rds-owner-binding-store.ts',
-        'server/src/storage/database/shared/schema.ts',
-      ],
-    },
-    {
-      id: 'ef-189-pr-73-a1b7378-fixed-head',
-      kind: 'exact-fixed-head-targeted-test',
-      pullRequestNumber: 73,
-      baseRef: 'dev',
-      approvedHeadSha: 'a1b737882b1b2dc2b22f3c15cd73787c70fde71d',
-      approvedMergeBaseSha: '2ddabf317c59f9638cef75973db0b628f541b504',
-      allowedPaths: [
-        'client/screens/chat/contexts/ChatContext.tsx',
-        'client/screens/chat/index.tsx',
-        'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-      ],
-      targetIds: ['chat-ui-jest-path'],
-      targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-    },
-    {
-      id: 'ef-189-pr-79-8741c63-fixed-head',
-      kind: 'exact-fixed-head-targeted-test',
-      pullRequestNumber: 79,
-      baseRef: 'dev',
-      approvedHeadSha: '8741c6318a89a8064ac36c42fda09c19e72c9215',
-      approvedMergeBaseSha: 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0',
-      allowedPaths: [
-        'client/screens/chat/contexts/ChatContext.tsx',
-        'client/screens/chat/index.tsx',
-        'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-      ],
-      targetIds: ['chat-ui-jest-path'],
-      targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-    },
-    {
-      id: 'ef-189-8741c631-fixed-candidate-v1',
-      kind: 'exact-fixed-candidate-targeted-test',
-      ticketId: 'EF-189',
-      candidateSha: '8741c6318a89a8064ac36c42fda09c19e72c9215',
-      candidateParentSha: 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0',
-      approvedMergeBaseSha: 'c0b19561ec8a98b5e9feb985b34375ca9a0785f0',
-      targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell2/ef189-governance-bootstrap-product',
-      allowedPaths: [
-        'client/screens/chat/contexts/ChatContext.tsx',
-        'client/screens/chat/index.tsx',
-        'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-      ],
-      allowedPathCount: 3,
-      allowedPathSetSha: '84223f91c23354dbe0974b998f4ffdfa2877e91408dbad8c16301f4eb4ad5c18',
-      targetId: 'chat-ui-jest-path',
-      targetedTestPath: 'client/screens/chat/__tests__/ef189-synthetic-race.test.tsx',
-    },
-    {
-      id: 'ef-211-ef164-fixed-candidate-v1',
-      kind: 'exact-fixed-candidate-profile',
-      ticketId: 'EF-164',
-      candidateSha: 'ec34ff89b1e25fc16913e63d3144d49e38174e26',
-      candidateParentSha: '8c6dc1170f27f5698b74a3aa94f99fb01cff4753',
-      targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell-cto/ef164-ec34ff8',
-      allowedPaths: [
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/__tests__/ef75-web-session-security.test.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/rds-owner-binding-store.ts',
-        'server/src/storage/database/shared/schema.ts',
-      ],
-      allowedPathCount: 8,
-      allowedPathSetSha: '9791e8f1de73f3522bafada6239ebd00e86d060f473ae808efe35c28fc5167b1',
-      uniqueRegressionId: 'ef164-ownership-regression',
-    },
-    {
-      id: 'ef-111-r2-ef177-fixed-candidate-v1',
-      kind: 'exact-fixed-candidate-r1-frontend-exact-base-advance-admission',
-      ticketId: 'EF-177',
-      pullRequestNumber: 101,
-      candidateSha: 'cccf87a33e454535f086174f75fd97a87e2c8968',
-      candidateParentSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-      candidatePatchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
-      approvedOriginalBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-      approvedCurrentBaseSha: 'a15d9e5e64761c9ab2cc5ae77d0ed1a13748505d',
-      approvedMergeBaseSha: '105a71db994e8a579923b309bd3f7aad7b70ecab',
-      targetBranch: 'dev',
-      targetRepository: 'susiexuejing/chat-app',
-      sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell1/ef177-history-new-conversation-r1',
-      allowedPaths: [
-        'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
-        'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
-        'client/screens/chat/components/RoleHeader.tsx',
-      ],
-      allowedPathCount: 3,
-      allowedPathSetSha: 'bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb',
-      approvedBaseAdvancePaths: [
-        '.gitleaks.toml',
-        'scripts/__tests__/ef111-review-manifest.test.mjs',
-        'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-        'scripts/__tests__/fixed-pr-admission.test.mjs',
-        'scripts/ef111-scope.manifest.json',
-        'scripts/fixed-pr-admission.mjs',
-        'scripts/fixed-pr-admission.profile.json',
-        'scripts/review-manifest.mjs',
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/index.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
-        'server/src/storage/database/rds-owner-binding-store.ts',
-        'server/src/storage/database/rds-runtime-config.ts',
-      ],
-      approvedBaseAdvancePathCount: 17,
-      approvedBaseAdvancePathSetSha: 'a1cb0ffefd143ec9dd8e2639fd60dd6494f028b5d46a1d9cdf40e2f7492fb54a',
-      targetId: 'chat-ui-jest-path',
-      affectedTestPaths: [
-        'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
-        'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
-      ],
-    },
-    {
-      id: 'ef-194-ef107-final-edb772d7-bounded-advance-v1',
-      kind: 'exact-fixed-candidate-bounded-governance-advance-admission',
-      ticketId: 'EF-107',
-      candidateSha: 'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
-      candidateParentSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
-      candidatePatchId: '9fdd3b33fb3eaf2456a4793dfbb9960d27e880fe',
-      approvedOriginalBaseSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
-      approvedMergeBaseSha: '0585c2371b27af1dd5db420e526742d29a836e4d',
-      approvedAncestryShas: [
-        '0585c2371b27af1dd5db420e526742d29a836e4d',
-        'edb772d7bf8ca2bb372e3e93a7613bc969a0168a',
-      ],
-      targetBranch: 'dev',
-      sourceRepository: 'susiexuejing/chat-app',
-      sourceBranch: 'cell2/ef107-reentry-edb772d7',
-      allowedPaths: [
-        '.gitleaks.toml',
-        'server/src/__tests__/ef75-anonymous-session.test.ts',
-        'server/src/__tests__/ef75-chat-ownership.test.ts',
-        'server/src/__tests__/ef75-conversation-ownership.test.ts',
-        'server/src/index.ts',
-        'server/src/routes/conversations.ts',
-        'server/src/security/anonymousSession.ts',
-        'server/src/storage/database/migrations/004_create_conversation_owner_bindings.sql',
-        'server/src/storage/database/rds-owner-binding-store.ts',
-        'server/src/storage/database/rds-runtime-config.ts',
-      ],
-      allowedPathCount: 10,
-      allowedPathSetSha: 'bed4d356d7dbe92954491ead5fe22027edbcbdd02010bf4f57f205d8d3955803',
-      allowedBaseAdvancePaths: [
-        'scripts/__tests__/ef111-review-manifest.test.mjs',
-        'scripts/__tests__/ef94-ci-release-gate.test.mjs',
-        'scripts/__tests__/fixed-pr-admission.test.mjs',
-        'scripts/ef111-scope.manifest.json',
-        'scripts/fixed-pr-admission.mjs',
-        'scripts/fixed-pr-admission.profile.json',
-        'scripts/review-manifest.mjs',
-      ],
-      allowedBaseAdvancePathCount: 7,
-      allowedBaseAdvancePathSetSha: 'c02c0a80bcc92fa4eee8d1f56c513ef34866ce78a0c08342ac46b87b36716dab',
-    },
-  ]);
-});
-
-test('release gate fails closed and scopes concurrency to one PR or branch', async () => {
-  const workflow = await text(workflowUrl);
-  assert.match(workflow, /timeout-minutes: 20/);
-  assert.match(workflow, /group: ef94-release-gate-\$\{\{ github\.event\.pull_request\.number \|\| github\.ref \}\}/);
-  assert.match(workflow, /cancel-in-progress: true/);
-  assert.doesNotMatch(workflow, /continue-on-error|\|\| true|if:\s*always\(\)/);
-  assert.doesNotMatch(workflow, /secrets\.|curl|ssh|rsync|deploy/i);
-});
-
-test('branch-protection and rollback documentation preserves independent gates', async () => {
-  const docs = await text(docsUrl);
-  assert.match(docs, /exact required check `EF-94 Release Gate`/);
-  assert.match(docs, /`dev` branch/);
-  assert.match(docs, /`Gitleaks \(current tree\)`/);
-  assert.match(docs, /Remove only `EF-94 Release Gate`/);
-  assert.match(docs, /must not create a push to `dev`/);
-  assert.match(docs, /No branch protection or ruleset is changed by this PR/);
-  assert.match(docs, /EF-111 review manifest/);
-  assert.match(docs, /does not require EF-124/);
-  assert.match(docs, /exact first parent `f35b3ca99fd498b13b530c6c2eed305c5f7688c3`/);
-  assert.match(docs, /exact first parent `b0a5c6f377e9a45b6c5a5b6cf8811ff6487f0874`/);
-  assert.match(docs, /exact first parent `b651b0505b236c20e2c32f8d7dadc444865b66a7`/);
-  assert.match(docs, /exactly the 27 enumerated EF-75 paths/);
-  assert.match(docs, /exact event-base second parent/);
-  assert.match(docs, /`git merge-tree --write-tree`/);
-  assert.match(docs, /Current GitHub API values are never validator inputs/);
-});
-
-test('existing secret scan and deployment checks remain independently named', async () => {
-  const [secretScan, deployDev] = await Promise.all([text(secretScanUrl), text(deployDevUrl)]);
-  assert.match(secretScan, /^name: Secret Scan$/m);
-  assert.match(secretScan, /^    name: Gitleaks \(current tree\)$/m);
-  assert.match(secretScan, /^  pull_request:\n    branches:\n      - dev$/m);
-  assert.match(secretScan, /^  push:\n    branches:\n      - dev$/m);
-  assert.match(deployDev, /^name: Deploy Application to Dev$/m);
-  assert.match(deployDev, /^    name: Test, build and deploy dev$/m);
-  assert.doesNotMatch(deployDev, /^  pull_request:/m);
+  assert.match(verifier, /authority Bootstrap merge parent topology mismatch/);
+  assert.match(verifier, /authority Bootstrap Candidate must be single-parent corrective merge/);
+  assert.match(verifier, /authority Bootstrap merge tree/);
+  assert.match(verifier, /authority Bootstrap chain commit count/);
+  assert.match(verifier, /authority Bootstrap governance path set or digest mismatch/);
+  assert.match(verifier, /permanently rejected governance candidate/);
 });

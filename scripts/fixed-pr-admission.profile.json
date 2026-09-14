@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "kind": "base-owned-current-base-integration-registry",
   "authority": {
     "repository": "susiexuejing/chat-app",
@@ -67,6 +67,12 @@
         "registryPathCount": 3,
         "registryPathDigest": "1e96e1eb9ad973b558be9ba2406dd0e0149a35aeccafe54b16d7c3167154e65e",
         "correctiveParentSha": "d95ecc6eb125f069b3510f2875e0b620a330bc52",
+        "correctiveMergeSha": "b968adb3318d3f91aba34d14d3511be77f03d438",
+        "correctiveHeadSha": "fbaa3cb8920f1e5d613b6050386be9c2a92a61d8",
+        "correctiveMergeParentShas": [
+          "d95ecc6eb125f069b3510f2875e0b620a330bc52",
+          "fbaa3cb8920f1e5d613b6050386be9c2a92a61d8"
+        ],
         "correctivePaths": [
           "scripts/__tests__/ef94-ci-release-gate.test.mjs",
           "scripts/__tests__/fixed-pr-admission.test.mjs",
@@ -75,6 +81,17 @@
         ],
         "correctivePathCount": 4,
         "correctivePathDigest": "6b7db69946230e2cbfa8d50d9d10e823de984b88092cb66d86490086acdcc763",
+        "authorityBootstrapParentSha": "b968adb3318d3f91aba34d14d3511be77f03d438",
+        "authorityBootstrapPaths": [
+          ".github/workflows/protected-fixed-pr-admission.yml",
+          ".github/workflows/release-gate.yml",
+          "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+          "scripts/__tests__/fixed-pr-admission.test.mjs",
+          "scripts/fixed-pr-admission.mjs",
+          "scripts/fixed-pr-admission.profile.json"
+        ],
+        "authorityBootstrapPathCount": 6,
+        "authorityBootstrapPathDigest": "f2f45619034080ba56c1c183b9496061f507577388125e97560cb6795d630b76",
         "permanentlyRejectedCandidateShas": [
           "a1577f161d644dddcda6b6c6485a344d2869e9ae"
         ],
