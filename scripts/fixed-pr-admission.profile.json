@@ -7,5 +7,65 @@
     "governanceSelfAdmission": "forbidden",
     "recordOrder": "id-lf-ascending"
   },
-  "records": []
+  "records": [
+    {
+      "id": "ef-177-fa24d37-current-base-v1",
+      "ticket": "EF-177",
+      "productQa": {
+        "headSha": "fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410",
+        "parentSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "originalBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "mergeBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "patchId": "13048554cc0abb329720a51fe69d0afbeb0a05d0",
+        "paths": [
+          "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
+          "client/screens/chat/__tests__/ef177-chat-actions.test.tsx",
+          "client/screens/chat/components/RoleHeader.tsx"
+        ],
+        "pathCount": 3,
+        "pathDigest": "bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb"
+      },
+      "integration": {
+        "headSha": "fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410",
+        "parentSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "currentBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "mergeBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "patchId": "13048554cc0abb329720a51fe69d0afbeb0a05d0",
+        "sourceRepository": "susiexuejing/chat-app",
+        "sourceBranch": "cell1/ef177-currentbase-fa24d37",
+        "targetBranch": "dev",
+        "paths": [
+          "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
+          "client/screens/chat/__tests__/ef177-chat-actions.test.tsx",
+          "client/screens/chat/components/RoleHeader.tsx"
+        ],
+        "pathCount": 3,
+        "pathDigest": "bf26951b5124f1da6b22894c9e07ec673b1cf6e6bf355cf07066f4f3f2de4ceb"
+      },
+      "baseAdvance": {
+        "fromSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "toSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "commitCount": 0,
+        "paths": [],
+        "pathCount": 0,
+        "pathDigest": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "zeroProductPathOverlap": true
+      },
+      "regression": {
+        "selector": "chat-ui-jest-path",
+        "outputManifest": {
+          "schemaVersion": 2,
+          "targetedRegressionIds": [
+            "chat-ui-jest-path"
+          ],
+          "targetedTestPath": null,
+          "affectedTestPaths": [
+            "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
+            "client/screens/chat/__tests__/ef177-chat-actions.test.tsx"
+          ]
+        }
+      },
+      "qaAuditReference": "EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410"
+    }
+  ]
 }
