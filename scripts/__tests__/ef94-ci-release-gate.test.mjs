@@ -58,12 +58,12 @@ test('fixed admission falls through to Base-owned review manifest when the profi
   assert.equal((workflow.match(/ef194-fixed-successor-manifest\.json/g) ?? []).length, 2);
 });
 
-test('current-Base integration authority is a generic empty Base-owned registry', async () => {
+test('current-Base integration authority is a generic Base-owned registry with the frozen EF-177 record', async () => {
   const [profile, verifier] = await Promise.all([
     text(fixedAdmissionProfileUrl).then(JSON.parse),
     text(fixedAdmissionVerifierUrl),
   ]);
-  assert.deepEqual(profile, {
+  assert.deepEqual({ ...profile, records: [] }, {
     schemaVersion: 2,
     kind: 'base-owned-current-base-integration-registry',
     authority: {
@@ -74,6 +74,18 @@ test('current-Base integration authority is a generic empty Base-owned registry'
     },
     records: [],
   });
+  assert.equal(profile.records.length, 1);
+  assert.equal(profile.records[0].id, 'ef-177-fa24d37-current-base-v1');
+  assert.equal(profile.records[0].integration.headSha, 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
+  assert.equal(profile.records[0].integration.currentBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
+  assert.equal(profile.records[0].integration.sourceBranch, 'cell1/ef177-currentbase-fa24d37');
+  assert.equal(profile.records[0].integration.targetBranch, 'dev');
+  assert.deepEqual(profile.records[0].integration.paths, [
+    'client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx',
+    'client/screens/chat/__tests__/ef177-chat-actions.test.tsx',
+    'client/screens/chat/components/RoleHeader.tsx',
+  ]);
+  assert.equal(profile.records[0].qaAuditReference, 'EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
   assert.match(verifier, /no unique Base-owned registry match/);
   assert.match(verifier, /candidate must have exactly one parent/);
   assert.match(verifier, /candidate parent SHA/);

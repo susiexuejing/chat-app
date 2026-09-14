@@ -142,21 +142,93 @@ function rejected(mutator, expression, eventName = 'pull_request_target') {
   assert.throws(() => validateAdmission(registry, event, evidence, { expectedEventName: eventName }), expression);
 }
 
-test('on-disk authority is a canonical empty Base-owned registry and grants no product identity', () => {
+test('on-disk authority grants only the frozen EF-177 current-Base product identity', () => {
   assert.deepEqual(validateProfile(DISK_REGISTRY), DISK_REGISTRY);
-  assert.deepEqual(DISK_REGISTRY, {
-    schemaVersion: 2,
-    kind: 'base-owned-current-base-integration-registry',
-    authority: {
-      repository: 'susiexuejing/chat-app',
-      targetBranch: 'dev',
-      governanceSelfAdmission: 'forbidden',
-      recordOrder: 'id-lf-ascending',
+  assert.equal(DISK_REGISTRY.records.length, 1);
+  assert.deepEqual(DISK_REGISTRY.records[0], {
+    id: 'ef-177-fa24d37-current-base-v1',
+    ticket: 'EF-177',
+    productQa: {
+      headSha: 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410',
+      parentSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      originalBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      mergeBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      patchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
+      paths: [...PRODUCT_PATHS],
+      pathCount: PRODUCT_PATHS.length,
+      pathDigest: canonicalPathDigest(PRODUCT_PATHS),
     },
-    records: [],
+    integration: {
+      headSha: 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410',
+      parentSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      currentBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      mergeBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      patchId: '13048554cc0abb329720a51fe69d0afbeb0a05d0',
+      sourceRepository: 'susiexuejing/chat-app',
+      sourceBranch: 'cell1/ef177-currentbase-fa24d37',
+      targetBranch: 'dev',
+      paths: [...PRODUCT_PATHS],
+      pathCount: PRODUCT_PATHS.length,
+      pathDigest: canonicalPathDigest(PRODUCT_PATHS),
+    },
+    baseAdvance: {
+      fromSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      toSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      commitCount: 0,
+      paths: [],
+      pathCount: 0,
+      pathDigest: canonicalPathDigest([]),
+      zeroProductPathOverlap: true,
+    },
+    regression: {
+      selector: 'chat-ui-jest-path',
+      outputManifest: {
+        schemaVersion: 2,
+        targetedRegressionIds: ['chat-ui-jest-path'],
+        targetedTestPath: null,
+        affectedTestPaths: PRODUCT_PATHS.slice(0, 2),
+      },
+    },
+    qaAuditReference: 'EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410',
   });
-  assert.equal(isFixedSuccessorAttempt(DISK_REGISTRY, acceptedEvent('pull_request')), false);
-  assert.throws(() => validateAdmission(DISK_REGISTRY, acceptedEvent(), acceptedEvidence()), /no unique Base-owned registry match/);
+
+  const record = DISK_REGISTRY.records[0];
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: 126,
+      head: {
+        sha: record.integration.headSha,
+        ref: record.integration.sourceBranch,
+        repoFullName: record.integration.sourceRepository,
+      },
+      base: {
+        sha: record.integration.currentBaseSha,
+        ref: record.integration.targetBranch,
+        repoFullName: record.integration.sourceRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: record.integration.currentBaseSha,
+    productOriginalBaseIncludedInCurrentBase: true,
+    candidateResolvedSha: record.integration.headSha,
+    candidateParentShas: [record.integration.currentBaseSha],
+    candidateMergeBaseSha: record.integration.currentBaseSha,
+    candidatePatchId: record.integration.patchId,
+    changedPaths: [...record.integration.paths],
+    candidateControlPlanePaths: [],
+    baseAdvancePaths: [],
+    baseAdvanceCommitCount: 0,
+    registryPresentAtBase: true,
+    registryMatchesBase: true,
+    candidateProvidedAuthority: false,
+  };
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
+  assert.equal(validateAdmission(DISK_REGISTRY, { ...event, eventName: 'pull_request' }, evidence, { expectedEventName: 'pull_request' }).accepted, true);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, sha: '0'.repeat(40) } } }, evidence), /integration head SHA/);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, ref: 'cell1/ef177-wrong' } } }, evidence), /no unique Base-owned registry match/);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, event, { ...evidence, candidateProvidedAuthority: true }), /candidate-provided authority/);
 });
 
 test('same registry record admits both protected and release gate identities', () => {
