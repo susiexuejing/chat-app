@@ -1,184 +1,48 @@
 name: Release Gate
 
 on:
-  pull_request:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
     branches:
       - dev
-  push:
-    branches:
-      - dev
-  workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ef94-release-gate-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  pull-requests: read
 
 jobs:
   approved-release-regression:
     name: EF-94 Release Gate
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 5
 
     steps:
-      - name: Checkout pull request authority
-        if: ${{ github.event_name == 'pull_request' }}
+      # The privileged gate evaluates authority-owned admission only. This
+      # pinned platform action resolves protected dev once and never checks out
+      # the pull-request Head. Product tests remain in non-privileged CI.
+      - name: Checkout protected dev authority snapshot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          fetch-depth: 0
+          repository: susiexuejing/chat-app
+          ref: refs/heads/dev
           path: authority
-
-      - name: Checkout pull request candidate
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
-          path: candidate
+          persist-credentials: false
 
-      - name: Checkout push or dispatch commit
-        if: ${{ github.event_name != 'pull_request' }}
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 0
-
-      - name: Verify checked-out identity
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            test "$(git -C authority rev-parse HEAD)" = "${{ github.event.pull_request.base.sha }}"
-            test "$(git -C candidate rev-parse HEAD)" = "${{ github.event.pull_request.head.sha }}"
-            git -C candidate cat-file -e "${{ github.event.pull_request.base.sha }}^{commit}"
-          else
-            EXPECTED_SHA="${{ github.event.pull_request.head.sha || github.sha }}"
-            ACTUAL_SHA="$(git rev-parse HEAD)"
-            test "$ACTUAL_SHA" = "$EXPECTED_SHA"
-          fi
-
-      - name: Select Base-owned fixed successor admission
-        id: fixed_successor
-        if: ${{ github.event_name == 'pull_request' }}
+      - name: Freeze protected dev authority snapshot
+        id: authority_snapshot
         working-directory: authority
         shell: bash
+        env:
+          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
-          set +e
-          node scripts/fixed-pr-admission.mjs \
-            --release-gate-output "$RUNNER_TEMP/ef194-fixed-successor-manifest.json" \
-            --candidate-root "$GITHUB_WORKSPACE/candidate"
-          STATUS="$?"
-          set -e
-          case "$STATUS" in
-            0)
-              echo "accepted=true" >> "$GITHUB_OUTPUT"
-              ;;
-            2)
-              echo "accepted=false" >> "$GITHUB_OUTPUT"
-              ;;
-            *)
-              exit "$STATUS"
-              ;;
-          esac
+          set -euo pipefail
+          AUTHORITY_SHA="$(git rev-parse --verify HEAD)"
+          test "$AUTHORITY_SHA" = "$EXPECTED_WORKFLOW_SHA"
+          echo "sha=$AUTHORITY_SHA" >> "$GITHUB_OUTPUT"
 
-      - name: Verify fail-closed review scope contract
-        if: ${{ github.event_name != 'pull_request' || steps.fixed_successor.outputs.accepted != 'true' }}
-        shell: bash
-        run: |
-          GATE_ROOT="$GITHUB_WORKSPACE"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            GATE_ROOT="$GITHUB_WORKSPACE/authority"
-          fi
-          cd "$GATE_ROOT"
-          node --test \
-            scripts/__tests__/ef111-review-manifest.test.mjs \
-            scripts/__tests__/ef94-ci-release-gate.test.mjs
-
-      - name: Produce fail-closed review manifest
-        id: review_manifest
-        if: ${{ github.event_name != 'pull_request' || steps.fixed_successor.outputs.accepted != 'true' }}
-        shell: bash
-        run: |
-          GATE_ROOT="$GITHUB_WORKSPACE"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            GATE_ROOT="$GITHUB_WORKSPACE/authority"
-          fi
-          node "$GATE_ROOT/scripts/review-manifest.mjs" --output "$RUNNER_TEMP/ef111-review-manifest.json"
-          SCOPE_ID="$(node -e "const m=require(process.argv[1]); process.stdout.write(m.scopeId || 'none')" "$RUNNER_TEMP/ef111-review-manifest.json")"
-          echo "scope_id=$SCOPE_ID" >> "$GITHUB_OUTPUT"
-          echo "review_scope_id=$SCOPE_ID"
-          MANUAL_ADMISSION_REQUIRED="$(node -e "const m=require(process.argv[1]); process.stdout.write(String(m.manualAdmissionRequired === true))" "$RUNNER_TEMP/ef111-review-manifest.json")"
-          if [ "$MANUAL_ADMISSION_REQUIRED" = "true" ]; then
-            echo "manual_governance_bootstrap=evidence_only; CTO Management admission record required"
-          fi
-
-      - name: Run approved targeted gate regressions
-        id: targeted_regressions
-        if: ${{ github.event_name != 'pull_request' || steps.review_manifest.outputs.scope_id == 'ef-111-legacy-seven-path' }}
-        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
-        run: |
-          node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef179-approved-targeted-regressions.json"
-          echo "targeted_regression_record=$RUNNER_TEMP/ef179-approved-targeted-regressions.json" >> "$GITHUB_OUTPUT"
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9.0.0
-          run_install: false
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-          cache-dependency-path: ${{ github.event_name == 'pull_request' && 'candidate/pnpm-lock.yaml' || 'pnpm-lock.yaml' }}
-
-      - name: Install dependencies
-        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
-        run: pnpm install --frozen-lockfile
-
-      - name: Run authority-selected R0 UI category regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'r0-chat-ui-visual-v1' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef184-r0-ui-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected R1 frontend regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'r1-chat-ui-affected-v1' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef186-r1-frontend-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected EF-189 synthetic race regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-189-pr-73-a1b7378-fixed-head' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef189-synthetic-race-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected EF-189 rebuilt synthetic race regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-189-pr-79-8741c63-fixed-head' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef189-rebuilt-synthetic-race-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected EF-189 fixed candidate race regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-189-8741c631-fixed-candidate-v1' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef189-fixed-candidate-synthetic-race-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected EF-177 fixed candidate R1 frontend regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-111-r2-ef177-fixed-candidate-v1' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef111-ef177-r1-frontend-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run authority-selected EF-161 post-governance fixed candidate frontend regression
-        if: ${{ github.event_name == 'pull_request' && steps.review_manifest.outputs.scope_id == 'ef-194-ef161-pr93-12048a1-governance-advance-v1' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef194-ef161-post-governance-evidence.json" --manifest "$RUNNER_TEMP/ef111-review-manifest.json"
-
-      - name: Run Base-owned fixed successor chat UI regression
-        if: ${{ github.event_name == 'pull_request' && steps.fixed_successor.outputs.accepted == 'true' }}
-        working-directory: candidate
-        run: node scripts/run-approved-targeted-regressions.mjs --output "$RUNNER_TEMP/ef194-ef161-fixed-successor-evidence.json" --manifest "$RUNNER_TEMP/ef194-fixed-successor-manifest.json"
-
-      - name: Run approved release regression
-        working-directory: ${{ github.event_name == 'pull_request' && 'candidate' || '.' }}
-        run: pnpm run test:release
+      - name: Verify release admission from protected snapshot
+        working-directory: authority
+        env:
+          EF_AUTHORITY_SNAPSHOT_SHA: ${{ steps.authority_snapshot.outputs.sha }}
+        run: node scripts/fixed-pr-admission.mjs

@@ -37,6 +37,14 @@ const CORRECTIVE_PATHS = Object.freeze([
   'scripts/fixed-pr-admission.mjs',
   'scripts/fixed-pr-admission.profile.json',
 ]);
+const AUTHORITY_BOOTSTRAP_PATHS = Object.freeze([
+  '.github/workflows/protected-fixed-pr-admission.yml',
+  '.github/workflows/release-gate.yml',
+  'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+  'scripts/__tests__/fixed-pr-admission.test.mjs',
+  'scripts/fixed-pr-admission.mjs',
+  'scripts/fixed-pr-admission.profile.json',
+]);
 const QA_BASE = '2'.repeat(40);
 const QA_HEAD = '1'.repeat(40);
 const CURRENT_BASE = '3'.repeat(40);
@@ -45,7 +53,9 @@ const PATCH_ID = '5'.repeat(40);
 const REGISTRY_MERGE = '6'.repeat(40);
 const REGISTRY_HEAD = '7'.repeat(40);
 const CORRECTIVE_CANDIDATE = '8'.repeat(40);
-const PROTECTED_BASE = '9'.repeat(40);
+const CORRECTIVE_MERGE = '9'.repeat(40);
+const AUTHORITY_BOOTSTRAP_CANDIDATE = 'b'.repeat(40);
+const PROTECTED_BASE = 'c'.repeat(40);
 const PROTECTED_TREE = 'a'.repeat(40);
 const PERMANENTLY_REJECTED = 'a1577f161d644dddcda6b6c6485a344d2869e9ae';
 
@@ -55,7 +65,7 @@ function clone(value) {
 
 function registryWithRecord() {
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     kind: 'base-owned-current-base-integration-registry',
     authority: {
       repository: 'susiexuejing/chat-app',
@@ -107,9 +117,16 @@ function registryWithRecord() {
         registryPathCount: REGISTRY_PATHS.length,
         registryPathDigest: canonicalPathDigest(REGISTRY_PATHS),
         correctiveParentSha: REGISTRY_MERGE,
+        correctiveMergeSha: CORRECTIVE_MERGE,
+        correctiveHeadSha: CORRECTIVE_CANDIDATE,
+        correctiveMergeParentShas: [REGISTRY_MERGE, CORRECTIVE_CANDIDATE],
         correctivePaths: [...CORRECTIVE_PATHS],
         correctivePathCount: CORRECTIVE_PATHS.length,
         correctivePathDigest: canonicalPathDigest(CORRECTIVE_PATHS),
+        authorityBootstrapParentSha: CORRECTIVE_MERGE,
+        authorityBootstrapPaths: [...AUTHORITY_BOOTSTRAP_PATHS],
+        authorityBootstrapPathCount: AUTHORITY_BOOTSTRAP_PATHS.length,
+        authorityBootstrapPathDigest: canonicalPathDigest(AUTHORITY_BOOTSTRAP_PATHS),
         permanentlyRejectedCandidateShas: [PERMANENTLY_REJECTED],
         zeroProductPathOverlap: true,
       },
@@ -151,7 +168,13 @@ function acceptedEvidence() {
   const record = registryWithRecord().records[0];
   return {
     protectedBaseCheckoutSha: PROTECTED_BASE,
-    productOriginalBaseIncludedInCurrentBase: true,
+    authoritySnapshotSha: PROTECTED_BASE,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.integration.headSha,
     candidateParentShas: [record.integration.currentBaseSha],
     candidateMergeBaseSha: record.integration.currentBaseSha,
@@ -160,19 +183,29 @@ function acceptedEvidence() {
     candidateControlPlanePaths: [],
     baseAdvancePaths: [...record.baseAdvance.paths],
     baseAdvanceCommitCount: record.baseAdvance.commitCount,
-    registryMergeIncludedInProtectedBase: true,
+    registryMergeIncludedInAuthoritySnapshot: true,
     registryMergeParentShas: [...record.protectedGovernanceChain.registryMergeParentShas],
     registryMergePaths: [...record.protectedGovernanceChain.registryPaths],
     registryMergeCommitCount: 2,
+    correctiveMergeIncludedInAuthoritySnapshot: true,
+    correctiveMergeSha: CORRECTIVE_MERGE,
+    correctiveMergeParentShas: [REGISTRY_MERGE, CORRECTIVE_CANDIDATE],
     correctiveCandidateSha: CORRECTIVE_CANDIDATE,
-    protectedBaseParentShas: [REGISTRY_MERGE, CORRECTIVE_CANDIDATE],
     correctiveCandidateParentShas: [REGISTRY_MERGE],
-    protectedBaseTreeSha: PROTECTED_TREE,
+    correctiveMergeTreeSha: PROTECTED_TREE,
     correctiveCandidateTreeSha: PROTECTED_TREE,
-    protectedGovernanceCommitCount: 2,
-    protectedGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
-    registryPresentAtBase: true,
-    registryMatchesBase: true,
+    correctiveGovernanceCommitCount: 2,
+    correctiveGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
+    authorityBootstrapParentIncludedInSnapshot: true,
+    authoritySnapshotParentShas: [CORRECTIVE_MERGE, AUTHORITY_BOOTSTRAP_CANDIDATE],
+    authorityBootstrapCandidateSha: AUTHORITY_BOOTSTRAP_CANDIDATE,
+    authorityBootstrapCandidateParentShas: [CORRECTIVE_MERGE],
+    authoritySnapshotTreeSha: PROTECTED_TREE,
+    authorityBootstrapCandidateTreeSha: PROTECTED_TREE,
+    authorityBootstrapCommitCount: 2,
+    authorityBootstrapPaths: [...record.protectedGovernanceChain.authorityBootstrapPaths],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
     candidateProvidedAuthority: false,
   };
 }
@@ -235,9 +268,19 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
       registryPathCount: REGISTRY_PATHS.length,
       registryPathDigest: canonicalPathDigest(REGISTRY_PATHS),
       correctiveParentSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+      correctiveMergeSha: 'b968adb3318d3f91aba34d14d3511be77f03d438',
+      correctiveHeadSha: 'fbaa3cb8920f1e5d613b6050386be9c2a92a61d8',
+      correctiveMergeParentShas: [
+        'd95ecc6eb125f069b3510f2875e0b620a330bc52',
+        'fbaa3cb8920f1e5d613b6050386be9c2a92a61d8',
+      ],
       correctivePaths: [...CORRECTIVE_PATHS],
       correctivePathCount: CORRECTIVE_PATHS.length,
       correctivePathDigest: canonicalPathDigest(CORRECTIVE_PATHS),
+      authorityBootstrapParentSha: 'b968adb3318d3f91aba34d14d3511be77f03d438',
+      authorityBootstrapPaths: [...AUTHORITY_BOOTSTRAP_PATHS],
+      authorityBootstrapPathCount: AUTHORITY_BOOTSTRAP_PATHS.length,
+      authorityBootstrapPathDigest: canonicalPathDigest(AUTHORITY_BOOTSTRAP_PATHS),
       permanentlyRejectedCandidateShas: [PERMANENTLY_REJECTED],
       zeroProductPathOverlap: true,
     },
@@ -272,7 +315,13 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
   };
   const evidence = {
     protectedBaseCheckoutSha: PROTECTED_BASE,
-    productOriginalBaseIncludedInCurrentBase: true,
+    authoritySnapshotSha: PROTECTED_BASE,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.integration.headSha,
     candidateParentShas: [record.integration.currentBaseSha],
     candidateMergeBaseSha: record.integration.currentBaseSha,
@@ -281,38 +330,47 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
     candidateControlPlanePaths: [],
     baseAdvancePaths: [],
     baseAdvanceCommitCount: 0,
-    registryMergeIncludedInProtectedBase: true,
+    registryMergeIncludedInAuthoritySnapshot: true,
     registryMergeParentShas: [...record.protectedGovernanceChain.registryMergeParentShas],
     registryMergePaths: [...record.protectedGovernanceChain.registryPaths],
     registryMergeCommitCount: 2,
-    correctiveCandidateSha: CORRECTIVE_CANDIDATE,
-    protectedBaseParentShas: [record.protectedGovernanceChain.registryMergeSha, CORRECTIVE_CANDIDATE],
-    correctiveCandidateParentShas: [record.protectedGovernanceChain.registryMergeSha],
-    protectedBaseTreeSha: PROTECTED_TREE,
+    correctiveMergeIncludedInAuthoritySnapshot: true,
+    correctiveMergeSha: record.protectedGovernanceChain.correctiveMergeSha,
+    correctiveMergeParentShas: [...record.protectedGovernanceChain.correctiveMergeParentShas],
+    correctiveCandidateSha: record.protectedGovernanceChain.correctiveHeadSha,
+    correctiveCandidateParentShas: [record.protectedGovernanceChain.correctiveParentSha],
+    correctiveMergeTreeSha: PROTECTED_TREE,
     correctiveCandidateTreeSha: PROTECTED_TREE,
-    protectedGovernanceCommitCount: 2,
-    protectedGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
-    registryPresentAtBase: true,
-    registryMatchesBase: true,
+    correctiveGovernanceCommitCount: 2,
+    correctiveGovernancePaths: [...record.protectedGovernanceChain.correctivePaths],
+    authorityBootstrapParentIncludedInSnapshot: true,
+    authoritySnapshotParentShas: [record.protectedGovernanceChain.authorityBootstrapParentSha, AUTHORITY_BOOTSTRAP_CANDIDATE],
+    authorityBootstrapCandidateSha: AUTHORITY_BOOTSTRAP_CANDIDATE,
+    authorityBootstrapCandidateParentShas: [record.protectedGovernanceChain.authorityBootstrapParentSha],
+    authoritySnapshotTreeSha: PROTECTED_TREE,
+    authorityBootstrapCandidateTreeSha: PROTECTED_TREE,
+    authorityBootstrapCommitCount: 2,
+    authorityBootstrapPaths: [...record.protectedGovernanceChain.authorityBootstrapPaths],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
     candidateProvidedAuthority: false,
   };
   assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
-  assert.equal(validateAdmission(DISK_REGISTRY, { ...event, eventName: 'pull_request' }, evidence, { expectedEventName: 'pull_request' }).accepted, true);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, eventName: 'pull_request' }, evidence), /event mismatch/);
   assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, sha: '0'.repeat(40) } } }, evidence), /integration head SHA/);
   assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, ref: 'cell1/ef177-wrong' } } }, evidence), /no unique Base-owned registry match/);
   assert.throws(() => validateAdmission(DISK_REGISTRY, event, { ...evidence, candidateProvidedAuthority: true }), /candidate-provided authority/);
 });
 
-test('same registry record admits both protected and release gate identities', () => {
+test('same registry record admits both protected pull_request_target gates', () => {
   const registry = registryWithRecord();
   assert.equal(validateAdmission(registry, acceptedEvent(), acceptedEvidence()).accepted, true);
-  assert.equal(validateAdmission(registry, acceptedEvent('pull_request'), acceptedEvidence(), { expectedEventName: 'pull_request' }).accepted, true);
-  assert.equal(isFixedSuccessorAttempt(registry, acceptedEvent('pull_request')), true);
+  assert.equal(isFixedSuccessorAttempt(registry, acceptedEvent()), true);
 });
 
 test('release output is exactly the Base-owned selector manifest', () => {
   const registry = registryWithRecord();
-  const manifest = fixedSuccessorRegressionManifest(registry, acceptedEvent('pull_request'));
+  const manifest = fixedSuccessorRegressionManifest(registry, acceptedEvent());
   assert.deepEqual(manifest, registry.records[0].regression.outputManifest);
   manifest.affectedTestPaths.pop();
   assert.equal(registry.records[0].regression.outputManifest.affectedTestPaths.length, 2);
@@ -387,35 +445,44 @@ test('integration identity requires current Base as exact parent and merge-base'
   rejected(({ evidence }) => { evidence.candidateMergeBaseSha = QA_BASE; }, /candidate merge-base/);
 });
 
-test('event identity rejects wrong Head, Base, source, target, repository, and event', () => {
+test('event identity rejects wrong Head, source, target, repository, and event but ignores stale event Base SHA', () => {
   rejected(({ event }) => { event.pullRequest.head.sha = '6'.repeat(40); }, /integration head/);
-  rejected(({ event }) => { event.pullRequest.base.sha = '6'.repeat(40); }, /protected Base checkout/);
+  const staleBase = acceptedEvent();
+  staleBase.pullRequest.base.sha = '6'.repeat(40);
+  assert.equal(validateAdmission(registryWithRecord(), staleBase, acceptedEvidence()).accepted, true);
   rejected(({ event }) => { event.pullRequest.head.ref = 'cell2/wrong'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.pullRequest.base.ref = 'main'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.pullRequest.head.repoFullName = 'other/repo'; }, /no unique Base-owned registry match/);
   rejected(({ event }) => { event.eventName = 'push'; }, /event mismatch/);
 });
 
-test('protected governance chain accepts only one audited registry merge plus one Bootstrap corrective merge', () => {
-  rejected(({ evidence }) => { evidence.registryMergeIncludedInProtectedBase = false; }, /registry merge is not included/);
+test('protected governance chain accepts only the registry, corrective, and authority Bootstrap merge chain', () => {
+  rejected(({ evidence }) => { evidence.registryMergeIncludedInAuthoritySnapshot = false; }, /registry merge is not included/);
   rejected(({ evidence }) => { evidence.registryMergeParentShas.reverse(); }, /registry merge parent topology/);
   rejected(({ evidence }) => { evidence.registryMergeCommitCount = 3; }, /registry merge commit count/);
   rejected(({ evidence }) => { evidence.registryMergePaths.push('scripts/unapproved-registry.mjs'); }, /registry governance path set/);
-  rejected(({ evidence }) => { evidence.protectedBaseParentShas.reverse(); }, /corrective merge parent topology/);
+  rejected(({ evidence }) => { evidence.correctiveMergeIncludedInAuthoritySnapshot = false; }, /corrective merge is not included/);
+  rejected(({ evidence }) => { evidence.correctiveMergeParentShas.reverse(); }, /corrective merge parent topology/);
   rejected(({ evidence }) => { evidence.correctiveCandidateParentShas = [REGISTRY_MERGE, CURRENT_BASE]; }, /single-parent registry merge/);
-  rejected(({ evidence }) => { evidence.protectedBaseTreeSha = 'b'.repeat(40); }, /corrective merge tree/);
-  rejected(({ evidence }) => { evidence.protectedGovernanceCommitCount = 3; }, /protected governance chain commit count/);
-  rejected(({ evidence }) => { evidence.protectedGovernancePaths.push('scripts/unapproved-corrective.mjs'); }, /corrective governance path set/);
-  rejected(({ evidence }) => { evidence.protectedGovernancePaths.push(PRODUCT_PATHS[0]); evidence.protectedGovernancePaths.sort(); }, /corrective governance path set|overlaps product paths/);
+  rejected(({ evidence }) => { evidence.correctiveMergeTreeSha = 'b'.repeat(40); }, /corrective merge tree/);
+  rejected(({ evidence }) => { evidence.correctiveGovernanceCommitCount = 3; }, /corrective governance chain commit count/);
+  rejected(({ evidence }) => { evidence.correctiveGovernancePaths.push('scripts/unapproved-corrective.mjs'); }, /corrective governance path set/);
+  rejected(({ evidence }) => { evidence.authoritySnapshotParentShas.reverse(); }, /authority Bootstrap merge parent topology/);
+  rejected(({ evidence }) => { evidence.authorityBootstrapCandidateParentShas = [CORRECTIVE_MERGE, CURRENT_BASE]; }, /single-parent corrective merge/);
+  rejected(({ evidence }) => { evidence.authoritySnapshotTreeSha = 'd'.repeat(40); }, /authority Bootstrap merge tree/);
+  rejected(({ evidence }) => { evidence.authorityBootstrapCommitCount = 3; }, /authority Bootstrap chain commit count/);
+  rejected(({ evidence }) => { evidence.authorityBootstrapPaths.push('scripts/unapproved-v4.mjs'); }, /authority Bootstrap governance path set/);
 });
 
 test('the failed a1577f corrective Candidate is permanently rejected', () => {
   rejected(({ evidence }) => {
     evidence.correctiveCandidateSha = PERMANENTLY_REJECTED;
-    evidence.protectedBaseParentShas[1] = PERMANENTLY_REJECTED;
   }, /permanently rejected governance candidate/);
-  rejected(({ event, evidence }) => {
-    event.pullRequest.base.sha = PERMANENTLY_REJECTED;
+  rejected(({ evidence }) => {
+    evidence.authorityBootstrapCandidateSha = PERMANENTLY_REJECTED;
+  }, /permanently rejected governance candidate/);
+  rejected(({ evidence }) => {
+    evidence.authoritySnapshotSha = PERMANENTLY_REJECTED;
     evidence.protectedBaseCheckoutSha = PERMANENTLY_REJECTED;
   }, /permanently rejected governance candidate/);
 });
@@ -478,7 +545,7 @@ test('zero Base advancement is represented explicitly without a fabricated path'
   const evidence = acceptedEvidence();
   evidence.baseAdvanceCommitCount = 0;
   evidence.baseAdvancePaths = [];
-  evidence.productOriginalBaseIncludedInCurrentBase = true;
+  evidence.productOriginalBaseIncludedInAuthoritySnapshot = true;
   assert.equal(validateAdmission(registry, acceptedEvent(), evidence).accepted, true);
   record.baseAdvance.commitCount = 1;
   assert.throws(() => validateProfile(registry), /inconsistent zero Base advance/);
@@ -487,8 +554,10 @@ test('zero Base advancement is represented explicitly without a fabricated path'
 test('candidate-supplied or candidate-modified authority is always rejected', () => {
   rejected(({ evidence }) => { evidence.candidateProvidedAuthority = true; }, /candidate-provided authority/);
   rejected(({ evidence }) => { evidence.candidateControlPlanePaths = ['scripts/fixed-pr-admission.profile.json']; }, /self-authorization/);
-  rejected(({ evidence }) => { evidence.registryPresentAtBase = false; }, /absent/);
-  rejected(({ evidence }) => { evidence.registryMatchesBase = false; }, /differs/);
+  rejected(({ evidence }) => { evidence.registryPresentAtSnapshot = false; }, /absent/);
+  rejected(({ evidence }) => { evidence.registryMatchesSnapshot = false; }, /differs/);
+  rejected(({ evidence }) => { evidence.candidateFilesRead = true; }, /candidate file content/);
+  rejected(({ evidence }) => { evidence.eventFieldsUsedAsDataOnly = false; }, /data only/);
 });
 
 test('regression selector and output manifest are exact and bounded to product tests', () => {
@@ -529,21 +598,25 @@ test('unknown source identity is not applicable to release routing and fails pro
 test('protected admission workflow reads only protected Base authority and never candidate code', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');
   assert.match(workflow, /^name: Protected Fixed PR Admission$/m);
-  assert.match(workflow, /^  pull_request_target:\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^permissions:\n  contents: read$/m);
-  assert.match(workflow, /ref: \$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
+  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
+  assert.match(workflow, /ref: refs\/heads\/dev/);
+  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
   assert.match(workflow, /path: authority/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /working-directory: authority/);
+  assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
   assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs/);
-  assert.doesNotMatch(workflow, /pull_request\.head\.(sha|ref)|pnpm|npm|yarn|install|cache|artifact|secrets|write|deploy/i);
+  assert.doesNotMatch(workflow, /pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|write|deploy/i);
 });
 
-test('release gate selects and verifies the same Base-owned record before executing its manifest', async () => {
+test('release gate performs authority-only admission and never executes product regressions', async () => {
   const workflow = await readFile(releaseWorkflowUrl, 'utf8');
-  assert.match(workflow, /name: Select Base-owned fixed successor admission[\s\S]*working-directory: authority/);
-  assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs[\s\S]*--release-gate-output "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"[\s\S]*--candidate-root "\$GITHUB_WORKSPACE\/candidate"/);
-  assert.match(workflow, /case "\$STATUS" in[\s\S]*0\)[\s\S]*accepted=true[\s\S]*2\)[\s\S]*accepted=false[\s\S]*\*\)[\s\S]*exit "\$STATUS"/);
-  assert.match(workflow, /steps\.fixed_successor\.outputs\.accepted == 'true'[\s\S]*--manifest "\$RUNNER_TEMP\/ef194-fixed-successor-manifest\.json"/);
+  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
+  assert.match(workflow, /ref: refs\/heads\/dev/);
+  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
+  assert.match(workflow, /working-directory: authority[\s\S]*EF_AUTHORITY_SNAPSHOT_SHA:[\s\S]*node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /candidate|pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|test:release|jest|tsc|deploy/i);
 });
