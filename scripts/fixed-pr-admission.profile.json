@@ -9,6 +9,102 @@
   },
   "records": [
     {
+      "id": "ef-107-1d61b510-current-base-v1",
+      "ticket": "EF-107",
+      "productQa": {
+        "headSha": "ee3f769e8650d9ec527f6c6c0457550f5fd4f6bf",
+        "parentSha": "dc7c319422571eaef3a45eac74e58a89d5a09757",
+        "originalBaseSha": "dc7c319422571eaef3a45eac74e58a89d5a09757",
+        "mergeBaseSha": "dc7c319422571eaef3a45eac74e58a89d5a09757",
+        "patchId": "5dc77fc28805e1a466c508fbe74f12d541180193",
+        "paths": [
+          "client/screens/chat/__tests__/chatStart.test.ts",
+          "client/screens/chat/__tests__/ef38-production-path.test.tsx",
+          "client/screens/chat/api/cozeApi.ts",
+          "client/screens/chat/contexts/ChatContext.tsx"
+        ],
+        "pathCount": 4,
+        "pathDigest": "861c3f91719e85e8bfaf707ac587fbf528c1a7c4197744ac83f5aee6f98b5483"
+      },
+      "integration": {
+        "headSha": "1d61b510043e76b295aca9d989a961a20e590d1b",
+        "parentSha": "30d50f74d36094e1a7a34fa5b291b94bcc71098a",
+        "currentBaseSha": "30d50f74d36094e1a7a34fa5b291b94bcc71098a",
+        "mergeBaseSha": "30d50f74d36094e1a7a34fa5b291b94bcc71098a",
+        "patchId": "5dc77fc28805e1a466c508fbe74f12d541180193",
+        "sourceRepository": "susiexuejing/chat-app",
+        "sourceBranch": "cell2/ef107-currentbase-1d61b510",
+        "targetBranch": "dev",
+        "paths": [
+          "client/screens/chat/__tests__/chatStart.test.ts",
+          "client/screens/chat/__tests__/ef38-production-path.test.tsx",
+          "client/screens/chat/api/cozeApi.ts",
+          "client/screens/chat/contexts/ChatContext.tsx"
+        ],
+        "pathCount": 4,
+        "pathDigest": "861c3f91719e85e8bfaf707ac587fbf528c1a7c4197744ac83f5aee6f98b5483"
+      },
+      "baseAdvance": {
+        "fromSha": "dc7c319422571eaef3a45eac74e58a89d5a09757",
+        "toSha": "30d50f74d36094e1a7a34fa5b291b94bcc71098a",
+        "commitCount": 13,
+        "paths": [
+          ".github/workflows/protected-fixed-pr-admission.yml",
+          ".github/workflows/release-gate.yml",
+          "client/screens/chat/__tests__/ef175-chat-ui-visual.test.tsx",
+          "client/screens/chat/__tests__/ef177-chat-actions.test.tsx",
+          "client/screens/chat/components/RoleHeader.tsx",
+          "scripts/__tests__/ef111-review-manifest.test.mjs",
+          "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+          "scripts/__tests__/fixed-pr-admission.test.mjs",
+          "scripts/ef111-scope.manifest.json",
+          "scripts/fixed-pr-admission.mjs",
+          "scripts/fixed-pr-admission.profile.json",
+          "scripts/review-manifest.mjs"
+        ],
+        "pathCount": 12,
+        "pathDigest": "ed6fe871937aac9cbf661acf16c3fb58d5679020a46a0cf2b194dfa489628dea",
+        "zeroProductPathOverlap": true
+      },
+      "protectedGovernanceChain": {
+        "kind": "squash-merge",
+        "anchorBaseSha": "589ff543efd25df794d10ca8d6bd95a05881b3b6",
+        "anchorHeadSha": "99faca39e2cfa517e8ab9da12e113987291b3c77",
+        "anchorSourceBranch": "cell2/ef177-advanced-base-governance-99faca39",
+        "anchorMergeSha": "82e26d45213068130c226cadc1acf76f99856843",
+        "anchorMergeParentShas": [
+          "589ff543efd25df794d10ca8d6bd95a05881b3b6"
+        ],
+        "anchorPaths": [
+          "scripts/__tests__/ef94-ci-release-gate.test.mjs",
+          "scripts/__tests__/fixed-pr-admission.test.mjs",
+          "scripts/fixed-pr-admission.mjs",
+          "scripts/fixed-pr-admission.profile.json"
+        ],
+        "anchorPathCount": 4,
+        "anchorPathDigest": "6b7db69946230e2cbfa8d50d9d10e823de984b88092cb66d86490086acdcc763",
+        "permanentlyRejectedCandidateShas": [
+          "a1577f161d644dddcda6b6c6485a344d2869e9ae"
+        ],
+        "zeroProductPathOverlap": true
+      },
+      "regression": {
+        "selector": "chat-ui-jest-path",
+        "outputManifest": {
+          "schemaVersion": 2,
+          "targetedRegressionIds": [
+            "chat-ui-jest-path"
+          ],
+          "targetedTestPath": null,
+          "affectedTestPaths": [
+            "client/screens/chat/__tests__/chatStart.test.ts",
+            "client/screens/chat/__tests__/ef38-production-path.test.tsx"
+          ]
+        }
+      },
+      "qaAuditReference": "EF-107:independent-r2-qa:Comment-11525"
+    },
+    {
       "id": "ef-177-fa24d37-current-base-v1",
       "ticket": "EF-177",
       "productQa": {
@@ -52,6 +148,7 @@
         "zeroProductPathOverlap": true
       },
       "protectedGovernanceChain": {
+        "kind": "legacy-two-parent-merge",
         "historicProductBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
         "registryMergeSha": "d95ecc6eb125f069b3510f2875e0b620a330bc52",
         "registryHeadSha": "da3c35e8eab5097750bee9d0163c8b7be4ddd430",

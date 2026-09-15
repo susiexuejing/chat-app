@@ -26,7 +26,8 @@ const RECORD_KEYS = Object.freeze(['id', 'ticket', 'productQa', 'integration', '
 const PRODUCT_KEYS = Object.freeze(['headSha', 'parentSha', 'originalBaseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const INTEGRATION_KEYS = Object.freeze(['headSha', 'parentSha', 'currentBaseSha', 'mergeBaseSha', 'patchId', 'sourceRepository', 'sourceBranch', 'targetBranch', 'paths', 'pathCount', 'pathDigest']);
 const ADVANCE_KEYS = Object.freeze(['fromSha', 'toSha', 'commitCount', 'paths', 'pathCount', 'pathDigest', 'zeroProductPathOverlap']);
-const PROTECTED_CHAIN_KEYS = Object.freeze([
+const LEGACY_PROTECTED_CHAIN_KEYS = Object.freeze([
+  'kind',
   'historicProductBaseSha',
   'registryMergeSha',
   'registryHeadSha',
@@ -45,6 +46,19 @@ const PROTECTED_CHAIN_KEYS = Object.freeze([
   'authorityBootstrapPaths',
   'authorityBootstrapPathCount',
   'authorityBootstrapPathDigest',
+  'permanentlyRejectedCandidateShas',
+  'zeroProductPathOverlap',
+]);
+const SQUASH_PROTECTED_CHAIN_KEYS = Object.freeze([
+  'kind',
+  'anchorBaseSha',
+  'anchorHeadSha',
+  'anchorSourceBranch',
+  'anchorMergeSha',
+  'anchorMergeParentShas',
+  'anchorPaths',
+  'anchorPathCount',
+  'anchorPathDigest',
   'permanentlyRejectedCandidateShas',
   'zeroProductPathOverlap',
 ]);
@@ -123,6 +137,73 @@ function validateRegression(regression) {
   canonicalPathDigest(manifest.affectedTestPaths);
 }
 
+function validateRejectedCandidates(value) {
+  if (!Array.isArray(value) || value.length === 0) reject('missing permanently rejected governance candidates');
+  value.forEach((entry, index) => sha(entry, `permanently rejected candidate ${index + 1} SHA`));
+  if (new Set(value).size !== value.length
+    || value.some((entry, index) => index > 0 && value[index - 1].localeCompare(entry) >= 0)) {
+    reject('permanently rejected candidates are not canonical SHA-sorted unique entries');
+  }
+}
+
+function validateProtectedGovernanceChain(chain, productQa, integration) {
+  if (chain?.kind === 'legacy-two-parent-merge') {
+    exactKeys(chain, LEGACY_PROTECTED_CHAIN_KEYS, 'legacy protected governance chain');
+    sha(chain.historicProductBaseSha, 'protected governance historic product Base SHA');
+    sha(chain.registryMergeSha, 'protected governance registry merge SHA');
+    sha(chain.registryHeadSha, 'protected governance registry Head SHA');
+    sha(chain.correctiveParentSha, 'protected governance corrective parent SHA');
+    sha(chain.correctiveMergeSha, 'protected governance corrective merge SHA');
+    sha(chain.correctiveHeadSha, 'protected governance corrective Head SHA');
+    sha(chain.authorityBootstrapParentSha, 'authority Bootstrap parent SHA');
+    exact(chain.historicProductBaseSha, productQa.originalBaseSha, 'protected governance historic product Base');
+    exact(chain.correctiveParentSha, chain.registryMergeSha, 'protected governance corrective parent/registry merge');
+    exact(chain.authorityBootstrapParentSha, chain.correctiveMergeSha, 'authority Bootstrap parent/corrective merge');
+    if (!Array.isArray(chain.registryMergeParentShas) || chain.registryMergeParentShas.length !== 2) {
+      reject('registry merge must have exactly two parents');
+    }
+    chain.registryMergeParentShas.forEach((entry, index) => sha(entry, `registry merge parent ${index + 1} SHA`));
+    if (!sameArray(chain.registryMergeParentShas, [chain.historicProductBaseSha, chain.registryHeadSha])) {
+      reject('registry merge parent topology mismatch');
+    }
+    validatePathContract({ paths: chain.registryPaths, pathCount: chain.registryPathCount, pathDigest: chain.registryPathDigest }, 'registry governance');
+    validatePathContract({ paths: chain.correctivePaths, pathCount: chain.correctivePathCount, pathDigest: chain.correctivePathDigest }, 'corrective governance');
+    if (!Array.isArray(chain.correctiveMergeParentShas)
+      || !sameArray(chain.correctiveMergeParentShas, [chain.correctiveParentSha, chain.correctiveHeadSha])) {
+      reject('corrective merge parent topology mismatch');
+    }
+    validatePathContract({
+      paths: chain.authorityBootstrapPaths,
+      pathCount: chain.authorityBootstrapPathCount,
+      pathDigest: chain.authorityBootstrapPathDigest,
+    }, 'authority Bootstrap governance');
+    if (chain.zeroProductPathOverlap !== true
+      || [...chain.registryPaths, ...chain.correctivePaths, ...chain.authorityBootstrapPaths]
+        .some(entry => integration.paths.includes(entry))) {
+      reject('protected governance chain overlaps product paths');
+    }
+    validateRejectedCandidates(chain.permanentlyRejectedCandidateShas);
+    return chain;
+  }
+  if (chain?.kind === 'squash-merge') {
+    exactKeys(chain, SQUASH_PROTECTED_CHAIN_KEYS, 'squash protected governance anchor');
+    sha(chain.anchorBaseSha, 'squash anchor Base SHA');
+    sha(chain.anchorHeadSha, 'squash anchor Head SHA');
+    safeToken(chain.anchorSourceBranch, 'squash anchor source branch');
+    sha(chain.anchorMergeSha, 'squash anchor merge SHA');
+    if (!Array.isArray(chain.anchorMergeParentShas) || !sameArray(chain.anchorMergeParentShas, [chain.anchorBaseSha])) {
+      reject('squash anchor merge parent topology mismatch');
+    }
+    validatePathContract({ paths: chain.anchorPaths, pathCount: chain.anchorPathCount, pathDigest: chain.anchorPathDigest }, 'squash anchor governance');
+    if (chain.zeroProductPathOverlap !== true || chain.anchorPaths.some(entry => integration.paths.includes(entry))) {
+      reject('squash anchor overlaps product paths');
+    }
+    validateRejectedCandidates(chain.permanentlyRejectedCandidateShas);
+    return chain;
+  }
+  reject('unknown protected governance anchor kind');
+}
+
 function validateRecord(record, authority) {
   exactKeys(record, RECORD_KEYS, 'registry record');
   safeToken(record.id, 'record ID');
@@ -169,49 +250,7 @@ function validateRecord(record, authority) {
     reject('inconsistent zero Base advance');
   }
   if (advance.zeroProductPathOverlap !== true || advance.paths.some(entry => integration.paths.includes(entry))) reject('Base advance overlaps product paths');
-  exactKeys(record.protectedGovernanceChain, PROTECTED_CHAIN_KEYS, 'protected governance chain');
-  const chain = record.protectedGovernanceChain;
-  sha(chain.historicProductBaseSha, 'protected governance historic product Base SHA');
-  sha(chain.registryMergeSha, 'protected governance registry merge SHA');
-  sha(chain.registryHeadSha, 'protected governance registry Head SHA');
-  sha(chain.correctiveParentSha, 'protected governance corrective parent SHA');
-  sha(chain.correctiveMergeSha, 'protected governance corrective merge SHA');
-  sha(chain.correctiveHeadSha, 'protected governance corrective Head SHA');
-  sha(chain.authorityBootstrapParentSha, 'authority Bootstrap parent SHA');
-  exact(chain.historicProductBaseSha, productQa.originalBaseSha, 'protected governance historic product Base');
-  exact(chain.correctiveParentSha, chain.registryMergeSha, 'protected governance corrective parent/registry merge');
-  exact(chain.authorityBootstrapParentSha, chain.correctiveMergeSha, 'authority Bootstrap parent/corrective merge');
-  if (!Array.isArray(chain.registryMergeParentShas) || chain.registryMergeParentShas.length !== 2) {
-    reject('registry merge must have exactly two parents');
-  }
-  chain.registryMergeParentShas.forEach((entry, index) => sha(entry, `registry merge parent ${index + 1} SHA`));
-  if (!sameArray(chain.registryMergeParentShas, [chain.historicProductBaseSha, chain.registryHeadSha])) {
-    reject('registry merge parent topology mismatch');
-  }
-  validatePathContract({ paths: chain.registryPaths, pathCount: chain.registryPathCount, pathDigest: chain.registryPathDigest }, 'registry governance');
-  validatePathContract({ paths: chain.correctivePaths, pathCount: chain.correctivePathCount, pathDigest: chain.correctivePathDigest }, 'corrective governance');
-  if (!Array.isArray(chain.correctiveMergeParentShas)
-    || !sameArray(chain.correctiveMergeParentShas, [chain.correctiveParentSha, chain.correctiveHeadSha])) {
-    reject('corrective merge parent topology mismatch');
-  }
-  validatePathContract({
-    paths: chain.authorityBootstrapPaths,
-    pathCount: chain.authorityBootstrapPathCount,
-    pathDigest: chain.authorityBootstrapPathDigest,
-  }, 'authority Bootstrap governance');
-  if (chain.zeroProductPathOverlap !== true
-    || [...chain.registryPaths, ...chain.correctivePaths, ...chain.authorityBootstrapPaths]
-      .some(entry => integration.paths.includes(entry))) {
-    reject('protected governance chain overlaps product paths');
-  }
-  if (!Array.isArray(chain.permanentlyRejectedCandidateShas) || chain.permanentlyRejectedCandidateShas.length === 0) {
-    reject('missing permanently rejected governance candidates');
-  }
-  chain.permanentlyRejectedCandidateShas.forEach((entry, index) => sha(entry, `permanently rejected candidate ${index + 1} SHA`));
-  if (new Set(chain.permanentlyRejectedCandidateShas).size !== chain.permanentlyRejectedCandidateShas.length
-    || chain.permanentlyRejectedCandidateShas.some((entry, index) => index > 0 && chain.permanentlyRejectedCandidateShas[index - 1].localeCompare(entry) >= 0)) {
-    reject('permanently rejected candidates are not canonical SHA-sorted unique entries');
-  }
+  validateProtectedGovernanceChain(record.protectedGovernanceChain, productQa, integration);
   validateRegression(record.regression);
   if (!record.regression.outputManifest.affectedTestPaths.every(entry => integration.paths.includes(entry))) {
     reject('regression test is outside product paths');
@@ -287,9 +326,8 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   const authoritySnapshotSha = options.authoritySnapshotSha ?? evidence?.authoritySnapshotSha;
   sha(authoritySnapshotSha, 'authority snapshot SHA');
   exact(evidence?.protectedBaseCheckoutSha, authoritySnapshotSha, 'protected authority snapshot checkout SHA');
-  if (chain.permanentlyRejectedCandidateShas.includes(authoritySnapshotSha)
-    || chain.permanentlyRejectedCandidateShas.includes(evidence?.correctiveCandidateSha)
-    || chain.permanentlyRejectedCandidateShas.includes(evidence?.authorityBootstrapCandidateSha)) {
+  if ([authoritySnapshotSha, evidence?.correctiveCandidateSha, evidence?.authorityBootstrapCandidateSha, evidence?.anchorHeadSha]
+    .some(candidateSha => chain.permanentlyRejectedCandidateShas.includes(candidateSha))) {
     reject('permanently rejected governance candidate');
   }
   if (evidence?.authoritySnapshotResolvedOnce !== true) reject('authority snapshot was not resolved exactly once');
@@ -320,6 +358,39 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     || advanceDigest !== record.baseAdvance.pathDigest) reject('Base advance path set or digest mismatch');
   exact(evidence.baseAdvanceCommitCount, record.baseAdvance.commitCount, 'Base advance commit count');
   if (evidence.baseAdvancePaths.some(entry => integration.paths.includes(entry))) reject('Base advance overlaps product paths');
+  if (chain.kind === 'squash-merge') {
+    if (!evidence.anchorMergeIncludedInAuthoritySnapshot) reject('squash anchor merge is not included in authority snapshot');
+    exact(evidence.anchorBaseSha, chain.anchorBaseSha, 'squash anchor Base SHA');
+    exact(evidence.anchorHeadSha, chain.anchorHeadSha, 'squash anchor Head SHA');
+    exact(evidence.anchorSourceBranch, chain.anchorSourceBranch, 'squash anchor source branch');
+    exact(evidence.anchorMergeSha, chain.anchorMergeSha, 'squash anchor merge SHA');
+    if (!Array.isArray(evidence.anchorMergeParentShas)
+      || !sameArray(evidence.anchorMergeParentShas, chain.anchorMergeParentShas)) {
+      reject('squash anchor merge parent topology mismatch');
+    }
+    if (!Array.isArray(evidence.anchorHeadParentShas)
+      || !sameArray(evidence.anchorHeadParentShas, [chain.anchorBaseSha])) {
+      reject('squash anchor Head parent topology mismatch');
+    }
+    sha(evidence.anchorMergeTreeSha, 'squash anchor merge tree SHA');
+    sha(evidence.anchorHeadTreeSha, 'squash anchor Head tree SHA');
+    exact(evidence.anchorMergeTreeSha, evidence.anchorHeadTreeSha, 'squash anchor merge tree');
+    exact(evidence.anchorCommitCount, 1, 'squash anchor commit count');
+    if (!Array.isArray(evidence.anchorPaths)) reject('missing squash anchor governance paths');
+    const anchorDigest = canonicalPathDigest(evidence.anchorPaths);
+    if (!sameArray(evidence.anchorPaths, chain.anchorPaths)
+      || evidence.anchorPaths.length !== chain.anchorPathCount
+      || anchorDigest !== chain.anchorPathDigest) {
+      reject('squash anchor governance path set or digest mismatch');
+    }
+    if (evidence.anchorPaths.some(entry => integration.paths.includes(entry))) {
+      reject('squash anchor overlaps product paths');
+    }
+    if (!evidence.registryPresentAtSnapshot) reject('authority registry absent from protected snapshot');
+    if (!evidence.registryMatchesSnapshot) reject('authority registry differs from protected snapshot');
+    if (evidence.candidateProvidedAuthority === true) reject('candidate-provided authority is forbidden');
+    return { accepted: true, record };
+  }
   if (!evidence.registryMergeIncludedInAuthoritySnapshot) reject('registry merge is not included in authority snapshot');
   if (!Array.isArray(evidence.registryMergeParentShas)
     || !sameArray(evidence.registryMergeParentShas, chain.registryMergeParentShas)) {
@@ -423,21 +494,7 @@ function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSh
   })();
   const baseAdvancePaths = git(['diff', '--name-only', record.baseAdvance.fromSha, record.baseAdvance.toSha])
     .split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
-  const registryMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.registryMergeSha]).split(/\s+/);
-  registryMergeRevision.shift();
-  const registryMergePaths = git(['diff', '--name-only', chain.historicProductBaseSha, chain.registryMergeSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
-  const correctiveMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveMergeSha]).split(/\s+/);
-  correctiveMergeRevision.shift();
-  const correctiveCandidateRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveHeadSha]).split(/\s+/);
-  correctiveCandidateRevision.shift();
-  const authoritySnapshotRevision = git(['rev-list', '--parents', '-n', '1', authoritySnapshotSha]).split(/\s+/);
-  authoritySnapshotRevision.shift();
-  const authorityBootstrapCandidateSha = authoritySnapshotRevision[1];
-  const authorityBootstrapCandidateRevision = typeof authorityBootstrapCandidateSha === 'string'
-    ? git(['rev-list', '--parents', '-n', '1', authorityBootstrapCandidateSha]).split(/\s+/)
-    : [];
-  authorityBootstrapCandidateRevision.shift();
-  return {
+  const commonEvidence = {
     protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
     authoritySnapshotSha,
     authoritySnapshotResolvedOnce: true,
@@ -454,6 +511,46 @@ function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSh
     candidateControlPlanePaths: [],
     baseAdvancePaths,
     baseAdvanceCommitCount: Number(git(['rev-list', '--count', `${record.baseAdvance.fromSha}..${record.baseAdvance.toSha}`])),
+    registryPresentAtSnapshot: registryAtSnapshot !== null,
+    registryMatchesSnapshot: registryAtSnapshot !== null && sameValue(registryAtSnapshot, rawRegistry.trim()),
+    candidateProvidedAuthority: false,
+  };
+  if (chain.kind === 'squash-merge') {
+    const anchorMergeParents = git(['rev-list', '--parents', '-n', '1', chain.anchorMergeSha]).split(/\s+/);
+    anchorMergeParents.shift();
+    const anchorHeadParents = git(['rev-list', '--parents', '-n', '1', chain.anchorHeadSha]).split(/\s+/);
+    anchorHeadParents.shift();
+    return {
+      ...commonEvidence,
+      anchorMergeIncludedInAuthoritySnapshot: gitSucceeded(['merge-base', '--is-ancestor', chain.anchorMergeSha, authoritySnapshotSha]),
+      anchorBaseSha: chain.anchorBaseSha,
+      anchorHeadSha: chain.anchorHeadSha,
+      anchorSourceBranch: chain.anchorSourceBranch,
+      anchorMergeSha: chain.anchorMergeSha,
+      anchorMergeParentShas: anchorMergeParents,
+      anchorHeadParentShas: anchorHeadParents,
+      anchorMergeTreeSha: git(['rev-parse', `${chain.anchorMergeSha}^{tree}`]),
+      anchorHeadTreeSha: git(['rev-parse', `${chain.anchorHeadSha}^{tree}`]),
+      anchorCommitCount: Number(git(['rev-list', '--count', `${chain.anchorBaseSha}..${chain.anchorMergeSha}`])),
+      anchorPaths: git(['diff', '--name-only', chain.anchorBaseSha, chain.anchorMergeSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    };
+  }
+  const registryMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.registryMergeSha]).split(/\s+/);
+  registryMergeRevision.shift();
+  const registryMergePaths = git(['diff', '--name-only', chain.historicProductBaseSha, chain.registryMergeSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
+  const correctiveMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveMergeSha]).split(/\s+/);
+  correctiveMergeRevision.shift();
+  const correctiveCandidateRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveHeadSha]).split(/\s+/);
+  correctiveCandidateRevision.shift();
+  const authoritySnapshotRevision = git(['rev-list', '--parents', '-n', '1', authoritySnapshotSha]).split(/\s+/);
+  authoritySnapshotRevision.shift();
+  const authorityBootstrapCandidateSha = authoritySnapshotRevision[1];
+  const authorityBootstrapCandidateRevision = typeof authorityBootstrapCandidateSha === 'string'
+    ? git(['rev-list', '--parents', '-n', '1', authorityBootstrapCandidateSha]).split(/\s+/)
+    : [];
+  authorityBootstrapCandidateRevision.shift();
+  return {
+    ...commonEvidence,
     registryMergeIncludedInAuthoritySnapshot: gitSucceeded(['merge-base', '--is-ancestor', chain.registryMergeSha, authoritySnapshotSha]),
     registryMergeParentShas: registryMergeRevision,
     registryMergePaths,
@@ -477,9 +574,6 @@ function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSh
       : '',
     authorityBootstrapCommitCount: Number(git(['rev-list', '--count', `${chain.authorityBootstrapParentSha}..${authoritySnapshotSha}`])),
     authorityBootstrapPaths: git(['diff', '--name-only', chain.authorityBootstrapParentSha, authoritySnapshotSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b)),
-    registryPresentAtSnapshot: registryAtSnapshot !== null,
-    registryMatchesSnapshot: registryAtSnapshot !== null && sameValue(registryAtSnapshot, rawRegistry.trim()),
-    candidateProvidedAuthority: false,
   };
 }
 
