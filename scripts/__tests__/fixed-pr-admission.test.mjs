@@ -109,6 +109,7 @@ function registryWithRecord() {
         zeroProductPathOverlap: true,
       },
       protectedGovernanceChain: {
+        kind: 'legacy-two-parent-merge',
         historicProductBaseSha: QA_BASE,
         registryMergeSha: REGISTRY_MERGE,
         registryHeadSha: REGISTRY_HEAD,
@@ -218,10 +219,32 @@ function rejected(mutator, expression, eventName = 'pull_request_target') {
   assert.throws(() => validateAdmission(registry, event, evidence, { expectedEventName: eventName }), expression);
 }
 
-test('on-disk authority grants only the frozen EF-177 current-Base product identity', () => {
+test('on-disk authority preserves EF-177 legacy identity and adds the exact EF-107 squash anchor', () => {
   assert.deepEqual(validateProfile(DISK_REGISTRY), DISK_REGISTRY);
-  assert.equal(DISK_REGISTRY.records.length, 1);
-  assert.deepEqual(DISK_REGISTRY.records[0], {
+  assert.deepEqual(DISK_REGISTRY.records.map(record => record.id), [
+    'ef-107-1d61b510-current-base-v1',
+    'ef-177-fa24d37-current-base-v1',
+  ]);
+  const ef107 = DISK_REGISTRY.records[0];
+  assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
+  assert.equal(ef107.integration.parentSha, '30d50f74d36094e1a7a34fa5b291b94bcc71098a');
+  assert.equal(ef107.integration.patchId, '5dc77fc28805e1a466c508fbe74f12d541180193');
+  assert.equal(ef107.integration.sourceBranch, 'cell2/ef107-currentbase-1d61b510');
+  assert.equal(ef107.integration.pathDigest, '861c3f91719e85e8bfaf707ac587fbf528c1a7c4197744ac83f5aee6f98b5483');
+  assert.deepEqual(ef107.protectedGovernanceChain, {
+    kind: 'squash-merge',
+    anchorBaseSha: '589ff543efd25df794d10ca8d6bd95a05881b3b6',
+    anchorHeadSha: '99faca39e2cfa517e8ab9da12e113987291b3c77',
+    anchorSourceBranch: 'cell2/ef177-advanced-base-governance-99faca39',
+    anchorMergeSha: '82e26d45213068130c226cadc1acf76f99856843',
+    anchorMergeParentShas: ['589ff543efd25df794d10ca8d6bd95a05881b3b6'],
+    anchorPaths: [...CORRECTIVE_PATHS],
+    anchorPathCount: CORRECTIVE_PATHS.length,
+    anchorPathDigest: canonicalPathDigest(CORRECTIVE_PATHS),
+    permanentlyRejectedCandidateShas: [PERMANENTLY_REJECTED],
+    zeroProductPathOverlap: true,
+  });
+  assert.deepEqual(DISK_REGISTRY.records[1], {
     id: 'ef-177-fa24d37-current-base-v1',
     ticket: 'EF-177',
     productQa: {
@@ -257,6 +280,7 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
       zeroProductPathOverlap: true,
     },
     protectedGovernanceChain: {
+      kind: 'legacy-two-parent-merge',
       historicProductBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
       registryMergeSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
       registryHeadSha: 'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
@@ -296,7 +320,7 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
     qaAuditReference: 'EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410',
   });
 
-  const record = DISK_REGISTRY.records[0];
+  const record = DISK_REGISTRY.records[1];
   const event = {
     eventName: 'pull_request_target',
     pullRequest: {
@@ -366,6 +390,80 @@ test('same registry record admits both protected pull_request_target gates', () 
   const registry = registryWithRecord();
   assert.equal(validateAdmission(registry, acceptedEvent(), acceptedEvidence()).accepted, true);
   assert.equal(isFixedSuccessorAttempt(registry, acceptedEvent()), true);
+});
+
+test('EF-107 squash anchor is exact and fails closed for topology, identity, and scope mutations', () => {
+  const registry = clone(DISK_REGISTRY);
+  const record = registry.records[0];
+  const chain = record.protectedGovernanceChain;
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: 132,
+      head: {
+        sha: record.integration.headSha,
+        ref: record.integration.sourceBranch,
+        repoFullName: record.integration.sourceRepository,
+      },
+      base: {
+        sha: PROTECTED_BASE,
+        ref: 'dev',
+        repoFullName: record.integration.sourceRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: PROTECTED_BASE,
+    authoritySnapshotSha: PROTECTED_BASE,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
+    candidateResolvedSha: record.integration.headSha,
+    candidateParentShas: [record.integration.currentBaseSha],
+    candidateMergeBaseSha: record.integration.mergeBaseSha,
+    candidatePatchId: record.integration.patchId,
+    changedPaths: [...record.integration.paths],
+    candidateControlPlanePaths: [],
+    baseAdvancePaths: [...record.baseAdvance.paths],
+    baseAdvanceCommitCount: record.baseAdvance.commitCount,
+    anchorMergeIncludedInAuthoritySnapshot: true,
+    anchorBaseSha: chain.anchorBaseSha,
+    anchorHeadSha: chain.anchorHeadSha,
+    anchorSourceBranch: chain.anchorSourceBranch,
+    anchorMergeSha: chain.anchorMergeSha,
+    anchorMergeParentShas: [...chain.anchorMergeParentShas],
+    anchorHeadParentShas: [chain.anchorBaseSha],
+    anchorMergeTreeSha: PROTECTED_TREE,
+    anchorHeadTreeSha: PROTECTED_TREE,
+    anchorCommitCount: 1,
+    anchorPaths: [...chain.anchorPaths],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
+  };
+  assert.equal(validateAdmission(registry, event, evidence).accepted, true);
+  evidence.anchorMergeParentShas = ['f'.repeat(40)];
+  assert.throws(() => validateAdmission(registry, event, evidence), /squash anchor merge parent topology/);
+
+  const wrongHead = clone(DISK_REGISTRY);
+  wrongHead.records[0].protectedGovernanceChain.anchorHeadSha = 'f'.repeat(40);
+  assert.doesNotThrow(() => validateProfile(wrongHead));
+  assert.throws(() => validateAdmission(wrongHead, event, { ...evidence, anchorMergeParentShas: [...chain.anchorMergeParentShas] }), /squash anchor Head SHA/);
+
+  const wrongTopology = clone(DISK_REGISTRY);
+  wrongTopology.records[0].protectedGovernanceChain.anchorMergeParentShas = ['f'.repeat(40)];
+  assert.throws(() => validateProfile(wrongTopology), /squash anchor merge parent topology/);
+  assert.throws(() => validateAdmission(registry, event, {
+    ...evidence,
+    anchorMergeParentShas: [...chain.anchorMergeParentShas],
+    anchorPaths: [...chain.anchorPaths, 'scripts/unapproved.mjs'].sort((a, b) => a.localeCompare(b)),
+  }), /squash anchor governance path set/);
+  const extraKey = clone(DISK_REGISTRY);
+  extraKey.records[0].protectedGovernanceChain.extra = true;
+  assert.throws(() => validateProfile(extraKey), /squash protected governance anchor keys/);
 });
 
 test('release output is exactly the Base-owned selector manifest', () => {

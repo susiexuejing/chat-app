@@ -68,7 +68,7 @@ test('privileged release gate produces admission only and contains no product ex
   assert.doesNotMatch(workflow, /workflow_dispatch|^  push:|^  pull_request:/m);
 });
 
-test('Base-owned v5 profile freezes PR 126 identity and the only allowed governance ancestry', async () => {
+test('Base-owned v5 profile preserves EF-177 legacy ancestry and freezes EF-107 squash-anchor identity', async () => {
   const profile = JSON.parse(await text(profileUrl));
   assert.equal(profile.schemaVersion, 5);
   assert.equal(profile.kind, 'base-owned-current-base-integration-registry');
@@ -78,14 +78,39 @@ test('Base-owned v5 profile freezes PR 126 identity and the only allowed governa
     governanceSelfAdmission: 'forbidden',
     recordOrder: 'id-lf-ascending',
   });
-  assert.equal(profile.records.length, 1);
-  const record = profile.records[0];
+  assert.equal(profile.records.length, 2);
+  const ef107 = profile.records[0];
+  assert.equal(ef107.id, 'ef-107-1d61b510-current-base-v1');
+  assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
+  assert.equal(ef107.integration.parentSha, '30d50f74d36094e1a7a34fa5b291b94bcc71098a');
+  assert.equal(ef107.integration.sourceBranch, 'cell2/ef107-currentbase-1d61b510');
+  assert.equal(ef107.integration.pathDigest, '861c3f91719e85e8bfaf707ac587fbf528c1a7c4197744ac83f5aee6f98b5483');
+  assert.deepEqual(ef107.protectedGovernanceChain, {
+    kind: 'squash-merge',
+    anchorBaseSha: '589ff543efd25df794d10ca8d6bd95a05881b3b6',
+    anchorHeadSha: '99faca39e2cfa517e8ab9da12e113987291b3c77',
+    anchorSourceBranch: 'cell2/ef177-advanced-base-governance-99faca39',
+    anchorMergeSha: '82e26d45213068130c226cadc1acf76f99856843',
+    anchorMergeParentShas: ['589ff543efd25df794d10ca8d6bd95a05881b3b6'],
+    anchorPaths: [
+      'scripts/__tests__/ef94-ci-release-gate.test.mjs',
+      'scripts/__tests__/fixed-pr-admission.test.mjs',
+      'scripts/fixed-pr-admission.mjs',
+      'scripts/fixed-pr-admission.profile.json',
+    ],
+    anchorPathCount: 4,
+    anchorPathDigest: '6b7db69946230e2cbfa8d50d9d10e823de984b88092cb66d86490086acdcc763',
+    permanentlyRejectedCandidateShas: ['a1577f161d644dddcda6b6c6485a344d2869e9ae'],
+    zeroProductPathOverlap: true,
+  });
+  const record = profile.records[1];
   assert.equal(record.integration.headSha, 'fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410');
   assert.equal(record.integration.parentSha, 'fed71b289db431370f8789163d7d3c5602936689');
   assert.equal(record.integration.sourceBranch, 'cell1/ef177-currentbase-fa24d37');
   assert.equal(record.integration.targetBranch, 'dev');
   assert.equal(record.integration.pathCount, 3);
   const chain = record.protectedGovernanceChain;
+  assert.equal(chain.kind, 'legacy-two-parent-merge');
   assert.equal(chain.historicProductBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
   assert.equal(chain.registryMergeSha, 'd95ecc6eb125f069b3510f2875e0b620a330bc52');
   assert.equal(chain.correctiveMergeSha, 'b968adb3318d3f91aba34d14d3511be77f03d438');
