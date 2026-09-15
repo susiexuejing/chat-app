@@ -109,10 +109,10 @@ function registryWithRecord() {
         zeroProductPathOverlap: true,
       },
       protectedGovernanceChain: {
-        productBaseSha: CURRENT_BASE,
+        historicProductBaseSha: QA_BASE,
         registryMergeSha: REGISTRY_MERGE,
         registryHeadSha: REGISTRY_HEAD,
-        registryMergeParentShas: [CURRENT_BASE, REGISTRY_HEAD],
+        registryMergeParentShas: [QA_BASE, REGISTRY_HEAD],
         registryPaths: [...REGISTRY_PATHS],
         registryPathCount: REGISTRY_PATHS.length,
         registryPathDigest: canonicalPathDigest(REGISTRY_PATHS),
@@ -257,7 +257,7 @@ test('on-disk authority grants only the frozen EF-177 current-Base product ident
       zeroProductPathOverlap: true,
     },
     protectedGovernanceChain: {
-      productBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
+      historicProductBaseSha: 'fed71b289db431370f8789163d7d3c5602936689',
       registryMergeSha: 'd95ecc6eb125f069b3510f2875e0b620a330bc52',
       registryHeadSha: 'da3c35e8eab5097750bee9d0163c8b7be4ddd430',
       registryMergeParentShas: [
@@ -537,12 +537,15 @@ test('zero Base advancement is represented explicitly without a fabricated path'
   record.productQa.parentSha = CURRENT_BASE;
   record.productQa.originalBaseSha = CURRENT_BASE;
   record.productQa.mergeBaseSha = CURRENT_BASE;
+  record.protectedGovernanceChain.historicProductBaseSha = CURRENT_BASE;
+  record.protectedGovernanceChain.registryMergeParentShas[0] = CURRENT_BASE;
   record.baseAdvance.fromSha = CURRENT_BASE;
   record.baseAdvance.commitCount = 0;
   record.baseAdvance.paths = [];
   record.baseAdvance.pathCount = 0;
   record.baseAdvance.pathDigest = canonicalPathDigest([]);
   const evidence = acceptedEvidence();
+  evidence.registryMergeParentShas[0] = CURRENT_BASE;
   evidence.baseAdvanceCommitCount = 0;
   evidence.baseAdvancePaths = [];
   evidence.productOriginalBaseIncludedInAuthoritySnapshot = true;

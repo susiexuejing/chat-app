@@ -52,7 +52,7 @@
         "zeroProductPathOverlap": true
       },
       "protectedGovernanceChain": {
-        "productBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
+        "historicProductBaseSha": "fed71b289db431370f8789163d7d3c5602936689",
         "registryMergeSha": "d95ecc6eb125f069b3510f2875e0b620a330bc52",
         "registryHeadSha": "da3c35e8eab5097750bee9d0163c8b7be4ddd430",
         "registryMergeParentShas": [
