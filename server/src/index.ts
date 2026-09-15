@@ -35,7 +35,11 @@ import {
 import { registerRuntimeOwnerBindingStore } from './storage/database/rds-owner-binding-store';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
-import { writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
+import { EF45_R2_PROBE_MARKER, writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
+import {
+  ef45CategoryReader,
+  isFixedEf45SyntheticProbe,
+} from './observability/ef45CategoryReader';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -79,6 +83,10 @@ app.get('/api/v1/health', (_req, res) => {
 app.get('/api/v1/version', (_req, res) => {
   res.json(VERSION_INFO);
 });
+
+// Fixed DEV-only EF-45 diagnostic response. There are no caller-controlled
+// filters, audit identifiers, or file locations.
+app.get('/api/v1/diagnostics/ef45-category', ef45CategoryReader);
 
 // ============================================================
 // EF-59: Conversation Persistence API
@@ -127,6 +135,7 @@ export interface ChatSession {
   flowResult: FlowResult | null; // Flow System 心理流向分析结果
   flowContext: FlowContext | null; // Step1: 结构化 FlowContext（用于 Deep prompt）
   eventSequencer: TurnEventSequencer; // EF-102: server-owned ordering for this turn
+  ef45ProbeMarker?: typeof EF45_R2_PROBE_MARKER;
 }
 
 type SafeDeepErrorCode =
@@ -214,13 +223,14 @@ async function callDashScope(
 // ============================================================
 export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const apiKey = API_KEY_LIGHT;
-  writeEf118RuntimeAudit({ providerCategory: 'request_reached' });
+  const ef45ProbeMarker = session.ef45ProbeMarker;
+  writeEf118RuntimeAudit({ providerCategory: 'request_reached', ef45ProbeMarker });
   console.log('[Deep] Analysis requested', {
     userTurn,
     apiKeyConfigured: Boolean(apiKey),
   });
   if (!apiKey) {
-    writeEf118RuntimeAudit({ providerCategory: 'key_missing' });
+    writeEf118RuntimeAudit({ providerCategory: 'key_missing', ef45ProbeMarker });
     setSafeDeepError(session, 'provider_key_missing');
     return;
   }
@@ -240,7 +250,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     ];
 
     console.log('[Deep] Provider request started', { modelClass: 'deep' });
-    writeEf118RuntimeAudit({ providerCategory: 'request_started' });
+    writeEf118RuntimeAudit({ providerCategory: 'request_started', ef45ProbeMarker });
     const response = await callDashScope(
       DASHSCOPE_BASE_URL,
       apiKey,
@@ -259,6 +269,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         : response.status >= 400
           ? 'response_client_error'
           : 'response_success',
+      ef45ProbeMarker,
     });
     if (!response.ok) {
       const errorText = await response.text().catch(() => '');
@@ -275,7 +286,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     const reader = response.body?.getReader();
     if (!reader) {
-      writeEf118RuntimeAudit({ providerCategory: 'reader_missing' });
+      writeEf118RuntimeAudit({ providerCategory: 'reader_missing', ef45ProbeMarker });
       console.error('[Deep] Provider response reader missing', {
         code: 'stream_reader_missing',
         retryable: true,
@@ -323,7 +334,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
                 if (content) {
                   if (!providerFirstEventAudited) {
                     providerFirstEventAudited = true;
-                    writeEf118RuntimeAudit({ providerCategory: 'first_event' });
+                    writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
                   }
                   if (firstTokenTime === 0) {
                     firstTokenTime = Date.now();
@@ -339,7 +350,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
                   if (rc) {
                     if (!providerFirstEventAudited) {
                       providerFirstEventAudited = true;
-                      writeEf118RuntimeAudit({ providerCategory: 'first_event' });
+                      writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
                     }
                     reasoningBuffer += rc;
                   } else {
@@ -371,6 +382,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       providerTerminalFailure = true;
       writeEf118RuntimeAudit({
         providerCategory: timedOut ? 'stream_timeout' : 'stream_read_error',
+        ef45ProbeMarker,
       });
       console.error('[Deep] Stream processing failed', {
         code: timedOut ? 'stream_timeout' : 'stream_read_error',
@@ -439,7 +451,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     session.deepDone = true;
     if (!providerTerminalFailure) {
-      writeEf118RuntimeAudit({ providerCategory: 'stream_completed' });
+      writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
     }
     const completionDuration = Date.now() - streamStartTime;
     const firstTokenDelay = firstTokenTime > 0 ? (firstTokenTime - streamStartTime) : -1;
@@ -453,29 +465,32 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       fallbackUsed: wasFallback,
     });
 
-    // ── Step 3: 更新 Long-Term Understanding ──
-    try {
-      const deepOutput = session.deepChunks.join('');
-      updateProfile(session.userId, session.roleId, {
-        userInput: session.userMessage,
-        state: session.state,
-        keywords: session.keywords,
-        emotionTag: session.emotionTag,
-        eventTag: session.eventTag,
-        flowType: session.flowContext?.flowType,
-        flowStage: session.flowContext?.flowStage,
-        deepSummary: cleaned,
-      });
-    } catch (ltuErr) {
-      void ltuErr;
-      console.error('[Deep] LTU update failed', {
-        code: 'ltu_update_error',
-        retryable: false,
-      });
+    // The fixed EF-45 probe observes transport only. It must never create
+    // long-term history or a personality/evolution write.
+    if (!ef45ProbeMarker) {
+      // ── Step 3: 更新 Long-Term Understanding ──
+      try {
+        updateProfile(session.userId, session.roleId, {
+          userInput: session.userMessage,
+          state: session.state,
+          keywords: session.keywords,
+          emotionTag: session.emotionTag,
+          eventTag: session.eventTag,
+          flowType: session.flowContext?.flowType,
+          flowStage: session.flowContext?.flowStage,
+          deepSummary: cleaned,
+        });
+      } catch (ltuErr) {
+        void ltuErr;
+        console.error('[Deep] LTU update failed', {
+          code: 'ltu_update_error',
+          retryable: false,
+        });
+      }
     }
 
     // ── [Dev-Only] Step 4: Personality Evolution 实验 ──
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env.NODE_ENV === 'development' && !ef45ProbeMarker) {
       try {
         const trendData = getChangeTrends(session.userId, session.roleId);
 
@@ -535,7 +550,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
   } catch (error) {
-    writeEf118RuntimeAudit({ providerCategory: 'analysis_failure' });
+    writeEf118RuntimeAudit({ providerCategory: 'analysis_failure', ef45ProbeMarker });
     const errTime = Date.now() - streamStartTime;
     console.error('[Deep] Analysis failed', {
       code: 'deep_analysis_failure',
@@ -813,10 +828,28 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // 即时返回前端流 + 触发后台百炼调用
 // ============================================================
 app.post('/api/v1/chat/start', async (req, res) => {
+  const ef45ProbeMarker = isFixedEf45SyntheticProbe(
+    req.get('x-ef45-diagnostic-marker'),
+    req.body,
+  ) ? EF45_R2_PROBE_MARKER : undefined;
   try {
     const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
-    if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
-    if (!hasOwnerBindingRuntime()) return sendAnonymousFailure(res, 'internal');
+    if (!authenticated.ok) {
+      writeEf118RuntimeAudit({
+        dbSessionCategory: 'session_missing',
+        frontendErrorMappingCategory: 'safe_connection_retry',
+        ef45ProbeMarker,
+      });
+      return sendAnonymousFailure(res, authenticated.kind);
+    }
+    if (!hasOwnerBindingRuntime()) {
+      writeEf118RuntimeAudit({
+        dbSessionCategory: 'chat_start_processing_error',
+        frontendErrorMappingCategory: 'chat_start_retry',
+        ef45ProbeMarker,
+      });
+      return sendAnonymousFailure(res, 'internal');
+    }
 
     const { roleId, message, conversationId } = req.body;
     const userId = authenticated.session.id;
@@ -825,6 +858,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       writeEf118RuntimeAudit({
         dbSessionCategory: 'request_invalid',
         frontendErrorMappingCategory: 'chat_start_retry',
+        ef45ProbeMarker,
       });
       return res.status(400).json({ error: 'roleId and message are required' });
     }
@@ -835,6 +869,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
         writeEf118RuntimeAudit({
           dbSessionCategory: 'request_invalid',
           frontendErrorMappingCategory: 'chat_start_retry',
+          ef45ProbeMarker,
         });
         return res.status(400).json({ error: 'Invalid conversationId: must be 1-100 alphanumeric/underscore/hyphen characters' });
       }
@@ -843,11 +878,12 @@ app.post('/api/v1/chat/start', async (req, res) => {
         writeEf118RuntimeAudit({
           dbSessionCategory: 'conversation_verify_error',
           frontendErrorMappingCategory: 'safe_connection_retry',
+          ef45ProbeMarker,
         });
         return res.status(500).json({ error: 'internal_server_error' });
       }
       if (ownership === 'missing') {
-        writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found' });
+        writeEf118RuntimeAudit({ dbSessionCategory: 'conversation_not_found', ef45ProbeMarker });
         return res.status(404).json({ error: 'resource_not_found' });
       }
     }
@@ -947,12 +983,14 @@ app.post('/api/v1/chat/start', async (req, res) => {
       flowResult: null,
       flowContext,
       eventSequencer: new TurnEventSequencer(),
+      ef45ProbeMarker,
     };
     sessions.set(sessionId, session);
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_created',
       providerCategory: normalChat ? 'not_reached' : undefined,
       frontendErrorMappingCategory: 'none',
+      ef45ProbeMarker,
     });
 
     // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
@@ -989,31 +1027,33 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
 
       // 7a. Flow System 心理流向分析
-      try {
-        session.flowResult = analyzeFlow(userId, roleId, message);
-        console.log('[Flow] Analysis completed', {
-          flowType: session.flowResult.primaryFlow?.flowType || 'none',
-          status: session.flowResult.status,
-        });
-
-        // 7a'. Change System 用户变化感知
-        const changeSnapshot = recordChange(userId, roleId, session.flowResult);
-        if (changeSnapshot) {
-          console.log('[Change] Snapshot updated', {
-            direction: changeSnapshot.patternDelta.directionChange,
-            attributionDelta: changeSnapshot.positionDelta.attributionDelta,
-            agencyDelta: changeSnapshot.positionDelta.agencyDelta,
+      if (!ef45ProbeMarker) {
+        try {
+          session.flowResult = analyzeFlow(userId, roleId, message);
+          console.log('[Flow] Analysis completed', {
+            flowType: session.flowResult.primaryFlow?.flowType || 'none',
+            status: session.flowResult.status,
           });
-        } else {
-          console.log('[Change] Snapshot initialized');
+
+          // 7a'. Change System 用户变化感知
+          const changeSnapshot = recordChange(userId, roleId, session.flowResult);
+          if (changeSnapshot) {
+            console.log('[Change] Snapshot updated', {
+              direction: changeSnapshot.patternDelta.directionChange,
+              attributionDelta: changeSnapshot.positionDelta.attributionDelta,
+              agencyDelta: changeSnapshot.positionDelta.agencyDelta,
+            });
+          } else {
+            console.log('[Change] Snapshot initialized');
+          }
+        } catch (flowErr) {
+          void flowErr;
+          console.error('[Flow] Analysis failed', {
+            code: 'flow_analysis_error',
+            retryable: false,
+          });
+          session.flowResult = null;
         }
-      } catch (flowErr) {
-        void flowErr;
-        console.error('[Flow] Analysis failed', {
-          code: 'flow_analysis_error',
-          retryable: false,
-        });
-        session.flowResult = null;
       }
 
       startDeepAnalysis(session, userTurn).catch(err => {
@@ -1031,6 +1071,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       providerCategory: 'not_reached',
       sseCategory: 'not_established',
       frontendErrorMappingCategory: 'chat_start_retry',
+      ef45ProbeMarker,
     });
     void error;
     console.error('[Start] Request handling failed', {
@@ -1074,13 +1115,14 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     });
     return res.status(404).json({ error: 'resource_not_found' });
   }
+  const ef45ProbeMarker = session.ef45ProbeMarker;
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-store, no-transform, must-revalidate');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  writeEf118RuntimeAudit({ sseCategory: 'connection_established' });
+  writeEf118RuntimeAudit({ sseCategory: 'connection_established', ef45ProbeMarker });
 
   let firstSseEventAudited = false;
   let sseTerminated = false;
@@ -1093,7 +1135,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     res.write(serializeStreamEvent(event));
     if (!firstSseEventAudited) {
       firstSseEventAudited = true;
-      writeEf118RuntimeAudit({ sseCategory: 'first_event' });
+      writeEf118RuntimeAudit({ sseCategory: 'first_event', ef45ProbeMarker });
     }
   };
 
@@ -1148,6 +1190,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       writeEf118RuntimeAudit({
         sseCategory: 'completed',
         frontendErrorMappingCategory: 'none',
+        ef45ProbeMarker,
       });
       res.end();
       return;
@@ -1165,6 +1208,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
           : 'analysis_failure',
         sseCategory: 'deep_failure',
         frontendErrorMappingCategory: 'deep_response_retry',
+        ef45ProbeMarker,
       });
       res.end();
       return;
@@ -1179,6 +1223,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     writeEf118RuntimeAudit({
       sseCategory: 'timeout',
       frontendErrorMappingCategory: 'stream_timeout_retry',
+      ef45ProbeMarker,
     });
     res.end();
   }, 150000);
@@ -1188,11 +1233,11 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     clearTimeout(timeout);
     if (!sseTerminated) {
       sseTerminated = true;
-      writeEf118RuntimeAudit({ sseCategory: 'client_closed' });
+      writeEf118RuntimeAudit({ sseCategory: 'client_closed', ef45ProbeMarker });
     }
     // 保存用户神经档案
     try {
-      if (session.userId && session.neuralProfile) {
+      if (!ef45ProbeMarker && session.userId && session.neuralProfile) {
         neuralManager.updateAfterSession(session.userId, session.roleId, session.userMessage, session.deepChunks.join(''));
         neuralManager.saveProfiles();
       }
