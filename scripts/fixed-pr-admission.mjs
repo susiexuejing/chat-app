@@ -27,7 +27,7 @@ const PRODUCT_KEYS = Object.freeze(['headSha', 'parentSha', 'originalBaseSha', '
 const INTEGRATION_KEYS = Object.freeze(['headSha', 'parentSha', 'currentBaseSha', 'mergeBaseSha', 'patchId', 'sourceRepository', 'sourceBranch', 'targetBranch', 'paths', 'pathCount', 'pathDigest']);
 const ADVANCE_KEYS = Object.freeze(['fromSha', 'toSha', 'commitCount', 'paths', 'pathCount', 'pathDigest', 'zeroProductPathOverlap']);
 const PROTECTED_CHAIN_KEYS = Object.freeze([
-  'productBaseSha',
+  'historicProductBaseSha',
   'registryMergeSha',
   'registryHeadSha',
   'registryMergeParentShas',
@@ -171,21 +171,21 @@ function validateRecord(record, authority) {
   if (advance.zeroProductPathOverlap !== true || advance.paths.some(entry => integration.paths.includes(entry))) reject('Base advance overlaps product paths');
   exactKeys(record.protectedGovernanceChain, PROTECTED_CHAIN_KEYS, 'protected governance chain');
   const chain = record.protectedGovernanceChain;
-  sha(chain.productBaseSha, 'protected governance product Base SHA');
+  sha(chain.historicProductBaseSha, 'protected governance historic product Base SHA');
   sha(chain.registryMergeSha, 'protected governance registry merge SHA');
   sha(chain.registryHeadSha, 'protected governance registry Head SHA');
   sha(chain.correctiveParentSha, 'protected governance corrective parent SHA');
   sha(chain.correctiveMergeSha, 'protected governance corrective merge SHA');
   sha(chain.correctiveHeadSha, 'protected governance corrective Head SHA');
   sha(chain.authorityBootstrapParentSha, 'authority Bootstrap parent SHA');
-  exact(chain.productBaseSha, integration.currentBaseSha, 'protected governance product Base');
+  exact(chain.historicProductBaseSha, productQa.originalBaseSha, 'protected governance historic product Base');
   exact(chain.correctiveParentSha, chain.registryMergeSha, 'protected governance corrective parent/registry merge');
   exact(chain.authorityBootstrapParentSha, chain.correctiveMergeSha, 'authority Bootstrap parent/corrective merge');
   if (!Array.isArray(chain.registryMergeParentShas) || chain.registryMergeParentShas.length !== 2) {
     reject('registry merge must have exactly two parents');
   }
   chain.registryMergeParentShas.forEach((entry, index) => sha(entry, `registry merge parent ${index + 1} SHA`));
-  if (!sameArray(chain.registryMergeParentShas, [chain.productBaseSha, chain.registryHeadSha])) {
+  if (!sameArray(chain.registryMergeParentShas, [chain.historicProductBaseSha, chain.registryHeadSha])) {
     reject('registry merge parent topology mismatch');
   }
   validatePathContract({ paths: chain.registryPaths, pathCount: chain.registryPathCount, pathDigest: chain.registryPathDigest }, 'registry governance');
@@ -425,7 +425,7 @@ function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSh
     .split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
   const registryMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.registryMergeSha]).split(/\s+/);
   registryMergeRevision.shift();
-  const registryMergePaths = git(['diff', '--name-only', chain.productBaseSha, chain.registryMergeSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
+  const registryMergePaths = git(['diff', '--name-only', chain.historicProductBaseSha, chain.registryMergeSha]).split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
   const correctiveMergeRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveMergeSha]).split(/\s+/);
   correctiveMergeRevision.shift();
   const correctiveCandidateRevision = git(['rev-list', '--parents', '-n', '1', chain.correctiveHeadSha]).split(/\s+/);
@@ -457,7 +457,7 @@ function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSh
     registryMergeIncludedInAuthoritySnapshot: gitSucceeded(['merge-base', '--is-ancestor', chain.registryMergeSha, authoritySnapshotSha]),
     registryMergeParentShas: registryMergeRevision,
     registryMergePaths,
-    registryMergeCommitCount: Number(git(['rev-list', '--count', `${chain.productBaseSha}..${chain.registryMergeSha}`])),
+    registryMergeCommitCount: Number(git(['rev-list', '--count', `${chain.historicProductBaseSha}..${chain.registryMergeSha}`])),
     correctiveMergeIncludedInAuthoritySnapshot: gitSucceeded(['merge-base', '--is-ancestor', chain.correctiveMergeSha, authoritySnapshotSha]),
     correctiveMergeSha: chain.correctiveMergeSha,
     correctiveMergeParentShas: correctiveMergeRevision,

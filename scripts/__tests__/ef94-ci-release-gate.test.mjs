@@ -86,7 +86,7 @@ test('Base-owned v5 profile freezes PR 126 identity and the only allowed governa
   assert.equal(record.integration.targetBranch, 'dev');
   assert.equal(record.integration.pathCount, 3);
   const chain = record.protectedGovernanceChain;
-  assert.equal(chain.productBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
+  assert.equal(chain.historicProductBaseSha, 'fed71b289db431370f8789163d7d3c5602936689');
   assert.equal(chain.registryMergeSha, 'd95ecc6eb125f069b3510f2875e0b620a330bc52');
   assert.equal(chain.correctiveMergeSha, 'b968adb3318d3f91aba34d14d3511be77f03d438');
   assert.equal(chain.authorityBootstrapParentSha, 'b968adb3318d3f91aba34d14d3511be77f03d438');
