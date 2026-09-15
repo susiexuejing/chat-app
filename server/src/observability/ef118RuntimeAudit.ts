@@ -16,7 +16,14 @@ export const EF118_AUDIT_FIELD_WHITELIST = [
   'providerCategory',
   'sseCategory',
   'frontendErrorMappingCategory',
+  'ef45ProbeMarker',
 ] as const;
+
+/**
+ * Fixed, non-user correlation marker for the single EF-45 DEV probe. This is
+ * deliberately not configurable and is never returned by the reader.
+ */
+export const EF45_R2_PROBE_MARKER = 'ef45-r2-probe-v1' as const;
 
 const DB_SESSION_CATEGORIES = [
   'runtime_started',
@@ -83,6 +90,7 @@ export interface Ef118RuntimeAuditEvent {
   providerCategory?: Ef118ProviderCategory;
   sseCategory?: Ef118SseCategory;
   frontendErrorMappingCategory?: Ef118FrontendErrorMappingCategory;
+  ef45ProbeMarker?: typeof EF45_R2_PROBE_MARKER;
 }
 
 export interface Ef118RuntimeAuditRecord {
@@ -99,6 +107,7 @@ export interface Ef118RuntimeAuditRecord {
   providerCategory: Ef118ProviderCategory | null;
   sseCategory: Ef118SseCategory | null;
   frontendErrorMappingCategory: Ef118FrontendErrorMappingCategory | null;
+  ef45ProbeMarker: typeof EF45_R2_PROBE_MARKER | null;
 }
 
 function isAllowed<T extends string>(value: unknown, allowed: readonly T[]): value is T {
@@ -139,6 +148,9 @@ export function createEf118RuntimeAuditRecord(
       event.frontendErrorMappingCategory,
       FRONTEND_ERROR_MAPPING_CATEGORIES,
     ) ? event.frontendErrorMappingCategory : null,
+    ef45ProbeMarker: event.ef45ProbeMarker === EF45_R2_PROBE_MARKER
+      ? EF45_R2_PROBE_MARKER
+      : null,
   };
 }
 

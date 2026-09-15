@@ -34,6 +34,7 @@ describe('EF-118 sanitized runtime audit', () => {
       'providerCategory',
       'sseCategory',
       'frontendErrorMappingCategory',
+      'ef45ProbeMarker',
     ]);
   });
 
@@ -60,6 +61,7 @@ describe('EF-118 sanitized runtime audit', () => {
       providerCategory: 'response_server_error',
       sseCategory: 'deep_failure',
       frontendErrorMappingCategory: 'safe_connection_retry',
+      ef45ProbeMarker: null,
     });
   });
 
@@ -93,6 +95,7 @@ describe('EF-118 sanitized runtime audit', () => {
       supabaseAnonKey: true,
       supabaseServiceRoleKey: true,
     });
+    expect(JSON.parse(serialized).ef45ProbeMarker).toBeNull();
   });
 
   it('is enabled only for the development runtime', () => {
