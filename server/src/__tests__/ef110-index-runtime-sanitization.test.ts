@@ -31,6 +31,8 @@ jest.unstable_mockModule('../security/anonymousSession', () => ({
   })),
   sendAnonymousFailure: jest.fn(),
   verifyOwnedConversation: jest.fn(async () => 'owned'),
+  hasOwnerBindingRuntime: () => true,
+  requireOwnerBindingRuntime: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 jest.unstable_mockModule('../routes/anonymousSessions', () => ({
@@ -112,6 +114,20 @@ function makeSession(): ChatSession {
   };
 }
 
+function streamingProviderResponse(chunks: readonly string[]): Response {
+  const encoder = new TextEncoder();
+  let index = 0;
+  return new Response(new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (index < chunks.length) {
+        controller.enqueue(encoder.encode(chunks[index++]));
+      } else {
+        controller.close();
+      }
+    },
+  }), { status: 200 });
+}
+
 function expectNoSensitiveData(value: unknown): void {
   const serialized = JSON.stringify(value);
   for (const sentinel of SENTINELS) {
@@ -183,6 +199,64 @@ describe('EF-110 index production-path sanitization', () => {
       '[Deep] Provider response reader missing',
       { code: 'stream_reader_missing', retryable: true },
     );
+  });
+
+  test('retains a JSON SSE event split across reader chunks until its line completes', async () => {
+    const event = 'data: {"choices":[{"delta":{"content":"这是经过分片传输后仍然应该展示给用户的首句回复。"}}]}\n\n';
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      streamingProviderResponse([event.slice(0, 31), event.slice(31)]),
+    );
+    const session = makeSession();
+
+    await startDeepAnalysis(session, 2);
+
+    expect(session.deepDone).toBe(true);
+    expect(session.deepStreaming).toBe(false);
+    expect(session.deepError).toBeNull();
+    expect(session.deepChunks.join('')).toContain('分片传输');
+  });
+
+  test('processes multiple complete events and ignores a malformed completed frame', async () => {
+    const response = [
+      'data: {"choices":[{"delta":{"content":"这是正常多事件流的前半句，"}}]}\n',
+      'data: {malformed}\n',
+      'data: {"choices":[{"delta":{"content":"后半句仍会被完整解析并展示。"}}]}\n\n',
+    ].join('');
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      streamingProviderResponse([response]),
+    );
+    const session = makeSession();
+
+    await startDeepAnalysis(session, 2);
+
+    expect(session.deepDone).toBe(true);
+    expect(session.deepError).toBeNull();
+    expect(session.deepChunks.join('')).toContain('多事件流');
+    expect(session.deepChunks.join('')).toContain('后半句');
+    expect(consoleLog).toHaveBeenCalledWith(
+      '[Deep] SSE segment parse failed',
+      { code: 'provider_payload_unparseable' },
+    );
+  });
+
+  test('preserves DONE and EOF completion semantics while ignoring an unterminated residual', async () => {
+    const response = [
+      'data: {"choices":[{"delta":{"content":"这是带有完成标记且保持原有终态语义的中文回复。"}}]}\n',
+      'data: [DONE]\n',
+      'data: {"choices":[{"delta":{"content":"截断残片',
+    ];
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+      streamingProviderResponse(response),
+    );
+    const session = makeSession();
+
+    await startDeepAnalysis(session, 2);
+
+    expect(session.deepDone).toBe(true);
+    expect(session.deepStreaming).toBe(false);
+    expect(session.deepError).toBeNull();
+    expect(session.deepChunks.join('')).toContain('完成标记');
+    expect(session.deepChunks.join('')).not.toContain('截断残片');
   });
 
   test('chat/start exception returns a stable generic HTTP 500 without raw cause', async () => {

@@ -303,6 +303,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let providerFirstEventAudited = false;
     let providerTerminalFailure = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
+    let pendingSseText = '';
     console.log('[Deep] Stream started');
 
     // 60秒流读取超时（Deep模型首次token可能需要较长时间）
@@ -310,69 +311,82 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       streamTimeout = setTimeout(() => reject(new Error('stream_timeout')), 60000);
     });
 
+    const processSseLine = (rawLine: string): void => {
+      const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        if (data === '[DONE]') {
+          return;
+        }
+        if (data) {
+          try {
+            const parsed = JSON.parse(data);
+            // 优先取 content（最终回复）
+            const content = parsed.choices?.[0]?.delta?.content ||
+                            parsed.output?.choices?.[0]?.delta?.content || '';
+            if (content) {
+              if (!providerFirstEventAudited) {
+                providerFirstEventAudited = true;
+                writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
+              }
+              if (firstTokenTime === 0) {
+                firstTokenTime = Date.now();
+                console.log('[Deep] First token received', {
+                  elapsedMs: firstTokenTime - streamStartTime,
+                });
+              }
+              deepContentBuffer += content;
+            } else {
+              // 累积 reasoning_content（推理模型将输出放在此字段）
+              const rc = parsed.choices?.[0]?.delta?.reasoning_content ||
+                         parsed.output?.choices?.[0]?.delta?.reasoning_content || '';
+              if (rc) {
+                if (!providerFirstEventAudited) {
+                  providerFirstEventAudited = true;
+                  writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
+                }
+                reasoningBuffer += rc;
+              } else {
+                console.log('[Deep] SSE segment contained no supported content', {
+                  segmentPresent: true,
+                });
+              }
+            }
+          } catch {
+            console.log('[Deep] SSE segment parse failed', {
+              code: 'provider_payload_unparseable',
+            });
+          }
+        }
+      } else if (line.trim()) {
+        // 非标准SSE格式的日志
+        console.log('[Deep] Non-SSE segment ignored', {
+          segmentPresent: true,
+        });
+      }
+    };
+
+    const processCompleteSseLines = (decoded: string): void => {
+      pendingSseText += decoded;
+      const lines = pendingSseText.split('\n');
+      pendingSseText = lines.pop() ?? '';
+      for (const line of lines) {
+        processSseLine(line);
+      }
+    };
+
     const streamReadLoop = (async () => {
       console.log('[Deep] Stream read loop started');
       while (true) {
         const { done, value } = await reader!.read();
         if (done) break;
 
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const data = line.slice(6);
-            if (data === '[DONE]') {
-              continue;
-            }
-            if (data) {
-              try {
-                const parsed = JSON.parse(data);
-                // 优先取 content（最终回复）
-                const content = parsed.choices?.[0]?.delta?.content ||
-                                parsed.output?.choices?.[0]?.delta?.content || '';
-                if (content) {
-                  if (!providerFirstEventAudited) {
-                    providerFirstEventAudited = true;
-                    writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
-                  }
-                  if (firstTokenTime === 0) {
-                    firstTokenTime = Date.now();
-                    console.log('[Deep] First token received', {
-                      elapsedMs: firstTokenTime - streamStartTime,
-                    });
-                  }
-                  deepContentBuffer += content;
-                } else {
-                  // 累积 reasoning_content（推理模型将输出放在此字段）
-                  const rc = parsed.choices?.[0]?.delta?.reasoning_content ||
-                             parsed.output?.choices?.[0]?.delta?.reasoning_content || '';
-                  if (rc) {
-                    if (!providerFirstEventAudited) {
-                      providerFirstEventAudited = true;
-                      writeEf118RuntimeAudit({ providerCategory: 'first_event', ef45ProbeMarker });
-                    }
-                    reasoningBuffer += rc;
-                  } else {
-                    console.log('[Deep] SSE segment contained no supported content', {
-                      segmentPresent: true,
-                    });
-                  }
-                }
-              } catch {
-                console.log('[Deep] SSE segment parse failed', {
-                  code: 'provider_payload_unparseable',
-                });
-              }
-            }
-          } else if (line.trim()) {
-            // 非标准SSE格式的日志
-            console.log('[Deep] Non-SSE segment ignored', {
-              segmentPresent: true,
-            });
-          }
-        }
+        processCompleteSseLines(decoder.decode(value, { stream: true }));
       }
+      // Flush a trailing decoder byte sequence, but never parse an unterminated
+      // SSE line: it may be a transport-truncated event.
+      processCompleteSseLines(decoder.decode());
+      pendingSseText = '';
     })();
 
     try {
