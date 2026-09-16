@@ -9,7 +9,14 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoleById, roles, PsychologistRole } from '../constants/roles';
-import { chatStart, chatStream, FlowContext, type RetryTransportDiagnostics } from '../api/cozeApi';
+import {
+  armEf45OneShotDiagnostic,
+  chatStart,
+  chatStream,
+  FlowContext,
+  reportEf45OneShotFrontendTerminal,
+  type RetryTransportDiagnostics,
+} from '../api/cozeApi';
 import { ChatSession, ChatMessage, TurnStatus, PendingTurn, ResponseLayer } from '../types';
 import { saveChatSessions, getChatSessions, persistMessage, createConversation, fetchConversation } from '../stores/sessionStore';
 import {
@@ -41,6 +48,12 @@ import {
 // enough transport grace to observe the server's terminal event.
 export const EF38_STREAM_TIMEOUT_MS = 165000;
 export const SAFE_RETRYABLE_CHAT_FAILURE_PROMPT = '暂时无法完成回复，请重试。';
+
+function isEf45OneShotDiagnosticRequested(): boolean {
+  return typeof globalThis !== 'undefined'
+    && (globalThis as typeof globalThis & { __EF45_ONE_SHOT_DIAGNOSTIC__?: unknown })
+      .__EF45_ONE_SHOT_DIAGNOSTIC__ === true;
+}
 
 interface ChatContextValue {
   messages: ChatMessage[];
@@ -1387,6 +1400,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       snapshot: SendSnapshot,
       isRetry: boolean = false
     ): Promise<'success' | 'chatstart_failed' | 'sse_failed' | 'interrupted' | 'failed'> => {
+      let ef45OneShotDiagnosticMarker: string | null = null;
       // 确保当前角色与快照一致
       const roleToUse = roles.find(r => r.id === snapshot.roleId) || currentRole;
       let installationUserId: string;
@@ -1421,6 +1435,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         streamSettled: false,
       };
       const retryDiagnosticsEnabled = isEf77DiagnosticEnabled();
+      // This is an opt-in, DEV QA-only memory flag. It is never persisted,
+      // carried in user content, or enabled by ordinary product traffic.
+      if (!isRetry && isEf45OneShotDiagnosticRequested()) {
+        ef45OneShotDiagnosticMarker = await armEf45OneShotDiagnostic();
+      }
       emitEf77Trace('retry_transport_started', {
         timestamp: retryTransportDiagnostics.startedAt,
         isRetry,
@@ -1586,6 +1605,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           snapshot.conversationId,
           snapshot.requestId,
           retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined,
+          ef45OneShotDiagnosticMarker ?? undefined,
         );
 
         if (!isCurrentIntent()) {
@@ -1992,7 +2012,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 settleStream(terminationReason ? 'unmounted' : 'stream_error');
                 scheduleNext();
               },
-            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal);
+            }, retryDiagnosticsEnabled ? retryTransportDiagnostics : undefined, controller.signal,
+            ef45OneShotDiagnosticMarker ?? undefined);
             // Some transports resolve during teardown without invoking a terminal
             // callback. Settle the request so an abandoned Provider cannot leave
             // its send Promise and timeout alive.
@@ -2199,6 +2220,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
         return 'success';
       } catch (err) {
+        await reportEf45OneShotFrontendTerminal(ef45OneShotDiagnosticMarker ?? undefined);
         const terminationReason = transportLifecycle.terminationReason;
         emitEf77Trace('failure_source_observed', {
           providerInstanceId: providerInstanceId.current,

@@ -431,6 +431,42 @@ export interface ChatStartResponse {
   companionTimeline?: Array<{displayAt: number; text: string}>; // V3.1 多段时间线: Companion
 }
 
+const EF45_ONE_SHOT_DIAGNOSTIC_HEADER = 'X-EF45-One-Shot-Marker';
+
+function diagnosticHeader(marker?: string): Record<string, string> {
+  return marker ? { [EF45_ONE_SHOT_DIAGNOSTIC_HEADER]: marker } : {};
+}
+
+/** DEV-only capability: the opaque marker is kept only by the caller. */
+export async function armEf45OneShotDiagnostic(): Promise<string | null> {
+  const BASE = getBackendUrl();
+  try {
+    const response = await fetch(`${BASE}/api/v1/diagnostics/ef45-one-shot/arm`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) return null;
+    const marker = response.headers.get(EF45_ONE_SHOT_DIAGNOSTIC_HEADER);
+    return marker && /^[a-f0-9]{64}$/.test(marker) ? marker : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function reportEf45OneShotFrontendTerminal(marker?: string): Promise<void> {
+  if (!marker) return;
+  const BASE = getBackendUrl();
+  try {
+    await fetch(`${BASE}/api/v1/diagnostics/ef45-one-shot/frontend-terminal`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: diagnosticHeader(marker),
+    });
+  } catch {
+    // Diagnostics never change normal terminal handling.
+  }
+}
+
 /**
  * 接口 1：即时返回前端流
  * POST /api/v1/chat/start
@@ -441,6 +477,7 @@ export async function chatStart(
   conversationId?: string,
   requestId?: string,
   diagnostics?: RetryTransportDiagnostics,
+  oneShotDiagnosticMarker?: string,
 ): Promise<ChatStartResponse> {
   const BASE = getBackendUrl();
   const startedAt = Date.now();
@@ -451,7 +488,7 @@ export async function chatStart(
     const response = await fetch(`${BASE}/api/v1/chat/start`, {
       method: 'POST',
       credentials: auth.credentials,
-      headers: { 'Content-Type': 'application/json', ...auth.headers },
+      headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) },
       body: JSON.stringify({ roleId, message, conversationId, requestId }),
     });
     httpStatus = response.status;
@@ -498,12 +535,13 @@ export async function chatStream(
   },
   diagnostics?: RetryTransportDiagnostics,
   signal?: AbortSignal,
+  oneShotDiagnosticMarker?: string,
 ): Promise<void> {
   const BASE = getBackendUrl();
   const auth = await getAnonymousRequestOptions(BASE, 'GET');
   return new Promise((resolve, reject) => {
     const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
-    const identityHeaders = auth.headers;
+    const identityHeaders = { ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) };
     const requestStartedAt = Date.now();
     const validateSequence = createStreamSequenceValidator();
     emitEf77Trace('stream_request_started', {

@@ -40,6 +40,15 @@ import {
   ef45CategoryReader,
   isFixedEf45SyntheticProbe,
 } from './observability/ef45CategoryReader';
+import {
+  bindEf45OneShotDiagnosticMarker,
+  ef45OneShotDiagnosticArm,
+  ef45OneShotDiagnosticFrontendTerminal,
+  ef45OneShotDiagnosticReader,
+  knownEf45OneShotDiagnosticMarker,
+  markerForEf45OneShotDiagnosticSession,
+  recordEf45OneShotDiagnosticCategory,
+} from './observability/ef45OneShotDiagnostic';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -57,7 +66,8 @@ app.use(cors({
   origin: (origin, callback) => callback(null, origin === EF75_WEB_ORIGIN),
   credentials: true,
   methods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client', 'X-EF45-One-Shot-Marker'],
+  exposedHeaders: ['X-EF45-One-Shot-Marker'],
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -87,6 +97,9 @@ app.get('/api/v1/version', (_req, res) => {
 // Fixed DEV-only EF-45 diagnostic response. There are no caller-controlled
 // filters, audit identifiers, or file locations.
 app.get('/api/v1/diagnostics/ef45-category', ef45CategoryReader);
+app.post('/api/v1/diagnostics/ef45-one-shot/arm', ef45OneShotDiagnosticArm);
+app.get('/api/v1/diagnostics/ef45-one-shot', ef45OneShotDiagnosticReader);
+app.post('/api/v1/diagnostics/ef45-one-shot/frontend-terminal', ef45OneShotDiagnosticFrontendTerminal);
 
 // ============================================================
 // EF-59: Conversation Persistence API
@@ -224,12 +237,14 @@ async function callDashScope(
 export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const apiKey = API_KEY_LIGHT;
   const ef45ProbeMarker = session.ef45ProbeMarker;
+  const ef45OneShotMarker = markerForEf45OneShotDiagnosticSession(session);
   writeEf118RuntimeAudit({ providerCategory: 'request_reached', ef45ProbeMarker });
   console.log('[Deep] Analysis requested', {
     userTurn,
     apiKeyConfigured: Boolean(apiKey),
   });
   if (!apiKey) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
     writeEf118RuntimeAudit({ providerCategory: 'key_missing', ef45ProbeMarker });
     setSafeDeepError(session, 'provider_key_missing');
     return;
@@ -272,6 +287,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       ef45ProbeMarker,
     });
     if (!response.ok) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const errorText = await response.text().catch(() => '');
       void errorText;
       console.error('[Deep] Provider response rejected', {
@@ -286,6 +302,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     const reader = response.body?.getReader();
     if (!reader) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       writeEf118RuntimeAudit({ providerCategory: 'reader_missing', ef45ProbeMarker });
       console.error('[Deep] Provider response reader missing', {
         code: 'stream_reader_missing',
@@ -392,6 +409,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     try {
       await Promise.race([streamReadLoop, streamReadTimeout]);
     } catch (e) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const timedOut = e instanceof Error && e.message === 'stream_timeout';
       providerTerminalFailure = true;
       writeEf118RuntimeAudit({
@@ -564,6 +582,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
   } catch (error) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
     writeEf118RuntimeAudit({ providerCategory: 'analysis_failure', ef45ProbeMarker });
     const errTime = Date.now() - streamStartTime;
     console.error('[Deep] Analysis failed', {
@@ -846,9 +865,13 @@ app.post('/api/v1/chat/start', async (req, res) => {
     req.get('x-ef45-diagnostic-marker'),
     req.body,
   ) ? EF45_R2_PROBE_MARKER : undefined;
+  const ef45OneShotMarker = knownEf45OneShotDiagnosticMarker(
+    req.get('x-ef45-one-shot-marker'),
+  );
   try {
     const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
     if (!authenticated.ok) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
       writeEf118RuntimeAudit({
         dbSessionCategory: 'session_missing',
         frontendErrorMappingCategory: 'safe_connection_retry',
@@ -857,6 +880,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       return sendAnonymousFailure(res, authenticated.kind);
     }
     if (!hasOwnerBindingRuntime()) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
       writeEf118RuntimeAudit({
         dbSessionCategory: 'chat_start_processing_error',
         frontendErrorMappingCategory: 'chat_start_retry',
@@ -999,6 +1023,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       eventSequencer: new TurnEventSequencer(),
       ef45ProbeMarker,
     };
+    bindEf45OneShotDiagnosticMarker(session, ef45OneShotMarker);
     sessions.set(sessionId, session);
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_created',
@@ -1080,6 +1105,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
     }
   } catch (error) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
       dbSessionCategory: 'chat_start_processing_error',
       providerCategory: 'not_reached',
@@ -1105,9 +1131,18 @@ app.post('/api/v1/chat/start', async (req, res) => {
 // 不再固定90秒等待，百炼返回多快接管多快
 // ============================================================
 app.get('/api/v1/chat/stream', async (req, res) => {
+  const ef45OneShotMarker = knownEf45OneShotDiagnosticMarker(
+    req.get('x-ef45-one-shot-marker'),
+  );
   const authenticated = await authenticateAnonymousRequest(req);
-  if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
-  if (!hasOwnerBindingRuntime()) return sendAnonymousFailure(res, 'internal');
+  if (!authenticated.ok) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
+    return sendAnonymousFailure(res, authenticated.kind);
+  }
+  if (!hasOwnerBindingRuntime()) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
+    return sendAnonymousFailure(res, 'internal');
+  }
 
   const { sessionId } = req.query;
 
@@ -1122,6 +1157,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
 
   const session = sessions.get(sessionId);
   if (!session || session.ownerSessionId !== authenticated.session.id) {
+    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_missing',
       sseCategory: 'not_established',
@@ -1130,6 +1166,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     return res.status(404).json({ error: 'resource_not_found' });
   }
   const ef45ProbeMarker = session.ef45ProbeMarker;
+  const sessionOneShotMarker = markerForEf45OneShotDiagnosticSession(session);
 
   // 设置 SSE 响应头
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -1224,6 +1261,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
         frontendErrorMappingCategory: 'deep_response_retry',
         ef45ProbeMarker,
       });
+      recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
       res.end();
       return;
     }
@@ -1239,6 +1277,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       frontendErrorMappingCategory: 'stream_timeout_retry',
       ef45ProbeMarker,
     });
+    recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
     res.end();
   }, 150000);
 
