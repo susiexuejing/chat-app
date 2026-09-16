@@ -29,8 +29,13 @@ jest.mock('../components/DeepAnalysisCard', () => ({
 }));
 
 jest.mock('../api/cozeApi', () => ({
+  // The one-shot EF-45 diagnostics are a best-effort side channel. Keep them
+  // inert here so these closed-loop tests continue to exercise their existing
+  // turn-lifecycle assertions without requiring diagnostic transport state.
+  armEf45OneShotDiagnostic: jest.fn(async () => null),
   chatStart: jest.fn(),
   chatStream: jest.fn(),
+  reportEf45OneShotFrontendTerminal: jest.fn(async () => undefined),
 }));
 
 jest.mock('../stores/sessionStore', () => ({
