@@ -294,4 +294,28 @@ describe('EF-110 index production-path sanitization', () => {
     expect(source).not.toContain('Parse error for line: ${data.substring');
     expect(source).not.toContain('Non-SSE line: ${line.substring');
   });
+
+  test('one-shot diagnostic routes are DEV-only, header-only, and do not invoke the Provider', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'development';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const armed = await request(app).post('/api/v1/diagnostics/ef45-one-shot/arm');
+    const marker = armed.header['x-ef45-one-shot-marker'];
+    expect(armed.status).toBe(204);
+    expect(armed.text).toBe('');
+    expect(marker).toMatch(/^[a-f0-9]{64}$/);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    await request(app)
+      .post('/api/v1/diagnostics/ef45-one-shot/frontend-terminal')
+      .set('X-EF45-One-Shot-Marker', marker)
+      .expect(204);
+    const result = await request(app)
+      .get('/api/v1/diagnostics/ef45-one-shot')
+      .set('X-EF45-One-Shot-Marker', marker)
+      .expect(200);
+    expect(result.body).toEqual({ category: 'frontend_terminal_failed' });
+    expect(JSON.stringify(result.body)).not.toMatch(/marker|error|content|identity|session|token|key|url/i);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    process.env.NODE_ENV = previousNodeEnv;
+  });
 });

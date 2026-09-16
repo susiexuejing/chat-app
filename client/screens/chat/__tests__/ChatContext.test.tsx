@@ -1,6 +1,11 @@
 // Simple ChatContext tests without React Native testing library
 // These tests verify the core logic without rendering components
 
+import {
+  armEf45OneShotDiagnostic,
+  reportEf45OneShotFrontendTerminal,
+} from '../api/cozeApi';
+
 // Mock react-native before any imports
 jest.mock('react-native', () => ({
   Platform: { OS: 'web' },
@@ -11,6 +16,11 @@ jest.mock('react-native', () => ({
   Keyboard: {
     addListener: jest.fn(() => ({ remove: jest.fn() })),
   },
+}));
+
+jest.mock('expo-constants', () => ({
+  __esModule: true,
+  default: { expoConfig: { extra: {} } },
 }));
 
 // Mock AsyncStorage
@@ -41,6 +51,36 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 describe('ChatContext Logic Tests', () => {
+  describe('EF-45 one-shot diagnostic boundary', () => {
+    it('keeps the marker opaque and reports a terminal failure without sending content or exposing a result', async () => {
+      const marker = 'a'.repeat(64);
+      const originalFetch = globalThis.fetch;
+      const fetchMock = jest.fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          headers: { get: (name: string) => name === 'X-EF45-One-Shot-Marker' ? marker : null },
+        })
+        .mockResolvedValueOnce({ ok: true });
+      globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+      try {
+        expect(await armEf45OneShotDiagnostic()).toBe(marker);
+        expect(await reportEf45OneShotFrontendTerminal(marker)).toBeUndefined();
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock.mock.calls[0][1]).toEqual({ method: 'POST', credentials: 'include' });
+        expect(fetchMock.mock.calls[1][1]).toEqual({
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'X-EF45-One-Shot-Marker': marker },
+        });
+        expect(fetchMock.mock.calls.flat()).not.toContain('content');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   describe('sendingRef guard', () => {
     it('prevents concurrent sends', async () => {
       // Simulate the sendingRef logic
