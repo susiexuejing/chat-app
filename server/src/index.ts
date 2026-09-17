@@ -49,6 +49,7 @@ import {
   markerForEf45OneShotDiagnosticSession,
   recordEf45OneShotDiagnosticCategory,
 } from './observability/ef45OneShotDiagnostic';
+import { registerProtectedOwnerBindingWorkload } from './storage/database/protected-owner-binding-bootstrap';
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -60,6 +61,8 @@ const port = process.env.PORT || 9091;
 // The registration performs configuration validation only; the pool remains
 // lazy and no database operation is issued during application startup.
 registerRuntimeOwnerBindingStore();
+// Register the protected owner-binding store before any conversation routes mount.
+registerProtectedOwnerBindingWorkload();
 
 // Middleware
 app.use(cors({
