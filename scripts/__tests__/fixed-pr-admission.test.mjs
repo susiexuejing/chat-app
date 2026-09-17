@@ -224,6 +224,7 @@ test('on-disk authority preserves EF-177 legacy identity and adds the exact EF-1
   assert.deepEqual(DISK_REGISTRY.records.map(record => record.id), [
     'ef-107-1d61b510-current-base-v1',
     'ef-177-fa24d37-current-base-v1',
+    'ef-235-pr-138-feda824d-protected-dev-v1',
   ]);
   const ef107 = DISK_REGISTRY.records[0];
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
@@ -384,6 +385,93 @@ test('on-disk authority preserves EF-177 legacy identity and adds the exact EF-1
   assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, sha: '0'.repeat(40) } } }, evidence), /integration head SHA/);
   assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, ref: 'cell1/ef177-wrong' } } }, evidence), /no unique Base-owned registry match/);
   assert.throws(() => validateAdmission(DISK_REGISTRY, event, { ...evidence, candidateProvidedAuthority: true }), /candidate-provided authority/);
+});
+
+test('EF-235 is a single, exact PR #138 admission with its independent 12/12 R2 QA', () => {
+  const record = DISK_REGISTRY.records[2];
+  assert.deepEqual(record, {
+    id: 'ef-235-pr-138-feda824d-protected-dev-v1',
+    ticket: 'EF-235',
+    pullRequest: {
+      number: 138,
+      sourceBranch: 'candidate/ef235-owner-binding-bootstrap-successor',
+      sourceRepository: 'susiexuejing/chat-app',
+      targetBranch: 'dev',
+      targetRepository: 'susiexuejing/chat-app',
+    },
+    identity: {
+      headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
+      parentSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      mergeBaseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      patchId: 'f4cd68ba3ac0e29df59f03237e60d77a6f83ae50',
+      paths: [
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/index.ts',
+        'server/src/storage/database/protected-owner-binding-bootstrap.ts',
+      ],
+      pathCount: 3,
+      pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
+    },
+    independentQa: {
+      kind: 'independent-r2',
+      headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
+      baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
+      passed: 12,
+      total: 12,
+    },
+  });
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: 138,
+      head: { sha: record.identity.headSha, ref: record.pullRequest.sourceBranch, repoFullName: record.pullRequest.sourceRepository },
+      base: { sha: record.identity.baseSha, ref: 'dev', repoFullName: record.pullRequest.targetRepository },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: record.identity.baseSha,
+    authoritySnapshotSha: record.identity.baseSha,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    candidateResolvedSha: record.identity.headSha,
+    candidateParentShas: [record.identity.parentSha],
+    candidateMergeBaseSha: record.identity.mergeBaseSha,
+    candidatePatchId: record.identity.patchId,
+    changedPaths: [...record.identity.paths],
+    candidateControlPlanePaths: [],
+  };
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
+  for (const mutate of [
+    ({ event: candidate }) => { candidate.pullRequest.number = 139; },
+    ({ event: candidate }) => { candidate.pullRequest.head.sha = '0'.repeat(40); },
+    ({ event: candidate }) => { candidate.pullRequest.base.sha = '0'.repeat(40); },
+    ({ evidence: candidate }) => { candidate.candidateParentShas = ['0'.repeat(40)]; },
+    ({ evidence: candidate }) => { candidate.candidateMergeBaseSha = '0'.repeat(40); },
+    ({ evidence: candidate }) => { candidate.candidatePatchId = '0'.repeat(40); },
+    ({ evidence: candidate }) => { candidate.changedPaths = candidate.changedPaths.slice(0, 2); },
+    ({ evidence: candidate }) => { candidate.candidateControlPlanePaths = ['scripts/fixed-pr-admission.mjs']; },
+  ]) {
+    const badEvent = clone(event);
+    const badEvidence = clone(evidence);
+    mutate({ event: badEvent, evidence: badEvidence });
+    assert.throws(() => validateAdmission(DISK_REGISTRY, badEvent, badEvidence), /rejected/);
+  }
+  for (const mutate of [
+    profile => { profile.records[2].ticket = 'EF-999'; },
+    profile => { profile.records[2].identity.baseSha = '0'.repeat(40); },
+    profile => { profile.records[2].independentQa.passed = 11; },
+    profile => { profile.records[2].independentQa.extra = true; },
+    profile => { profile.records.push(clone(profile.records[2])); },
+  ]) {
+    const profile = clone(DISK_REGISTRY);
+    mutate(profile);
+    assert.throws(() => validateProfile(profile), /EF-235|canonical ID-sorted/);
+  }
 });
 
 test('same registry record admits both protected pull_request_target gates', () => {
