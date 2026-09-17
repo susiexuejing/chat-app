@@ -209,6 +209,39 @@
         }
       },
       "qaAuditReference": "EF-177:independent-r2-qa:fa24d37ddb9d57a97708e1b5bc9cfaadf0e11410"
+    },
+    {
+      "id": "ef-235-pr-138-feda824d-protected-dev-v1",
+      "ticket": "EF-235",
+      "pullRequest": {
+        "number": 138,
+        "sourceBranch": "candidate/ef235-owner-binding-bootstrap-successor",
+        "sourceRepository": "susiexuejing/chat-app",
+        "targetBranch": "dev",
+        "targetRepository": "susiexuejing/chat-app"
+      },
+      "identity": {
+        "headSha": "feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b",
+        "parentSha": "c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557",
+        "baseSha": "c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557",
+        "mergeBaseSha": "c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557",
+        "patchId": "f4cd68ba3ac0e29df59f03237e60d77a6f83ae50",
+        "paths": [
+          "server/src/__tests__/ef75-chat-ownership.test.ts",
+          "server/src/index.ts",
+          "server/src/storage/database/protected-owner-binding-bootstrap.ts"
+        ],
+        "pathCount": 3,
+        "pathDigest": "790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896"
+      },
+      "independentQa": {
+        "kind": "independent-r2",
+        "headSha": "feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b",
+        "baseSha": "c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557",
+        "pathDigest": "790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896",
+        "passed": 12,
+        "total": 12
+      }
     }
   ]
 }

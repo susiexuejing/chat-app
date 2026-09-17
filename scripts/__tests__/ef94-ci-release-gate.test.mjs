@@ -78,7 +78,7 @@ test('Base-owned v5 profile preserves EF-177 legacy ancestry and freezes EF-107 
     governanceSelfAdmission: 'forbidden',
     recordOrder: 'id-lf-ascending',
   });
-  assert.equal(profile.records.length, 2);
+  assert.equal(profile.records.length, 3);
   const ef107 = profile.records[0];
   assert.equal(ef107.id, 'ef-107-1d61b510-current-base-v1');
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
@@ -118,6 +118,39 @@ test('Base-owned v5 profile preserves EF-177 legacy ancestry and freezes EF-107 
   assert.deepEqual(chain.authorityBootstrapPaths, SIX_GOVERNANCE_PATHS);
   assert.equal(chain.authorityBootstrapPathDigest, 'f2f45619034080ba56c1c183b9496061f507577388125e97560cb6795d630b76');
   assert.deepEqual(chain.permanentlyRejectedCandidateShas, ['a1577f161d644dddcda6b6c6485a344d2869e9ae']);
+  assert.deepEqual(profile.records[2], {
+    id: 'ef-235-pr-138-feda824d-protected-dev-v1',
+    ticket: 'EF-235',
+    pullRequest: {
+      number: 138,
+      sourceBranch: 'candidate/ef235-owner-binding-bootstrap-successor',
+      sourceRepository: 'susiexuejing/chat-app',
+      targetBranch: 'dev',
+      targetRepository: 'susiexuejing/chat-app',
+    },
+    identity: {
+      headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
+      parentSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      mergeBaseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      patchId: 'f4cd68ba3ac0e29df59f03237e60d77a6f83ae50',
+      paths: [
+        'server/src/__tests__/ef75-chat-ownership.test.ts',
+        'server/src/index.ts',
+        'server/src/storage/database/protected-owner-binding-bootstrap.ts',
+      ],
+      pathCount: 3,
+      pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
+    },
+    independentQa: {
+      kind: 'independent-r2',
+      headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
+      baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+      pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
+      passed: 12,
+      total: 12,
+    },
+  });
 });
 
 test('verifier treats PR fields only as fixed identity data and never reads Candidate files', async () => {

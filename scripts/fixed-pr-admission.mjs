@@ -23,6 +23,27 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
 const REGISTRY_KEYS = Object.freeze(['schemaVersion', 'kind', 'authority', 'records']);
 const AUTHORITY_KEYS = Object.freeze(['repository', 'targetBranch', 'governanceSelfAdmission', 'recordOrder']);
 const RECORD_KEYS = Object.freeze(['id', 'ticket', 'productQa', 'integration', 'baseAdvance', 'protectedGovernanceChain', 'regression', 'qaAuditReference']);
+const FIXED_PR_RECORD_ID = 'ef-235-pr-138-feda824d-protected-dev-v1';
+const FIXED_PR_RECORD_KEYS = Object.freeze(['id', 'ticket', 'pullRequest', 'identity', 'independentQa']);
+const FIXED_PR_PULL_REQUEST_KEYS = Object.freeze(['number', 'sourceBranch', 'sourceRepository', 'targetBranch', 'targetRepository']);
+const FIXED_PR_IDENTITY_KEYS = Object.freeze(['headSha', 'parentSha', 'baseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
+const FIXED_PR_QA_KEYS = Object.freeze(['kind', 'headSha', 'baseSha', 'pathDigest', 'passed', 'total']);
+const FIXED_PR = Object.freeze({
+  ticket: 'EF-235',
+  number: 138,
+  sourceBranch: 'candidate/ef235-owner-binding-bootstrap-successor',
+  repository: 'susiexuejing/chat-app',
+  targetBranch: 'dev',
+  headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
+  baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
+  patchId: 'f4cd68ba3ac0e29df59f03237e60d77a6f83ae50',
+  paths: Object.freeze([
+    'server/src/__tests__/ef75-chat-ownership.test.ts',
+    'server/src/index.ts',
+    'server/src/storage/database/protected-owner-binding-bootstrap.ts',
+  ]),
+  pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
+});
 const PRODUCT_KEYS = Object.freeze(['headSha', 'parentSha', 'originalBaseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const INTEGRATION_KEYS = Object.freeze(['headSha', 'parentSha', 'currentBaseSha', 'mergeBaseSha', 'patchId', 'sourceRepository', 'sourceBranch', 'targetBranch', 'paths', 'pathCount', 'pathDigest']);
 const ADVANCE_KEYS = Object.freeze(['fromSha', 'toSha', 'commitCount', 'paths', 'pathCount', 'pathDigest', 'zeroProductPathOverlap']);
@@ -123,6 +144,13 @@ function validatePathContract(value, name, options = {}) {
   exact(canonicalPathDigest(value.paths), value.pathDigest, `${name} path digest`);
 }
 
+function fixedPrPathDigest(paths) {
+  if (!Array.isArray(paths) || paths.length === 0 || paths.some(path => typeof path !== 'string' || path.length === 0)) {
+    reject('invalid EF-235 path set');
+  }
+  return createHash('sha256').update(`${paths.join('\n')}\n`, 'utf8').digest('hex');
+}
+
 function validateRegression(regression) {
   exactKeys(regression, REGRESSION_KEYS, 'regression');
   exact(regression.selector, 'chat-ui-jest-path', 'regression selector');
@@ -204,7 +232,54 @@ function validateProtectedGovernanceChain(chain, productQa, integration) {
   reject('unknown protected governance anchor kind');
 }
 
+function isFixedPrRecord(record) {
+  return record?.id === FIXED_PR_RECORD_ID;
+}
+
+function validateFixedPrRecord(record, authority) {
+  exactKeys(record, FIXED_PR_RECORD_KEYS, 'EF-235 fixed PR record');
+  exact(record.id, FIXED_PR_RECORD_ID, 'EF-235 fixed PR record ID');
+  exact(record.ticket, FIXED_PR.ticket, 'EF-235 ticket');
+  exactKeys(record.pullRequest, FIXED_PR_PULL_REQUEST_KEYS, 'EF-235 pull request');
+  const pullRequest = record.pullRequest;
+  exact(pullRequest.number, FIXED_PR.number, 'EF-235 pull request number');
+  exact(pullRequest.sourceBranch, FIXED_PR.sourceBranch, 'EF-235 source branch');
+  exact(pullRequest.sourceRepository, FIXED_PR.repository, 'EF-235 source repository');
+  exact(pullRequest.targetBranch, FIXED_PR.targetBranch, 'EF-235 target branch');
+  exact(pullRequest.targetRepository, FIXED_PR.repository, 'EF-235 target repository');
+  exact(pullRequest.sourceRepository, authority.repository, 'EF-235 authority repository');
+  exact(pullRequest.targetRepository, authority.repository, 'EF-235 authority target repository');
+  exact(pullRequest.targetBranch, authority.targetBranch, 'EF-235 authority target branch');
+  exactKeys(record.identity, FIXED_PR_IDENTITY_KEYS, 'EF-235 identity');
+  const identity = record.identity;
+  sha(identity.headSha, 'EF-235 head SHA');
+  sha(identity.parentSha, 'EF-235 parent SHA');
+  sha(identity.baseSha, 'EF-235 Base SHA');
+  sha(identity.mergeBaseSha, 'EF-235 merge-base SHA');
+  sha(identity.patchId, 'EF-235 patch ID');
+  exact(identity.headSha, FIXED_PR.headSha, 'EF-235 head SHA');
+  exact(identity.parentSha, FIXED_PR.baseSha, 'EF-235 parent SHA');
+  exact(identity.baseSha, FIXED_PR.baseSha, 'EF-235 Base SHA');
+  exact(identity.mergeBaseSha, FIXED_PR.baseSha, 'EF-235 merge-base SHA');
+  exact(identity.patchId, FIXED_PR.patchId, 'EF-235 patch ID');
+  digest(identity.pathDigest, 'EF-235 path digest');
+  if (!sameArray(identity.paths, FIXED_PR.paths) || identity.pathCount !== FIXED_PR.paths.length
+    || identity.pathDigest !== FIXED_PR.pathDigest || fixedPrPathDigest(identity.paths) !== identity.pathDigest) {
+    reject('EF-235 path contract mismatch');
+  }
+  exactKeys(record.independentQa, FIXED_PR_QA_KEYS, 'EF-235 independent QA');
+  const qa = record.independentQa;
+  exact(qa.kind, 'independent-r2', 'EF-235 independent QA kind');
+  exact(qa.headSha, FIXED_PR.headSha, 'EF-235 independent QA head SHA');
+  exact(qa.baseSha, FIXED_PR.baseSha, 'EF-235 independent QA Base SHA');
+  exact(qa.pathDigest, FIXED_PR.pathDigest, 'EF-235 independent QA path digest');
+  exact(qa.passed, 12, 'EF-235 independent QA passed count');
+  exact(qa.total, 12, 'EF-235 independent QA total count');
+  return record;
+}
+
 function validateRecord(record, authority) {
+  if (isFixedPrRecord(record)) return validateFixedPrRecord(record, authority);
   exactKeys(record, RECORD_KEYS, 'registry record');
   safeToken(record.id, 'record ID');
   safeToken(record.ticket, 'ticket');
@@ -276,17 +351,26 @@ export function validateProfile(registry) {
     reject('records are not canonical ID-sorted unique entries');
   }
   registry.records.forEach(record => validateRecord(record, registry.authority));
-  const sources = registry.records.map(record => `${record.integration.sourceRepository}\n${record.integration.sourceBranch}\n${record.integration.targetBranch}`);
+  const standardRecords = registry.records.filter(record => !isFixedPrRecord(record));
+  const sources = standardRecords.map(record => `${record.integration.sourceRepository}\n${record.integration.sourceBranch}\n${record.integration.targetBranch}`);
   if (new Set(sources).size !== sources.length) reject('duplicate integration source identity');
-  const heads = registry.records.map(record => record.integration.headSha);
+  const heads = standardRecords.map(record => record.integration.headSha);
   if (new Set(heads).size !== heads.length) reject('duplicate integration head identity');
+  const fixedPullRequestNumbers = registry.records.filter(isFixedPrRecord).map(record => record.pullRequest.number);
+  if (new Set(fixedPullRequestNumbers).size !== fixedPullRequestNumbers.length) reject('duplicate fixed pull request identity');
   return registry;
 }
 
 function matchingRecords(registry, event) {
   const head = event?.pullRequest?.head;
   const base = event?.pullRequest?.base;
-  return registry.records.filter(record => record.integration.sourceBranch === head?.ref
+  return registry.records.filter(record => isFixedPrRecord(record)
+    ? record.pullRequest.number === event?.pullRequest?.number
+      && record.pullRequest.sourceBranch === head?.ref
+      && record.pullRequest.sourceRepository === head?.repoFullName
+      && record.pullRequest.targetBranch === base?.ref
+      && record.pullRequest.targetRepository === base?.repoFullName
+    : record.integration.sourceBranch === head?.ref
     && record.integration.sourceRepository === head?.repoFullName
     && record.integration.targetBranch === base?.ref
     && record.integration.sourceRepository === base?.repoFullName);
@@ -315,6 +399,29 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
   const pullRequest = event?.pullRequest;
   if (!pullRequest || !Number.isInteger(pullRequest.number) || pullRequest.number <= 0) reject('missing pull request identity');
   const record = selectRecord(registry, event);
+  if (isFixedPrRecord(record)) {
+    const identity = record.identity;
+    exact(pullRequest.number, record.pullRequest.number, 'EF-235 pull request number');
+    sha(pullRequest.head?.sha, 'EF-235 head SHA');
+    sha(pullRequest.base?.sha, 'EF-235 Base SHA');
+    exact(pullRequest.head.sha, identity.headSha, 'EF-235 head SHA');
+    exact(pullRequest.base.sha, identity.baseSha, 'EF-235 Base SHA');
+    exact(evidence?.protectedBaseCheckoutSha, identity.baseSha, 'EF-235 protected Base checkout SHA');
+    exact(options.authoritySnapshotSha ?? evidence?.authoritySnapshotSha, identity.baseSha, 'EF-235 authority snapshot SHA');
+    if (evidence?.authoritySnapshotResolvedOnce !== true || evidence?.authorityExecutionFromProtectedSnapshot !== true
+      || evidence?.eventFieldsUsedAsDataOnly !== true || evidence?.candidateFilesRead !== false
+      || evidence?.candidateCodeExecutedBeforeAdmission !== false) reject('EF-235 protected admission evidence mismatch');
+    exact(evidence?.candidateResolvedSha, identity.headSha, 'EF-235 candidate resolved SHA');
+    if (!sameArray(evidence?.candidateParentShas, [identity.parentSha])) reject('EF-235 candidate parent SHA mismatch');
+    exact(evidence?.candidateMergeBaseSha, identity.mergeBaseSha, 'EF-235 candidate merge-base SHA');
+    exact(evidence?.candidatePatchId, identity.patchId, 'EF-235 candidate patch ID');
+    if (!sameArray(evidence?.changedPaths, identity.paths)
+      || fixedPrPathDigest(evidence.changedPaths) !== identity.pathDigest) reject('EF-235 candidate path contract mismatch');
+    if (!Array.isArray(evidence?.candidateControlPlanePaths) || evidence.candidateControlPlanePaths.length !== 0) {
+      reject('EF-235 candidate self-authorization or control-plane change');
+    }
+    return { accepted: true, record };
+  }
   const integration = record.integration;
   sha(pullRequest.head?.sha, 'integration head SHA');
   exact(pullRequest.head.sha, integration.headSha, 'integration head SHA');
