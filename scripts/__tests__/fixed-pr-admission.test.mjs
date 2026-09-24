@@ -809,3 +809,55 @@ test('release gate performs authority-only admission and never executes product 
   assert.match(workflow, /working-directory: authority[\s\S]*EF_AUTHORITY_SNAPSHOT_SHA:[\s\S]*node scripts\/fixed-pr-admission\.mjs/);
   assert.doesNotMatch(workflow, /candidate|pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|test:release|jest|tsc|deploy/i);
 });
+
+
+test('EF-235 protected archive admits PR #141 only when every recorded identity field matches', () => {
+  const record = DISK_REGISTRY.records.find(entry => entry.pullRequest?.number === 141);
+  assert.ok(record);
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: record.pullRequest.number,
+      head: {
+        sha: record.identity.headSha,
+        ref: record.pullRequest.sourceBranch,
+        repoFullName: record.pullRequest.sourceRepository,
+      },
+      base: {
+        sha: record.identity.baseSha,
+        ref: record.pullRequest.targetBranch,
+        repoFullName: record.pullRequest.targetRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: record.identity.baseSha,
+    authoritySnapshotSha: record.identity.baseSha,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    candidateResolvedSha: record.identity.headSha,
+    candidateParentShas: [record.identity.parentSha],
+    candidateMergeBaseSha: record.identity.mergeBaseSha,
+    candidatePatchId: record.identity.patchId,
+    changedPaths: [...record.identity.paths],
+    candidateControlPlanePaths: [],
+  };
+
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, number: 142 } },
+    evidence,
+  ), /no unique Base-owned registry match/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, sha: '0'.repeat(40) } } },
+    evidence,
+  ), /EF-235 head SHA/);
+  const duplicate = clone(DISK_REGISTRY);
+  duplicate.records.push(clone(record));
+  assert.throws(() => validateProfile(duplicate), /canonical ID-sorted|duplicate fixed pull request identity/);
+});
