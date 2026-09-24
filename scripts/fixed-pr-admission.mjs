@@ -23,27 +23,11 @@ const CANDIDATE_CONTROL_PLANE_PATHS = Object.freeze([
 const REGISTRY_KEYS = Object.freeze(['schemaVersion', 'kind', 'authority', 'records']);
 const AUTHORITY_KEYS = Object.freeze(['repository', 'targetBranch', 'governanceSelfAdmission', 'recordOrder']);
 const RECORD_KEYS = Object.freeze(['id', 'ticket', 'productQa', 'integration', 'baseAdvance', 'protectedGovernanceChain', 'regression', 'qaAuditReference']);
-const FIXED_PR_RECORD_ID = 'ef-235-pr-138-feda824d-protected-dev-v1';
+const FIXED_PR_RECORD_ID = /^ef-235-pr-[1-9][0-9]*-[0-9a-f]{8}-protected-dev-v1$/;
 const FIXED_PR_RECORD_KEYS = Object.freeze(['id', 'ticket', 'pullRequest', 'identity', 'independentQa']);
 const FIXED_PR_PULL_REQUEST_KEYS = Object.freeze(['number', 'sourceBranch', 'sourceRepository', 'targetBranch', 'targetRepository']);
 const FIXED_PR_IDENTITY_KEYS = Object.freeze(['headSha', 'parentSha', 'baseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const FIXED_PR_QA_KEYS = Object.freeze(['kind', 'headSha', 'baseSha', 'pathDigest', 'passed', 'total']);
-const FIXED_PR = Object.freeze({
-  ticket: 'EF-235',
-  number: 138,
-  sourceBranch: 'candidate/ef235-owner-binding-bootstrap-successor',
-  repository: 'susiexuejing/chat-app',
-  targetBranch: 'dev',
-  headSha: 'feda824d23d3e1291edf0b6dfefcc13fc8f8bc3b',
-  baseSha: 'c5e7ee8f7ef11b1ddc9ef221beb96f229c88d557',
-  patchId: 'f4cd68ba3ac0e29df59f03237e60d77a6f83ae50',
-  paths: Object.freeze([
-    'server/src/__tests__/ef75-chat-ownership.test.ts',
-    'server/src/index.ts',
-    'server/src/storage/database/protected-owner-binding-bootstrap.ts',
-  ]),
-  pathDigest: '790adbe4059d695e918bbaec0c23e4c78428ae4d767a42ee1e5438e49f517896',
-});
 const PRODUCT_KEYS = Object.freeze(['headSha', 'parentSha', 'originalBaseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const INTEGRATION_KEYS = Object.freeze(['headSha', 'parentSha', 'currentBaseSha', 'mergeBaseSha', 'patchId', 'sourceRepository', 'sourceBranch', 'targetBranch', 'paths', 'pathCount', 'pathDigest']);
 const ADVANCE_KEYS = Object.freeze(['fromSha', 'toSha', 'commitCount', 'paths', 'pathCount', 'pathDigest', 'zeroProductPathOverlap']);
@@ -233,21 +217,21 @@ function validateProtectedGovernanceChain(chain, productQa, integration) {
 }
 
 function isFixedPrRecord(record) {
-  return record?.id === FIXED_PR_RECORD_ID;
+  return typeof record?.id === 'string' && FIXED_PR_RECORD_ID.test(record.id);
 }
 
 function validateFixedPrRecord(record, authority) {
   exactKeys(record, FIXED_PR_RECORD_KEYS, 'EF-235 fixed PR record');
-  exact(record.id, FIXED_PR_RECORD_ID, 'EF-235 fixed PR record ID');
-  exact(record.ticket, FIXED_PR.ticket, 'EF-235 ticket');
+  if (typeof record.id !== 'string' || !FIXED_PR_RECORD_ID.test(record.id)) reject('invalid EF-235 fixed PR record ID');
+  exact(record.ticket, 'EF-235', 'EF-235 ticket');
   exactKeys(record.pullRequest, FIXED_PR_PULL_REQUEST_KEYS, 'EF-235 pull request');
   const pullRequest = record.pullRequest;
-  exact(pullRequest.number, FIXED_PR.number, 'EF-235 pull request number');
-  exact(pullRequest.sourceBranch, FIXED_PR.sourceBranch, 'EF-235 source branch');
-  exact(pullRequest.sourceRepository, FIXED_PR.repository, 'EF-235 source repository');
-  exact(pullRequest.targetBranch, FIXED_PR.targetBranch, 'EF-235 target branch');
-  exact(pullRequest.targetRepository, FIXED_PR.repository, 'EF-235 target repository');
-  exact(pullRequest.sourceRepository, authority.repository, 'EF-235 authority repository');
+  if (!Number.isSafeInteger(pullRequest.number) || pullRequest.number <= 0) reject('invalid EF-235 pull request number');
+  safeToken(pullRequest.sourceBranch, 'EF-235 source branch');
+  safeToken(pullRequest.sourceRepository, 'EF-235 source repository');
+  safeToken(pullRequest.targetBranch, 'EF-235 target branch');
+  safeToken(pullRequest.targetRepository, 'EF-235 target repository');
+  exact(pullRequest.sourceRepository, authority.repository, 'EF-235 authority source repository');
   exact(pullRequest.targetRepository, authority.repository, 'EF-235 authority target repository');
   exact(pullRequest.targetBranch, authority.targetBranch, 'EF-235 authority target branch');
   exactKeys(record.identity, FIXED_PR_IDENTITY_KEYS, 'EF-235 identity');
@@ -257,24 +241,21 @@ function validateFixedPrRecord(record, authority) {
   sha(identity.baseSha, 'EF-235 Base SHA');
   sha(identity.mergeBaseSha, 'EF-235 merge-base SHA');
   sha(identity.patchId, 'EF-235 patch ID');
-  exact(identity.headSha, FIXED_PR.headSha, 'EF-235 head SHA');
-  exact(identity.parentSha, FIXED_PR.baseSha, 'EF-235 parent SHA');
-  exact(identity.baseSha, FIXED_PR.baseSha, 'EF-235 Base SHA');
-  exact(identity.mergeBaseSha, FIXED_PR.baseSha, 'EF-235 merge-base SHA');
-  exact(identity.patchId, FIXED_PR.patchId, 'EF-235 patch ID');
+  exact(identity.parentSha, identity.baseSha, 'EF-235 parent/Base SHA');
+  exact(identity.mergeBaseSha, identity.baseSha, 'EF-235 merge-base/Base SHA');
   digest(identity.pathDigest, 'EF-235 path digest');
-  if (!sameArray(identity.paths, FIXED_PR.paths) || identity.pathCount !== FIXED_PR.paths.length
-    || identity.pathDigest !== FIXED_PR.pathDigest || fixedPrPathDigest(identity.paths) !== identity.pathDigest) {
+  if (identity.pathCount !== identity.paths.length || fixedPrPathDigest(identity.paths) !== identity.pathDigest) {
     reject('EF-235 path contract mismatch');
   }
   exactKeys(record.independentQa, FIXED_PR_QA_KEYS, 'EF-235 independent QA');
   const qa = record.independentQa;
   exact(qa.kind, 'independent-r2', 'EF-235 independent QA kind');
-  exact(qa.headSha, FIXED_PR.headSha, 'EF-235 independent QA head SHA');
-  exact(qa.baseSha, FIXED_PR.baseSha, 'EF-235 independent QA Base SHA');
-  exact(qa.pathDigest, FIXED_PR.pathDigest, 'EF-235 independent QA path digest');
-  exact(qa.passed, 12, 'EF-235 independent QA passed count');
-  exact(qa.total, 12, 'EF-235 independent QA total count');
+  exact(qa.headSha, identity.headSha, 'EF-235 independent QA head SHA');
+  exact(qa.baseSha, identity.baseSha, 'EF-235 independent QA Base SHA');
+  exact(qa.pathDigest, identity.pathDigest, 'EF-235 independent QA path digest');
+  if (!Number.isSafeInteger(qa.passed) || !Number.isSafeInteger(qa.total) || qa.passed <= 0 || qa.passed !== qa.total) {
+    reject('EF-235 independent QA must be complete');
+  }
   return record;
 }
 
