@@ -225,6 +225,7 @@ test('on-disk authority preserves EF-177 legacy identity and adds the exact EF-1
     'ef-107-1d61b510-current-base-v1',
     'ef-177-fa24d37-current-base-v1',
     'ef-235-pr-138-feda824d-protected-dev-v1',
+    'ef-235-pr-141-ab930972-protected-dev-v1',
   ]);
   const ef107 = DISK_REGISTRY.records[0];
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
