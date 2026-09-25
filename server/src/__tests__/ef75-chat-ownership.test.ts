@@ -29,6 +29,9 @@ jest.unstable_mockModule('../routes/conversations', () => ({ default: express.Ro
 
 const { app } = await import('../index');
 const CONVERSATION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const providerFetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(
+  new Response(null, { status: 503 }),
+);
 
 function loopbackOnly(app: express.Express) {
   const listen = app.listen.bind(app);
@@ -90,4 +93,6 @@ describe('EF-75 chat start/stream production ownership path', () => {
     expect(response.headers['access-control-allow-origin']).toBe('https://dev.douhaoyu.cn');
     expect(response.headers['access-control-allow-credentials']).toBe('true');
   });
+
+  afterAll(() => providerFetch.mockRestore());
 });
