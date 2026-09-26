@@ -33,14 +33,36 @@ title = "EmotionFlow Gitleaks Config"
     ]
 
   [[rules.allowlists]]
-    description = "Allow EF-107 runtime configuration references only"
+    description = "Allow EF-237 exact RDS runtime password environment reference only"
     condition = "AND"
     regexTarget = "match"
     paths = [
-      '''(?:^|/)server/src/storage/database/(rds-runtime-config|rds-owner-binding-store)\.ts$''',
+      '''(?:^|/)server/src/storage/database/rds-runtime-config\.ts$''',
     ]
     regexes = [
-      '''password\s*[:=]\s*(?:env\.EF_RDS_RUNTIME_PASSWORD|config\.password)''',
+      '''(?i)^password\s*=\s*env\.EF_RDS_RUNTIME_PASSWORD;?$''',
+    ]
+
+  [[rules.allowlists]]
+    description = "Allow EF-237 exact identity database runtime password reference only"
+    condition = "AND"
+    regexTarget = "match"
+    paths = [
+      '''(?:^|/)server/src/storage/database/identity-db\.ts$''',
+    ]
+    regexes = [
+      '''(?i)^password\s*:\s*config\.password,?$''',
+    ]
+
+  [[rules.allowlists]]
+    description = "Allow EF-237 exact owner store runtime password reference only"
+    condition = "AND"
+    regexTarget = "match"
+    paths = [
+      '''(?:^|/)server/src/storage/database/rds-owner-binding-store\.ts$''',
+    ]
+    regexes = [
+      '''(?i)^password\s*:\s*config\.password,?$''',
     ]
 
 [[rules]]
