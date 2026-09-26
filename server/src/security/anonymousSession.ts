@@ -1,10 +1,10 @@
 import crypto from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
-import { getSupabaseClient } from '../storage/database/supabase-client';
 import {
-  hasRegisteredOwnerBindingStore,
-  verifyExactOwnerBinding,
-} from '../storage/database/rds-owner-binding-store';
+  findAnonymousSessionRecord,
+  hasRegisteredIdentityDb,
+  verifyConversationOwner,
+} from '../storage/database/identity-db';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 export const EF75_WEB_ORIGIN = 'https://dev.douhaoyu.cn';
@@ -26,15 +26,6 @@ export interface VerifiedAnonymousSession {
 type AuthenticationResult =
   | { ok: true; session: VerifiedAnonymousSession }
   | { ok: false; kind: 'invalid' | 'request_not_allowed' | 'internal' };
-
-interface AnonymousSessionRow {
-  id: string;
-  credential_hash: string;
-  transport: string;
-  csrf_hash: string | null;
-  expires_at: number;
-  revoked_at: number | null;
-}
 
 function sha256(value: string): string {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
@@ -87,20 +78,12 @@ async function lookupSession(
   transport: AnonymousTransport,
 ): Promise<AuthenticationResult> {
   try {
-    const client = getSupabaseClient();
-    const { data, error } = await client
-      .from('anonymous_sessions')
-      .select('id, credential_hash, transport, csrf_hash, expires_at, revoked_at')
-      .eq('credential_hash', sha256(credentialValue))
-      .eq('transport', transport)
-      .maybeSingle();
-    if (error) return { ok: false, kind: 'internal' };
-    const row = data as AnonymousSessionRow | null;
+    const row = await findAnonymousSessionRecord(sha256(credentialValue), transport);
     if (!row
       || row.transport !== transport
-      || row.revoked_at !== null
-      || !Number.isFinite(row.expires_at)
-      || row.expires_at <= Date.now()) {
+      || row.revokedAt !== null
+      || !Number.isFinite(row.expiresAt)
+      || row.expiresAt <= Date.now()) {
       return { ok: false, kind: 'invalid' };
     }
     return {
@@ -108,8 +91,8 @@ async function lookupSession(
       session: {
         id: row.id,
         transport,
-        expiresAt: row.expires_at,
-        csrfHash: row.csrf_hash,
+        expiresAt: row.expiresAt,
+        csrfHash: row.csrfHash,
       },
     };
   } catch {
@@ -192,7 +175,7 @@ export async function requireAnonymousSession(
 }
 
 export function hasOwnerBindingRuntime(): boolean {
-  return hasRegisteredOwnerBindingStore();
+  return hasRegisteredIdentityDb();
 }
 
 export function requireOwnerBindingRuntime(
@@ -215,7 +198,13 @@ export async function verifyOwnedConversation(
   ownerSessionId: string,
   conversationId: string,
 ): Promise<'owned' | 'missing' | 'internal'> {
-  return verifyExactOwnerBinding(conversationId, ownerSessionId);
+  try {
+    return await verifyConversationOwner(conversationId, ownerSessionId)
+      ? 'owned'
+      : 'missing';
+  } catch {
+    return 'internal';
+  }
 }
 
 export function serializeWebSessionCookie(credentialValue: string, maxAgeSeconds: number): string {

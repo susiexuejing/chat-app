@@ -2,8 +2,18 @@ import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 
-const getSupabaseClient = jest.fn();
-jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
+const createAnonymousSessionRecord = jest.fn();
+const findAnonymousSessionRecord = jest.fn();
+const updateAnonymousSessionCsrf = jest.fn();
+const revokeAnonymousSession = jest.fn();
+jest.unstable_mockModule('../storage/database/identity-db', () => ({
+  createAnonymousSessionRecord,
+  findAnonymousSessionRecord,
+  updateAnonymousSessionCsrf,
+  revokeAnonymousSession,
+  hasRegisteredIdentityDb: jest.fn(() => true),
+  verifyConversationOwner: jest.fn(),
+}));
 
 const { default: anonymousSessionsRouter } = await import('../routes/anonymousSessions');
 const {
@@ -15,16 +25,6 @@ const {
 
 const WEB_TOKEN = 'W'.repeat(43);
 const CSRF = 'C'.repeat(43);
-
-function chain(result: { data?: unknown; error?: unknown } = {}) {
-  const value = { data: result.data ?? null, error: result.error ?? null };
-  const query: Record<string, unknown> = {};
-  for (const method of ['select', 'eq', 'update']) query[method] = jest.fn(() => query);
-  query.insert = jest.fn(async () => value);
-  query.maybeSingle = jest.fn(async () => value);
-  query.then = (resolve: (arg: unknown) => unknown) => Promise.resolve(value).then(resolve);
-  return query;
-}
 
 function makeApp(withProtected = false) {
   const app = express();
@@ -42,11 +42,14 @@ function makeApp(withProtected = false) {
 }
 
 describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
-  beforeEach(() => getSupabaseClient.mockReset());
+  beforeEach(() => {
+    createAnonymousSessionRecord.mockReset().mockResolvedValue(undefined);
+    findAnonymousSessionRecord.mockReset().mockResolvedValue(null);
+    updateAnonymousSessionCsrf.mockReset().mockResolvedValue(undefined);
+    revokeAnonymousSession.mockReset().mockResolvedValue(undefined);
+  });
 
   test('issues an exact host-only cookie and never returns the bearer in JSON', async () => {
-    const insert = chain();
-    getSupabaseClient.mockReturnValue({ from: jest.fn(() => insert) });
     const response = await request(makeApp())
       .post('/api/v1/anonymous-sessions/web')
       .set('Origin', EF75_WEB_ORIGIN)
@@ -81,20 +84,21 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       const response = await pending;
       expect(response.status).toBe(403);
       expect(response.body).toEqual({ error: 'request_not_allowed' });
-      expect(getSupabaseClient).not.toHaveBeenCalled();
+      expect(createAnonymousSessionRecord).not.toHaveBeenCalled();
+      expect(findAnonymousSessionRecord).not.toHaveBeenCalled();
     },
   );
 
   test('requires exact Origin, cookie-only transport, JSON and matching CSRF', async () => {
     const row = {
       id: '22222222-2222-4222-8222-222222222222',
-      credential_hash: hashAnonymousSecret(WEB_TOKEN),
+      credentialHash: hashAnonymousSecret(WEB_TOKEN),
       transport: 'web',
-      csrf_hash: hashAnonymousSecret(CSRF),
-      expires_at: Date.now() + 60_000,
-      revoked_at: null,
+      csrfHash: hashAnonymousSecret(CSRF),
+      expiresAt: Date.now() + 60_000,
+      revokedAt: null,
     };
-    getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
+    findAnonymousSessionRecord.mockResolvedValue(row);
     const response = await request(makeApp(true))
       .post('/protected')
       .set('Origin', EF75_WEB_ORIGIN)
@@ -109,13 +113,13 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
   test('allows a side-effect-free cookie GET without Origin', async () => {
     const row = {
       id: '22222222-2222-4222-8222-222222222222',
-      credential_hash: hashAnonymousSecret(WEB_TOKEN),
+      credentialHash: hashAnonymousSecret(WEB_TOKEN),
       transport: 'web',
-      csrf_hash: hashAnonymousSecret(CSRF),
-      expires_at: Date.now() + 60_000,
-      revoked_at: null,
+      csrfHash: hashAnonymousSecret(CSRF),
+      expiresAt: Date.now() + 60_000,
+      revokedAt: null,
     };
-    getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
+    findAnonymousSessionRecord.mockResolvedValue(row);
     const response = await request(makeApp(true))
       .get('/protected')
       .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`);
@@ -128,13 +132,13 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
     async origin => {
       const row = {
         id: '22222222-2222-4222-8222-222222222222',
-        credential_hash: hashAnonymousSecret(WEB_TOKEN),
+        credentialHash: hashAnonymousSecret(WEB_TOKEN),
         transport: 'web',
-        csrf_hash: hashAnonymousSecret(CSRF),
-        expires_at: Date.now() + 60_000,
-        revoked_at: null,
+        csrfHash: hashAnonymousSecret(CSRF),
+        expiresAt: Date.now() + 60_000,
+        revokedAt: null,
       };
-      getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
+      findAnonymousSessionRecord.mockResolvedValue(row);
       const pending = request(makeApp(true))
         .post('/protected')
         .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`)
@@ -151,13 +155,13 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
   test('rejects a cross-origin cookie GET', async () => {
     const row = {
       id: '22222222-2222-4222-8222-222222222222',
-      credential_hash: hashAnonymousSecret(WEB_TOKEN),
+      credentialHash: hashAnonymousSecret(WEB_TOKEN),
       transport: 'web',
-      csrf_hash: hashAnonymousSecret(CSRF),
-      expires_at: Date.now() + 60_000,
-      revoked_at: null,
+      csrfHash: hashAnonymousSecret(CSRF),
+      expiresAt: Date.now() + 60_000,
+      revokedAt: null,
     };
-    getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
+    findAnonymousSessionRecord.mockResolvedValue(row);
     const response = await request(makeApp(true))
       .get('/protected')
       .set('Origin', 'https://evil.example')
@@ -173,13 +177,13 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
   ])('rejects %s without disclosing session state', async (_label, cookie, csrf, bearer) => {
     const row = {
       id: '22222222-2222-4222-8222-222222222222',
-      credential_hash: hashAnonymousSecret(WEB_TOKEN),
+      credentialHash: hashAnonymousSecret(WEB_TOKEN),
       transport: 'web',
-      csrf_hash: hashAnonymousSecret(CSRF),
-      expires_at: Date.now() + 60_000,
-      revoked_at: null,
+      csrfHash: hashAnonymousSecret(CSRF),
+      expiresAt: Date.now() + 60_000,
+      revokedAt: null,
     };
-    getSupabaseClient.mockReturnValue({ from: jest.fn(() => chain({ data: row })) });
+    findAnonymousSessionRecord.mockResolvedValue(row);
     const pending = request(makeApp(true))
       .post('/protected')
       .set('Origin', EF75_WEB_ORIGIN)
