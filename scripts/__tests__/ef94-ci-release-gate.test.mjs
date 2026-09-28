@@ -6,6 +6,7 @@ const protectedWorkflowUrl = new URL('../../.github/workflows/protected-fixed-pr
 const releaseWorkflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
 const profileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
 const verifierUrl = new URL('../fixed-pr-admission.mjs', import.meta.url);
+const reassessmentWorkflowUrl = new URL('../../.github/workflows/fixed-pr-admission-reassessment.yml', import.meta.url);
 
 const SIX_GOVERNANCE_PATHS = [
   '.github/workflows/protected-fixed-pr-admission.yml',
@@ -65,6 +66,36 @@ test('privileged release gate produces admission only and contains no product ex
   const workflow = await text(releaseWorkflowUrl);
   assert.doesNotMatch(workflow, /test:release|run-approved-targeted-regressions|jest|tsc|node_modules|package\.json|pnpm-lock|candidate/);
   assert.doesNotMatch(workflow, /workflow_dispatch|^  push:|^  pull_request:/m);
+});
+
+test('manual reassessment is a protected-dev workflow_dispatch entrypoint with a single minimal PR identity input', async () => {
+  const workflow = await text(reassessmentWorkflowUrl);
+  assert.match(workflow, /^name: Fixed PR Admission Reassessment$/m);
+  assert.match(workflow, /^  workflow_dispatch:\n    inputs:\n      pull_request_number:\n        description: Exact fixed pull request number already registered by protected dev\n        required: true\n        type: string$/m);
+  assert.doesNotMatch(workflow, /^  pull_request_target:|^  pull_request:|^  push:/m);
+  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
+  assert.match(workflow, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
+  assert.match(workflow, /uses: actions\/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd/);
+  assert.equal((workflow.match(/^\s*uses:/gm) ?? []).length, 2);
+  assert.match(workflow, /ref: refs\/heads\/dev/);
+  assert.match(workflow, /path: authority/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /github\.rest\.pulls\.get/);
+  assert.match(workflow, /context\.payload\.inputs\?\.pull_request_number/);
+  assert.match(workflow, /EF_ADMISSION_REASSESSMENT_MODE: base-owned-fixed-pr-reassessment-v1/);
+  assert.match(workflow, /EF_ADMISSION_REASSESSMENT_METADATA: \.ef240-fixed-pr-reassessment\.json/);
+  assert.match(workflow, /working-directory: authority/);
+  assert.match(workflow, /run: node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /checkout.*(head|candidate)|pull_request\.head|secrets\.|id-token|\b(write|deploy|merge|curl|wget|ssh|pnpm|npm|yarn|install|cache|artifact)\b/i);
+});
+
+test('verifier requires explicit reassessment mode and never defaults workflow_dispatch to admission', async () => {
+  const verifier = await text(verifierUrl);
+  assert.match(verifier, /const REASSESSMENT_MODE = 'base-owned-fixed-pr-reassessment-v1'/);
+  assert.match(verifier, /exact\(process\.env\.EF_ADMISSION_REASSESSMENT_MODE, REASSESSMENT_MODE, 'reassessment mode'\)/);
+  assert.match(verifier, /exact\(metadataPath, REASSESSMENT_METADATA_FILENAME, 'reassessment metadata path'\)/);
+  assert.match(verifier, /reassessment is limited to fixed PR records/);
+  assert.match(verifier, /reassessment pull request number mismatch/);
 });
 
 test('Base-owned v5 profile preserves EF-177 legacy ancestry and freezes EF-107 squash-anchor identity', async () => {
