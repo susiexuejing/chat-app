@@ -441,12 +441,16 @@ test('EF-235 is a single, exact PR #138 admission with its independent 12/12 R2 
     eventFieldsUsedAsDataOnly: true,
     candidateFilesRead: false,
     candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.identity.headSha,
     candidateParentShas: [record.identity.parentSha],
     candidateMergeBaseSha: record.identity.mergeBaseSha,
     candidatePatchId: record.identity.patchId,
     changedPaths: [...record.identity.paths],
     candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
   };
   assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
   for (const mutate of [
@@ -793,13 +797,14 @@ test('protected admission workflow reads only protected Base authority and never
   assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
   assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
   assert.match(workflow, /ref: refs\/heads\/dev/);
-  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
+  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
   assert.match(workflow, /path: authority/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /persist-credentials: false/);
   assert.match(workflow, /working-directory: authority/);
   assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
   assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
   assert.doesNotMatch(workflow, /pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|write|deploy/i);
 });
 
@@ -808,8 +813,9 @@ test('release gate performs authority-only admission and never executes product 
   assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
   assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
   assert.match(workflow, /ref: refs\/heads\/dev/);
-  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
+  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
   assert.match(workflow, /working-directory: authority[\s\S]*EF_AUTHORITY_SNAPSHOT_SHA:[\s\S]*node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
   assert.doesNotMatch(workflow, /candidate|pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|test:release|jest|tsc|deploy/i);
 });
 
@@ -841,12 +847,16 @@ test('EF-235 protected archive admits PR #141 only when every recorded identity 
     eventFieldsUsedAsDataOnly: true,
     candidateFilesRead: false,
     candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.identity.headSha,
     candidateParentShas: [record.identity.parentSha],
     candidateMergeBaseSha: record.identity.mergeBaseSha,
     candidatePatchId: record.identity.patchId,
     changedPaths: [...record.identity.paths],
     candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
   };
 
   assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
@@ -892,12 +902,16 @@ test('EF-235 protected archive admits PR #143 only for the exact ten-path candid
     eventFieldsUsedAsDataOnly: true,
     candidateFilesRead: false,
     candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.identity.headSha,
     candidateParentShas: [record.identity.parentSha],
     candidateMergeBaseSha: record.identity.mergeBaseSha,
     candidatePatchId: record.identity.patchId,
     changedPaths: [...record.identity.paths],
     candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
   };
 
   assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
@@ -945,12 +959,16 @@ test('EF-235 protected archive admits PR #145 only for the exact two-path Gitlea
     eventFieldsUsedAsDataOnly: true,
     candidateFilesRead: false,
     candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
     candidateResolvedSha: record.identity.headSha,
     candidateParentShas: [record.identity.parentSha],
     candidateMergeBaseSha: record.identity.mergeBaseSha,
     candidatePatchId: record.identity.patchId,
     changedPaths: [...record.identity.paths],
     candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
   };
 
   assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
@@ -969,4 +987,61 @@ test('EF-235 protected archive admits PR #145 only for the exact two-path Gitlea
     event,
     { ...evidence, changedPaths: [...record.identity.paths, 'server/extra.ts'] },
   ), /EF-235 candidate path contract mismatch/);
+});
+
+test('fixed PR records admit from a later protected authority snapshot without Base-advance evidence', () => {
+  const record = DISK_REGISTRY.records.find(entry => entry.pullRequest?.number === 145);
+  assert.ok(record);
+  assert.equal(Object.hasOwn(record, 'baseAdvance'), false);
+  const authoritySnapshotSha = 'f'.repeat(40);
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: record.pullRequest.number,
+      head: {
+        sha: record.identity.headSha,
+        ref: record.pullRequest.sourceBranch,
+        repoFullName: record.pullRequest.sourceRepository,
+      },
+      base: {
+        sha: record.identity.baseSha,
+        ref: record.pullRequest.targetBranch,
+        repoFullName: record.pullRequest.targetRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: authoritySnapshotSha,
+    authoritySnapshotSha,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
+    candidateResolvedSha: record.identity.headSha,
+    candidateParentShas: [record.identity.parentSha],
+    candidateMergeBaseSha: record.identity.mergeBaseSha,
+    candidatePatchId: record.identity.patchId,
+    changedPaths: [...record.identity.paths],
+    candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
+  };
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence, { authoritySnapshotSha }).accepted, true);
+  assert.equal(isFixedSuccessorAttempt(DISK_REGISTRY, event), true);
+  assert.throws(() => fixedSuccessorRegressionManifest(DISK_REGISTRY, event), /fixed PR record has no generic regression manifest/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    event,
+    { ...evidence, productOriginalBaseIncludedInAuthoritySnapshot: false },
+    { authoritySnapshotSha },
+  ), /original Base is not included/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    event,
+    { ...evidence, registryMatchesSnapshot: false },
+    { authoritySnapshotSha },
+  ), /authority registry is absent or differs/);
 });

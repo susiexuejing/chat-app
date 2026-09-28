@@ -33,12 +33,9 @@ jobs:
         id: authority_snapshot
         working-directory: authority
         shell: bash
-        env:
-          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           AUTHORITY_SHA="$(git rev-parse --verify HEAD)"
-          test "$AUTHORITY_SHA" = "$EXPECTED_WORKFLOW_SHA"
           echo "sha=$AUTHORITY_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Verify release admission from protected snapshot
