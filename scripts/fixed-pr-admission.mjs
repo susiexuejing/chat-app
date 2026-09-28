@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 const REGISTRY_URL = new URL('./fixed-pr-admission.profile.json', import.meta.url);
 const REGISTRY_REPOSITORY_PATH = 'scripts/fixed-pr-admission.profile.json';
+const REASSESSMENT_METADATA_FILENAME = '.ef240-fixed-pr-reassessment.json';
+const REASSESSMENT_MODE = 'base-owned-fixed-pr-reassessment-v1';
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
@@ -28,6 +30,10 @@ const FIXED_PR_RECORD_KEYS = Object.freeze(['id', 'ticket', 'pullRequest', 'iden
 const FIXED_PR_PULL_REQUEST_KEYS = Object.freeze(['number', 'sourceBranch', 'sourceRepository', 'targetBranch', 'targetRepository']);
 const FIXED_PR_IDENTITY_KEYS = Object.freeze(['headSha', 'parentSha', 'baseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const FIXED_PR_QA_KEYS = Object.freeze(['kind', 'headSha', 'baseSha', 'pathDigest', 'passed', 'total']);
+const REASSESSMENT_METADATA_KEYS = Object.freeze(['schemaVersion', 'source', 'pullRequest']);
+const REASSESSMENT_PULL_REQUEST_KEYS = Object.freeze(['number', 'head', 'base']);
+const REASSESSMENT_HEAD_KEYS = Object.freeze(['sha', 'ref', 'repoFullName']);
+const REASSESSMENT_BASE_KEYS = Object.freeze(['ref', 'repoFullName']);
 const PRODUCT_KEYS = Object.freeze(['headSha', 'parentSha', 'originalBaseSha', 'mergeBaseSha', 'patchId', 'paths', 'pathCount', 'pathDigest']);
 const INTEGRATION_KEYS = Object.freeze(['headSha', 'parentSha', 'currentBaseSha', 'mergeBaseSha', 'patchId', 'sourceRepository', 'sourceBranch', 'targetBranch', 'paths', 'pathCount', 'pathDigest']);
 const ADVANCE_KEYS = Object.freeze(['fromSha', 'toSha', 'commitCount', 'paths', 'pathCount', 'pathDigest', 'zeroProductPathOverlap']);
@@ -363,6 +369,49 @@ function selectRecord(registry, event) {
   return records[0];
 }
 
+function reassessmentEventFromMetadata(registry, dispatchPayload, metadata) {
+  exactKeys(dispatchPayload?.inputs ?? {}, ['pull_request_number'], 'reassessment dispatch inputs');
+  const requestedNumber = dispatchPayload.inputs.pull_request_number;
+  if (typeof requestedNumber !== 'string' || !/^[1-9][0-9]*$/.test(requestedNumber)) {
+    reject('invalid reassessment pull request input');
+  }
+  exactKeys(metadata, REASSESSMENT_METADATA_KEYS, 'reassessment metadata');
+  exact(metadata.schemaVersion, 1, 'reassessment metadata schema');
+  exact(metadata.source, 'github-rest-pulls-get-v1', 'reassessment metadata source');
+  exactKeys(metadata.pullRequest, REASSESSMENT_PULL_REQUEST_KEYS, 'reassessment pull request');
+  const pullRequest = metadata.pullRequest;
+  if (!Number.isSafeInteger(pullRequest.number) || String(pullRequest.number) !== requestedNumber) {
+    reject('reassessment pull request number mismatch');
+  }
+  exactKeys(pullRequest.head, REASSESSMENT_HEAD_KEYS, 'reassessment head');
+  exactKeys(pullRequest.base, REASSESSMENT_BASE_KEYS, 'reassessment base');
+  sha(pullRequest.head.sha, 'reassessment head SHA');
+  safeToken(pullRequest.head.ref, 'reassessment head ref');
+  safeToken(pullRequest.head.repoFullName, 'reassessment head repository');
+  safeToken(pullRequest.base.ref, 'reassessment target branch');
+  safeToken(pullRequest.base.repoFullName, 'reassessment target repository');
+  const lookup = {
+    pullRequest: {
+      number: pullRequest.number,
+      head: pullRequest.head,
+      base: pullRequest.base,
+    },
+  };
+  const record = selectRecord(registry, lookup);
+  if (!isFixedPrRecord(record)) reject('reassessment is limited to fixed PR records');
+  return {
+    eventName: 'workflow_dispatch',
+    reassessmentMode: REASSESSMENT_MODE,
+    pullRequest: {
+      number: pullRequest.number,
+      head: { ...pullRequest.head },
+      // The GitHub API reports the moving target ref. The immutable original
+      // Base is Base-owned registry data and is never supplied by dispatch input.
+      base: { ...pullRequest.base, sha: record.identity.baseSha },
+    },
+  };
+}
+
 export function isFixedSuccessorAttempt(profileInput, event) {
   const registry = validateProfile(profileInput);
   return matchingRecords(registry, event).length === 1;
@@ -377,7 +426,13 @@ export function fixedSuccessorRegressionManifest(profileInput, event) {
 
 export function validateAdmission(profileInput, event, evidence, options = {}) {
   const registry = validateProfile(profileInput);
-  exact(event?.eventName, 'pull_request_target', 'event');
+  const reassessment = options.reassessmentMode === REASSESSMENT_MODE;
+  exact(event?.eventName, reassessment ? 'workflow_dispatch' : 'pull_request_target', 'event');
+  if (reassessment) {
+    exact(event?.reassessmentMode, REASSESSMENT_MODE, 'reassessment mode');
+  } else if (event?.reassessmentMode !== undefined) {
+    reject('unexpected reassessment mode');
+  }
   const pullRequest = event?.pullRequest;
   if (!pullRequest || !Number.isInteger(pullRequest.number) || pullRequest.number <= 0) reject('missing pull request identity');
   const record = selectRecord(registry, event);
@@ -705,14 +760,30 @@ async function main() {
   let registry;
   try { registry = JSON.parse(rawRegistry); } catch { reject('malformed registry'); }
   const validatedRegistry = validateProfile(registry);
-  const event = eventFromPayload(githubEvent);
   if (process.argv.length !== 2) reject('invalid privileged admission arguments');
   const authoritySnapshotSha = process.env.EF_AUTHORITY_SNAPSHOT_SHA;
   sha(authoritySnapshotSha, 'authority snapshot SHA');
   exact(git(['rev-parse', 'HEAD']), authoritySnapshotSha, 'authority snapshot working tree');
+  const reassessment = process.env.GITHUB_EVENT_NAME === 'workflow_dispatch';
+  let event;
+  if (reassessment) {
+    exact(process.env.EF_ADMISSION_REASSESSMENT_MODE, REASSESSMENT_MODE, 'reassessment mode');
+    const metadataPath = process.env.EF_ADMISSION_REASSESSMENT_METADATA;
+    exact(metadataPath, REASSESSMENT_METADATA_FILENAME, 'reassessment metadata path');
+    let metadata;
+    try { metadata = JSON.parse(await readFile(new URL(`../${REASSESSMENT_METADATA_FILENAME}`, import.meta.url), 'utf8')); } catch {
+      reject('missing or malformed reassessment metadata');
+    }
+    event = reassessmentEventFromMetadata(validatedRegistry, githubEvent, metadata);
+  } else {
+    event = eventFromPayload(githubEvent);
+  }
   const record = selectRecord(validatedRegistry, event);
   const evidence = evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSha });
-  validateAdmission(validatedRegistry, event, evidence, { authoritySnapshotSha });
+  validateAdmission(validatedRegistry, event, evidence, {
+    authoritySnapshotSha,
+    ...(reassessment ? { reassessmentMode: REASSESSMENT_MODE } : {}),
+  });
   process.stdout.write('current-base integration admission accepted\n');
 }
 

@@ -1045,3 +1045,64 @@ test('fixed PR records admit from a later protected authority snapshot without B
     { authoritySnapshotSha },
   ), /authority registry is absent or differs/);
 });
+
+test('reviewed workflow_dispatch reassessment admits only the exact registered fixed PR identity', () => {
+  const record = DISK_REGISTRY.records.find(entry => entry.pullRequest?.number === 145);
+  assert.ok(record);
+  const authoritySnapshotSha = 'f'.repeat(40);
+  const event = {
+    eventName: 'workflow_dispatch',
+    reassessmentMode: 'base-owned-fixed-pr-reassessment-v1',
+    pullRequest: {
+      number: record.pullRequest.number,
+      head: {
+        sha: record.identity.headSha,
+        ref: record.pullRequest.sourceBranch,
+        repoFullName: record.pullRequest.sourceRepository,
+      },
+      base: {
+        sha: record.identity.baseSha,
+        ref: record.pullRequest.targetBranch,
+        repoFullName: record.pullRequest.targetRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: authoritySnapshotSha,
+    authoritySnapshotSha,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    productOriginalBaseIncludedInAuthoritySnapshot: true,
+    candidateResolvedSha: record.identity.headSha,
+    candidateParentShas: [record.identity.parentSha],
+    candidateMergeBaseSha: record.identity.mergeBaseSha,
+    candidatePatchId: record.identity.patchId,
+    changedPaths: [...record.identity.paths],
+    candidateControlPlanePaths: [],
+    registryPresentAtSnapshot: true,
+    registryMatchesSnapshot: true,
+    candidateProvidedAuthority: false,
+  };
+  const options = {
+    authoritySnapshotSha,
+    reassessmentMode: 'base-owned-fixed-pr-reassessment-v1',
+  };
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence, options).accepted, true);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, number: 999 } },
+    evidence,
+    options,
+  ), /no unique Base-owned registry match/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, head: { ...event.pullRequest.head, sha: '0'.repeat(40) } } },
+    evidence,
+    options,
+  ), /EF-235 head SHA/);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, { ...event, reassessmentMode: undefined }, evidence, options), /reassessment mode mismatch/);
+  assert.throws(() => validateAdmission(DISK_REGISTRY, event, evidence), /event mismatch/);
+});
