@@ -320,6 +320,38 @@
         "passed": 4,
         "total": 4
       }
+    },
+    {
+      "id": "ef-235-pr-145-aacf54eb-protected-dev-v1",
+      "ticket": "EF-235",
+      "pullRequest": {
+        "number": 145,
+        "sourceBranch": "cell2/ef237-gitleaks-fix-aacf54e",
+        "sourceRepository": "susiexuejing/chat-app",
+        "targetBranch": "dev",
+        "targetRepository": "susiexuejing/chat-app"
+      },
+      "identity": {
+        "headSha": "aacf54eb257a9d12bc7f1a9217a68a535555dc3b",
+        "parentSha": "e5ebbaa419cc4c17c7e6d9c0059dd2b22d39b794",
+        "baseSha": "e5ebbaa419cc4c17c7e6d9c0059dd2b22d39b794",
+        "mergeBaseSha": "e5ebbaa419cc4c17c7e6d9c0059dd2b22d39b794",
+        "patchId": "1dec1e50c8767b3c76bb416be07e6670007a7873",
+        "paths": [
+          ".gitleaks.toml",
+          "scripts/__tests__/ef237-gitleaks-runtime-reference.test.mjs"
+        ],
+        "pathCount": 2,
+        "pathDigest": "1233fc10eef31cb9e720a0741924636d53fc0ce710bda52e08cbb094774d6231"
+      },
+      "independentQa": {
+        "kind": "independent-r2",
+        "headSha": "aacf54eb257a9d12bc7f1a9217a68a535555dc3b",
+        "baseSha": "e5ebbaa419cc4c17c7e6d9c0059dd2b22d39b794",
+        "pathDigest": "1233fc10eef31cb9e720a0741924636d53fc0ce710bda52e08cbb094774d6231",
+        "passed": 6,
+        "total": 6
+      }
     }
   ]
 }
