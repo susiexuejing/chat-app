@@ -219,13 +219,14 @@ function rejected(mutator, expression, eventName = 'pull_request_target') {
   assert.throws(() => validateAdmission(registry, event, evidence, { expectedEventName: eventName }), expression);
 }
 
-test('on-disk authority preserves EF-177 legacy identity and adds the exact EF-107 squash anchor', () => {
+test('on-disk authority preserves prior records and adds the exact EF-235 PR #143 identity', () => {
   assert.deepEqual(validateProfile(DISK_REGISTRY), DISK_REGISTRY);
   assert.deepEqual(DISK_REGISTRY.records.map(record => record.id), [
     'ef-107-1d61b510-current-base-v1',
     'ef-177-fa24d37-current-base-v1',
     'ef-235-pr-138-feda824d-protected-dev-v1',
     'ef-235-pr-141-ab930972-protected-dev-v1',
+    'ef-235-pr-143-2cd2a7b2-protected-dev-v1',
   ]);
   const ef107 = DISK_REGISTRY.records[0];
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
@@ -861,4 +862,57 @@ test('EF-235 protected archive admits PR #141 only when every recorded identity 
   const duplicate = clone(DISK_REGISTRY);
   duplicate.records.push(clone(record));
   assert.throws(() => validateProfile(duplicate), /canonical ID-sorted|duplicate fixed pull request identity/);
+});
+
+test('EF-235 protected archive admits PR #143 only for the exact ten-path candidate and independent QA', () => {
+  const record = DISK_REGISTRY.records.find(entry => entry.pullRequest?.number === 143);
+  assert.ok(record);
+  const event = {
+    eventName: 'pull_request_target',
+    pullRequest: {
+      number: record.pullRequest.number,
+      head: {
+        sha: record.identity.headSha,
+        ref: record.pullRequest.sourceBranch,
+        repoFullName: record.pullRequest.sourceRepository,
+      },
+      base: {
+        sha: record.identity.baseSha,
+        ref: record.pullRequest.targetBranch,
+        repoFullName: record.pullRequest.targetRepository,
+      },
+    },
+  };
+  const evidence = {
+    protectedBaseCheckoutSha: record.identity.baseSha,
+    authoritySnapshotSha: record.identity.baseSha,
+    authoritySnapshotResolvedOnce: true,
+    authorityExecutionFromProtectedSnapshot: true,
+    eventFieldsUsedAsDataOnly: true,
+    candidateFilesRead: false,
+    candidateCodeExecutedBeforeAdmission: false,
+    candidateResolvedSha: record.identity.headSha,
+    candidateParentShas: [record.identity.parentSha],
+    candidateMergeBaseSha: record.identity.mergeBaseSha,
+    candidatePatchId: record.identity.patchId,
+    changedPaths: [...record.identity.paths],
+    candidateControlPlanePaths: [],
+  };
+
+  assert.equal(validateAdmission(DISK_REGISTRY, event, evidence).accepted, true);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, number: 144 } },
+    evidence,
+  ), /no unique Base-owned registry match/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    { ...event, pullRequest: { ...event.pullRequest, base: { ...event.pullRequest.base, sha: '0'.repeat(40) } } },
+    evidence,
+  ), /EF-235 Base SHA/);
+  assert.throws(() => validateAdmission(
+    DISK_REGISTRY,
+    event,
+    { ...evidence, changedPaths: [...record.identity.paths, 'server/extra.ts'] },
+  ), /EF-235 candidate path contract mismatch/);
 });
