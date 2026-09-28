@@ -280,6 +280,46 @@
         "passed": 24,
         "total": 24
       }
+    },
+    {
+      "id": "ef-235-pr-143-2cd2a7b2-protected-dev-v1",
+      "ticket": "EF-235",
+      "pullRequest": {
+        "number": 143,
+        "sourceBranch": "cell2/ef235-qa-source-2cd2a7b",
+        "sourceRepository": "susiexuejing/chat-app",
+        "targetBranch": "dev",
+        "targetRepository": "susiexuejing/chat-app"
+      },
+      "identity": {
+        "headSha": "2cd2a7b2bca97fd5b83f158414b9337c2089aa9b",
+        "parentSha": "32c3ddcdacd742aa83738bf68bb0e80ef28823ab",
+        "baseSha": "32c3ddcdacd742aa83738bf68bb0e80ef28823ab",
+        "mergeBaseSha": "32c3ddcdacd742aa83738bf68bb0e80ef28823ab",
+        "patchId": "f40569cea52364810ecdc3fd6f03a6552632a9ab",
+        "paths": [
+          ".gitleaks.toml",
+          "scripts/__tests__/ef237-gitleaks-runtime-reference.test.mjs",
+          "server/src/__tests__/ef235-direct-rds-identity.test.ts",
+          "server/src/__tests__/ef75-anonymous-session.test.ts",
+          "server/src/__tests__/ef75-web-session-security.test.ts",
+          "server/src/routes/anonymousSessions.ts",
+          "server/src/security/anonymousSession.ts",
+          "server/src/storage/database/identity-db.ts",
+          "server/src/storage/database/rds-owner-binding-store.ts",
+          "server/src/storage/database/rds-runtime-config.ts"
+        ],
+        "pathCount": 10,
+        "pathDigest": "c0e599f016cd0a75f485eab164982404662fa8d9c13cf091309bb75ad92d2c32"
+      },
+      "independentQa": {
+        "kind": "independent-r2",
+        "headSha": "2cd2a7b2bca97fd5b83f158414b9337c2089aa9b",
+        "baseSha": "32c3ddcdacd742aa83738bf68bb0e80ef28823ab",
+        "pathDigest": "c0e599f016cd0a75f485eab164982404662fa8d9c13cf091309bb75ad92d2c32",
+        "passed": 4,
+        "total": 4
+      }
     }
   ]
 }
