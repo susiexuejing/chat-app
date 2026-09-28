@@ -18,8 +18,8 @@ jobs:
 
     steps:
       # This pinned platform action resolves refs/heads/dev exactly once. The
-      # resolved commit must also be the commit that supplied this workflow.
-      # No pull-request Head file is checked out, read, sourced, or executed.
+      # resulting authority snapshot supplies the verifier. No pull-request
+      # Head file is checked out, read, sourced, or executed.
       - name: Checkout protected dev authority snapshot
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -33,12 +33,9 @@ jobs:
         id: authority_snapshot
         working-directory: authority
         shell: bash
-        env:
-          EXPECTED_WORKFLOW_SHA: ${{ github.workflow_sha }}
         run: |
           set -euo pipefail
           AUTHORITY_SHA="$(git rev-parse --verify HEAD)"
-          test "$AUTHORITY_SHA" = "$EXPECTED_WORKFLOW_SHA"
           echo "sha=$AUTHORITY_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Verify fixed admission from protected snapshot

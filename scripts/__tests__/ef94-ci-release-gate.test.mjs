@@ -32,12 +32,11 @@ function assertProtectedAuthorityWorkflow(workflow, name, jobName) {
   assert.match(workflow, /path: authority/);
   assert.match(workflow, /fetch-depth: 0/);
   assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /EXPECTED_WORKFLOW_SHA: \$\{\{ github\.workflow_sha \}\}/);
   assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
-  assert.match(workflow, /test "\$AUTHORITY_SHA" = "\$EXPECTED_WORKFLOW_SHA"/);
   assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
   assert.match(workflow, /working-directory: authority/);
   assert.match(workflow, /run: node scripts\/fixed-pr-admission\.mjs/);
+  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
   assert.doesNotMatch(workflow, /github\.event\.pull_request|pull_request\.head|path: candidate|checkout.*candidate/i);
   assert.doesNotMatch(workflow, /permissions:[\s\S]*\b(write|id-token):|secrets\.|pull_request_target[\s\S]*\b(pnpm|npm|yarn|install|cache|restore|artifact|deploy|merge|curl|wget|ssh)\b/i);
 }

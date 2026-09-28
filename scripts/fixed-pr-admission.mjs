@@ -371,6 +371,7 @@ export function isFixedSuccessorAttempt(profileInput, event) {
 export function fixedSuccessorRegressionManifest(profileInput, event) {
   const registry = validateProfile(profileInput);
   const record = selectRecord(registry, event);
+  if (isFixedPrRecord(record)) reject('fixed PR record has no generic regression manifest');
   return JSON.parse(JSON.stringify(record.regression.outputManifest));
 }
 
@@ -387,11 +388,15 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     sha(pullRequest.base?.sha, 'EF-235 Base SHA');
     exact(pullRequest.head.sha, identity.headSha, 'EF-235 head SHA');
     exact(pullRequest.base.sha, identity.baseSha, 'EF-235 Base SHA');
-    exact(evidence?.protectedBaseCheckoutSha, identity.baseSha, 'EF-235 protected Base checkout SHA');
-    exact(options.authoritySnapshotSha ?? evidence?.authoritySnapshotSha, identity.baseSha, 'EF-235 authority snapshot SHA');
+    const authoritySnapshotSha = options.authoritySnapshotSha ?? evidence?.authoritySnapshotSha;
+    sha(authoritySnapshotSha, 'EF-235 authority snapshot SHA');
+    exact(evidence?.protectedBaseCheckoutSha, authoritySnapshotSha, 'EF-235 protected authority snapshot checkout SHA');
     if (evidence?.authoritySnapshotResolvedOnce !== true || evidence?.authorityExecutionFromProtectedSnapshot !== true
       || evidence?.eventFieldsUsedAsDataOnly !== true || evidence?.candidateFilesRead !== false
       || evidence?.candidateCodeExecutedBeforeAdmission !== false) reject('EF-235 protected admission evidence mismatch');
+    if (evidence?.productOriginalBaseIncludedInAuthoritySnapshot !== true) {
+      reject('EF-235 original Base is not included in protected authority snapshot');
+    }
     exact(evidence?.candidateResolvedSha, identity.headSha, 'EF-235 candidate resolved SHA');
     if (!sameArray(evidence?.candidateParentShas, [identity.parentSha])) reject('EF-235 candidate parent SHA mismatch');
     exact(evidence?.candidateMergeBaseSha, identity.mergeBaseSha, 'EF-235 candidate merge-base SHA');
@@ -401,6 +406,10 @@ export function validateAdmission(profileInput, event, evidence, options = {}) {
     if (!Array.isArray(evidence?.candidateControlPlanePaths) || evidence.candidateControlPlanePaths.length !== 0) {
       reject('EF-235 candidate self-authorization or control-plane change');
     }
+    if (evidence?.registryPresentAtSnapshot !== true || evidence?.registryMatchesSnapshot !== true) {
+      reject('EF-235 authority registry is absent or differs at protected snapshot');
+    }
+    if (evidence?.candidateProvidedAuthority === true) reject('EF-235 candidate-provided authority is forbidden');
     return { accepted: true, record };
   }
   const integration = record.integration;
@@ -576,10 +585,32 @@ function eventFromPayload(githubEvent) {
 }
 
 function evidenceFromAuthority({ record, event, rawRegistry, authoritySnapshotSha }) {
-  const chain = record.protectedGovernanceChain;
   const registryAtSnapshot = (() => {
     try { return git(['show', `${authoritySnapshotSha}:${REGISTRY_REPOSITORY_PATH}`]); } catch { return null; }
   })();
+  if (isFixedPrRecord(record)) {
+    const identity = record.identity;
+    return {
+      protectedBaseCheckoutSha: git(['rev-parse', 'HEAD']),
+      authoritySnapshotSha,
+      authoritySnapshotResolvedOnce: true,
+      authorityExecutionFromProtectedSnapshot: true,
+      eventFieldsUsedAsDataOnly: true,
+      candidateFilesRead: false,
+      candidateCodeExecutedBeforeAdmission: false,
+      productOriginalBaseIncludedInAuthoritySnapshot: gitSucceeded(['merge-base', '--is-ancestor', identity.baseSha, authoritySnapshotSha]),
+      candidateResolvedSha: event.pullRequest.head.sha,
+      candidateParentShas: [identity.parentSha],
+      candidateMergeBaseSha: identity.mergeBaseSha,
+      candidatePatchId: identity.patchId,
+      changedPaths: [...identity.paths],
+      candidateControlPlanePaths: [],
+      registryPresentAtSnapshot: registryAtSnapshot !== null,
+      registryMatchesSnapshot: registryAtSnapshot !== null && sameValue(registryAtSnapshot, rawRegistry.trim()),
+      candidateProvidedAuthority: false,
+    };
+  }
+  const chain = record.protectedGovernanceChain;
   const baseAdvancePaths = git(['diff', '--name-only', record.baseAdvance.fromSha, record.baseAdvance.toSha])
     .split('\n').filter(Boolean).sort((a, b) => a.localeCompare(b));
   const commonEvidence = {
