@@ -10,7 +10,11 @@ import {
   hashAnonymousSecret,
   serializeWebSessionCookie,
 } from '../security/anonymousSession';
-import { getSupabaseClient } from '../storage/database/supabase-client';
+import {
+  createAnonymousSessionRecord,
+  revokeAnonymousSession,
+  updateAnonymousSessionCsrf,
+} from '../storage/database/identity-db';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 const router = Router();
@@ -30,17 +34,15 @@ async function createSession(transport: 'native' | 'web') {
   const csrfToken = transport === 'web' ? createOpaqueToken() : null;
   const now = Date.now();
   const expiresAt = now + EF75_SESSION_TTL_MS;
-  const client = getSupabaseClient();
-  const { error } = await client.from('anonymous_sessions').insert({
+  await createAnonymousSessionRecord({
     id: crypto.randomUUID(),
-    credential_hash: hashAnonymousSecret(credentialValue),
+    credentialHash: hashAnonymousSecret(credentialValue),
     transport,
-    csrf_hash: csrfToken ? hashAnonymousSecret(csrfToken) : null,
-    created_at: now,
-    expires_at: expiresAt,
-    revoked_at: null,
+    csrfHash: csrfToken ? hashAnonymousSecret(csrfToken) : null,
+    createdAt: now,
+    expiresAt,
+    revokedAt: null,
   });
-  if (error) throw new Error('anonymous_session_storage_failed');
   return { credential: credentialValue, csrfToken, expiresAt };
 }
 
@@ -93,13 +95,7 @@ router.post('/web', async (req, res) => {
     const existing = await authenticateAnonymousRequest(req);
     if (existing.ok && existing.session.transport === 'web') {
       const csrfToken = createOpaqueToken();
-      const client = getSupabaseClient();
-      const { error } = await client
-        .from('anonymous_sessions')
-        .update({ csrf_hash: hashAnonymousSecret(csrfToken) })
-        .eq('id', existing.session.id)
-        .eq('transport', 'web');
-      if (error) throw new Error('anonymous_csrf_storage_failed');
+      await updateAnonymousSessionCsrf(existing.session.id, hashAnonymousSecret(csrfToken));
       return res.status(200).json({ csrfToken, expiresAt: existing.session.expiresAt });
     }
     if (!existing.ok && existing.kind === 'internal') return safeInternal(res);
@@ -126,12 +122,7 @@ router.post('/revoke', async (req, res) => {
     return res.status(status).json({ error });
   }
   try {
-    const client = getSupabaseClient();
-    const { error } = await client
-      .from('anonymous_sessions')
-      .update({ revoked_at: Date.now() })
-      .eq('id', authenticated.session.id);
-    if (error) throw new Error('anonymous_session_revoke_failed');
+    await revokeAnonymousSession(authenticated.session.id);
     if (authenticated.session.transport === 'web') {
       res.setHeader('Set-Cookie', `${EF75_WEB_COOKIE_NAME}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`);
     }
