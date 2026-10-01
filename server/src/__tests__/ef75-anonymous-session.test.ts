@@ -2,8 +2,12 @@ import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 
-const getSupabaseClient = jest.fn();
-jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
+const findAnonymousSessionRecord = jest.fn();
+jest.unstable_mockModule('../storage/database/identity-db', () => ({
+  findAnonymousSessionRecord,
+  hasRegisteredIdentityDb: jest.fn(() => true),
+  verifyConversationOwner: jest.fn(),
+}));
 
 const {
   hashAnonymousSecret,
@@ -15,21 +19,16 @@ const { parseRdsRuntimeConfig } = await import('../storage/database/rds-runtime-
 const TOKEN = 'A'.repeat(43);
 const OWNER = '11111111-1111-4111-8111-111111111111';
 
-function clientWithSession(overrides: Record<string, unknown> = {}) {
-  const row = {
+function sessionRecord(overrides: Record<string, unknown> = {}) {
+  return {
     id: OWNER,
-    credential_hash: hashAnonymousSecret(TOKEN),
+    credentialHash: hashAnonymousSecret(TOKEN),
     transport: 'native',
-    csrf_hash: null,
-    expires_at: Date.now() + 60_000,
-    revoked_at: null,
+    csrfHash: null,
+    expiresAt: Date.now() + 60_000,
+    revokedAt: null,
     ...overrides,
   };
-  const chain: Record<string, unknown> = {};
-  chain.select = jest.fn(() => chain);
-  chain.eq = jest.fn(() => chain);
-  chain.maybeSingle = jest.fn(async () => ({ data: row, error: null }));
-  return { from: jest.fn(() => chain) };
 }
 
 function makeApp() {
@@ -47,10 +46,10 @@ function loopbackOnly(app: express.Express) {
 }
 
 describe('EF-75 native anonymous session verification', () => {
-  beforeEach(() => getSupabaseClient.mockReset());
+  beforeEach(() => findAnonymousSessionRecord.mockReset());
 
   test('accepts only an active server-issued native credential', async () => {
-    getSupabaseClient.mockReturnValue(clientWithSession());
+    findAnonymousSessionRecord.mockResolvedValue(sessionRecord());
     const response = await request(makeApp())
       .get('/protected')
       .set('Authorization', `Bearer ${TOKEN}`);
@@ -61,11 +60,11 @@ describe('EF-75 native anonymous session verification', () => {
   test.each([
     ['missing', undefined, {}],
     ['malformed', 'Bearer short', {}],
-    ['expired', `Bearer ${TOKEN}`, { expires_at: Date.now() - 1 }],
-    ['revoked', `Bearer ${TOKEN}`, { revoked_at: Date.now() }],
+    ['expired', `Bearer ${TOKEN}`, { expiresAt: Date.now() - 1 }],
+    ['revoked', `Bearer ${TOKEN}`, { revokedAt: Date.now() }],
     ['wrong transport', `Bearer ${TOKEN}`, { transport: 'web' }],
   ])('%s credential fails with the same non-disclosing response', async (_label, header, row) => {
-    getSupabaseClient.mockReturnValue(clientWithSession(row));
+    findAnonymousSessionRecord.mockResolvedValue(sessionRecord(row));
     const pending = request(makeApp()).get('/protected');
     if (header) pending.set('Authorization', header);
     const response = await pending;
@@ -74,7 +73,7 @@ describe('EF-75 native anonymous session verification', () => {
   });
 
   test('browser metadata cannot enter native bearer mode', async () => {
-    getSupabaseClient.mockReturnValue(clientWithSession());
+    findAnonymousSessionRecord.mockResolvedValue(sessionRecord());
     const response = await request(makeApp())
       .get('/protected')
       .set('Authorization', `Bearer ${TOKEN}`)
@@ -85,19 +84,21 @@ describe('EF-75 native anonymous session verification', () => {
 
   test('accepts only a dedicated, well-formed RDS runtime login configuration', () => {
     const valid = parseRdsRuntimeConfig({
-      EF_RDS_RUNTIME_HOST: 'rds.internal',
-      EF_RDS_RUNTIME_PORT: '5432',
-      EF_RDS_RUNTIME_DATABASE: 'emotionflow_identity_dev',
-      EF_RDS_RUNTIME_USER: 'ef_identity_runtime',
-      EF_RDS_RUNTIME_PASSWORD: 'synthetic-password-value',
+      EF_IDENTITY_RDS_HOST: 'rds.internal',
+      EF_IDENTITY_RDS_PORT: '5432',
+      EF_IDENTITY_RDS_DATABASE: 'emotionflow_identity_dev',
+      EF_IDENTITY_RDS_USER: 'ef_identity_runtime',
+      EF_IDENTITY_RDS_PASSWORD: 'synthetic-password-value',
+      EF_IDENTITY_RDS_SSL_CA: 'synthetic-ca-value',
     });
     expect(valid.ok).toBe(true);
     expect(parseRdsRuntimeConfig({
-      EF_RDS_RUNTIME_HOST: 'rds.internal',
-      EF_RDS_RUNTIME_PORT: '5432',
-      EF_RDS_RUNTIME_DATABASE: 'emotionflow_identity_dev',
-      EF_RDS_RUNTIME_USER: 'bootstrap-admin',
-      EF_RDS_RUNTIME_PASSWORD: 'synthetic-password-value',
+      EF_IDENTITY_RDS_HOST: 'rds.internal',
+      EF_IDENTITY_RDS_PORT: '5432',
+      EF_IDENTITY_RDS_DATABASE: 'emotionflow_identity_dev',
+      EF_IDENTITY_RDS_USER: 'bootstrap-admin',
+      EF_IDENTITY_RDS_PASSWORD: 'synthetic-password-value',
+      EF_IDENTITY_RDS_SSL_CA: 'synthetic-ca-value',
     }).ok).toBe(false);
     expect(parseRdsRuntimeConfig({}).ok).toBe(false);
   });
