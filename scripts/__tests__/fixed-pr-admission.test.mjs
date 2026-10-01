@@ -228,7 +228,16 @@ test('on-disk authority preserves prior records and adds the exact EF-235 PR #14
     'ef-235-pr-141-ab930972-protected-dev-v1',
     'ef-235-pr-143-2cd2a7b2-protected-dev-v1',
     'ef-235-pr-145-aacf54eb-protected-dev-v1',
+    'ef-235-pr-149-3cb735d7-protected-dev-v1',
   ]);
+  const pr149 = DISK_REGISTRY.records.at(-1);
+  assert.equal(pr149.pullRequest.number, 149);
+  assert.equal(pr149.identity.headSha, '3cb735d7c2c86a69a80fd0c27d929d7415a471cd');
+  assert.equal(pr149.identity.parentSha, '8653977155e6ef88751089f01670995b987fa182');
+  assert.equal(pr149.identity.patchId, 'f16b0de84c06c3ca141f2b26039982736b6f17f2');
+  assert.equal(pr149.identity.pathCount, 8);
+  assert.equal(pr149.identity.pathDigest, '599e00271d486a7b85f29291d17f87395c9de9954de614d3fd360e824e67aa8f');
+  assert.deepEqual(pr149.independentQa, { kind: 'independent-r2', headSha: pr149.identity.headSha, baseSha: pr149.identity.baseSha, pathDigest: pr149.identity.pathDigest, passed: 24, total: 24 });
   const ef107 = DISK_REGISTRY.records[0];
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
   assert.equal(ef107.integration.parentSha, '30d50f74d36094e1a7a34fa5b291b94bcc71098a');

@@ -108,7 +108,8 @@ test('Base-owned v5 profile preserves EF-177 legacy ancestry and freezes EF-107 
     governanceSelfAdmission: 'forbidden',
     recordOrder: 'id-lf-ascending',
   });
-  assert.equal(profile.records.length, 6);
+  assert.equal(profile.records.length, 7);
+  assert.equal(profile.records.at(-1).id, 'ef-235-pr-149-3cb735d7-protected-dev-v1');
   const ef107 = profile.records[0];
   assert.equal(ef107.id, 'ef-107-1d61b510-current-base-v1');
   assert.equal(ef107.integration.headSha, '1d61b510043e76b295aca9d989a961a20e590d1b');
