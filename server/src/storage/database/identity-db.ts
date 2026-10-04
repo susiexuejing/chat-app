@@ -40,9 +40,16 @@ export interface IdentityDb {
     csrfHash: string,
   ): Promise<void>;
   revokeAnonymousSession(id: string): Promise<void>;
+  /**
+   * DEV diagnostics only.  Unlike revocation this removes the synthetic row,
+   * so a probe can prove that it left no durable identity record behind.
+   */
+  deleteAnonymousSessionForProbe(id: string): Promise<boolean>;
   createOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<void>;
   findOwnerByConversationRef(conversationRef: string): Promise<string | null>;
   revokeOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
+  /** DEV diagnostics only; removes the exact synthetic binding. */
+  deleteOwnerBindingForProbe(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
 }
 
 interface AnonymousSessionSqlRow extends Record<string, unknown> {
@@ -147,6 +154,14 @@ export class PostgresIdentityDb implements IdentityDb {
     if (result.rowCount !== 1) throw new Error('anonymous_session_revoke_failed');
   }
 
+  async deleteAnonymousSessionForProbe(id: string): Promise<boolean> {
+    const result = await this.sql.query(
+      `DELETE FROM anonymous_sessions WHERE id = $1`,
+      [id],
+    );
+    return result.rowCount === 1;
+  }
+
   async createOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<void> {
     const result = await this.sql.query(
       `INSERT INTO conversation_owner_bindings
@@ -179,6 +194,15 @@ export class PostgresIdentityDb implements IdentityDb {
          AND owner_principal_id = $2
          AND revoked_at IS NULL`,
       [conversationRef, ownerPrincipalId, Date.now()],
+    );
+    return result.rowCount === 1;
+  }
+
+  async deleteOwnerBindingForProbe(conversationRef: string, ownerPrincipalId: string): Promise<boolean> {
+    const result = await this.sql.query(
+      `DELETE FROM conversation_owner_bindings
+       WHERE conversation_ref = $1 AND owner_principal_id = $2`,
+      [conversationRef, ownerPrincipalId],
     );
     return result.rowCount === 1;
   }
@@ -263,6 +287,11 @@ export async function revokeAnonymousSession(id: string): Promise<void> {
   await identityDbOrThrow().revokeAnonymousSession(id);
 }
 
+/** Internal DEV-only cleanup primitive. Never exposed through an application route. */
+export async function deleteAnonymousSessionForProbe(id: string): Promise<boolean> {
+  return identityDbOrThrow().deleteAnonymousSessionForProbe(id);
+}
+
 export async function createConversationOwnerBinding(
   conversationRef: string,
   ownerPrincipalId: string,
@@ -288,4 +317,12 @@ export async function revokeConversationOwnerBinding(
   ownerPrincipalId: string,
 ): Promise<boolean> {
   return identityDbOrThrow().revokeOwnerBinding(conversationRef, ownerPrincipalId);
+}
+
+/** Internal DEV-only cleanup primitive. Never exposed through an application route. */
+export async function deleteConversationOwnerBindingForProbe(
+  conversationRef: string,
+  ownerPrincipalId: string,
+): Promise<boolean> {
+  return identityDbOrThrow().deleteOwnerBindingForProbe(conversationRef, ownerPrincipalId);
 }

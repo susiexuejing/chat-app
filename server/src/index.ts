@@ -26,6 +26,10 @@ import { incrementConversationTurn, incrementConversationTurnIdempotent, getConv
 import conversationsRouter from './routes/conversations';
 import anonymousSessionsRouter from './routes/anonymousSessions';
 import {
+  EF235_IDENTITY_WRITE_PROBE_PATH,
+  ef235IdentityWriteProbeHandler,
+} from './diagnostics/ef235IdentityWriteProbe';
+import {
   authenticateAnonymousRequest,
   EF75_WEB_ORIGIN,
   hasOwnerBindingRuntime,
@@ -93,6 +97,12 @@ app.get('/api/v1/health', (_req, res) => {
 app.get('/api/v1/version', (_req, res) => {
   res.json(VERSION_INFO);
 });
+
+// Fixed DEV-only host diagnostic. The handler accepts only a loopback,
+// parameter-free request and returns a closed category receipt.
+if (process.env.NODE_ENV === 'development') {
+  app.post(EF235_IDENTITY_WRITE_PROBE_PATH, ef235IdentityWriteProbeHandler);
+}
 
 // Fixed DEV-only EF-45 diagnostic response. There are no caller-controlled
 // filters, audit identifiers, or file locations.

@@ -125,4 +125,27 @@ function getSupabaseClient(token?: string): SupabaseClient {
   });
 }
 
-export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient };
+/**
+ * Builds a client from credentials already present in this process only.
+ * This deliberately does not call loadEnv(), dotenv, the workload identity
+ * helper, or a shell.  It exists for the fixed DEV host probe only.
+ */
+function getRuntimeSupabaseClientOnly(): SupabaseClient {
+  const url = process.env.COZE_SUPABASE_URL;
+  const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
+  const serviceRoleKey = process.env.COZE_SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !anonKey) throw new Error('runtime_supabase_unavailable');
+
+  return createClient(url, serviceRoleKey ?? anonKey, {
+    db: { timeout: 60_000 },
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+export {
+  loadEnv,
+  getSupabaseCredentials,
+  getSupabaseServiceRoleKey,
+  getSupabaseClient,
+  getRuntimeSupabaseClientOnly,
+};
