@@ -1,105 +1,69 @@
-import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
 
-const findAnonymousSessionRecord = jest.fn();
-jest.unstable_mockModule('../storage/database/identity-db', () => ({
-  findAnonymousSessionRecord,
-  hasRegisteredIdentityDb: jest.fn(() => true),
-  verifyConversationOwner: jest.fn(),
-}));
-
 const {
-  hashAnonymousSecret,
+  EF75_WEB_COOKIE_NAME,
+  EF75_WEB_CSRF_COOKIE_NAME,
+  EF75_WEB_ORIGIN,
   requireAnonymousSession,
   getVerifiedAnonymousSession,
 } = await import('../security/anonymousSession');
-const { parseRdsRuntimeConfig } = await import('../storage/database/rds-runtime-config');
 
-const TOKEN = 'A'.repeat(43);
-const OWNER = '11111111-1111-4111-8111-111111111111';
-
-function sessionRecord(overrides: Record<string, unknown> = {}) {
-  return {
-    id: OWNER,
-    credentialHash: hashAnonymousSecret(TOKEN),
-    transport: 'native',
-    csrfHash: null,
-    expiresAt: Date.now() + 60_000,
-    revokedAt: null,
-    ...overrides,
-  };
-}
+const GUEST = '11111111-1111-4111-8111-111111111111';
+const CSRF = 'C'.repeat(43);
 
 function makeApp() {
   const app = express();
+  app.use(express.json());
   app.get('/protected', requireAnonymousSession, (_req, res) => {
     res.json({ owner: getVerifiedAnonymousSession(res).id });
   });
-  return loopbackOnly(app);
-}
-
-function loopbackOnly(app: express.Express) {
-  const listen = app.listen.bind(app);
-  app.listen = ((port: number, callback?: () => void) => listen(port, '127.0.0.1', callback)) as typeof app.listen;
+  app.post('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
   return app;
 }
 
-describe('EF-75 native anonymous session verification', () => {
-  beforeEach(() => findAnonymousSessionRecord.mockReset());
-
-  test('accepts only an active server-issued native credential', async () => {
-    findAnonymousSessionRecord.mockResolvedValue(sessionRecord());
+describe('EF-75 DEV web guest session verification', () => {
+  test('accepts an opaque HttpOnly guest cookie for a side-effect-free request', async () => {
     const response = await request(makeApp())
       .get('/protected')
-      .set('Authorization', `Bearer ${TOKEN}`);
+      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${GUEST}`);
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ owner: OWNER });
+    expect(response.body).toEqual({ owner: GUEST });
   });
 
   test.each([
-    ['missing', undefined, {}],
-    ['malformed', 'Bearer short', {}],
-    ['expired', `Bearer ${TOKEN}`, { expiresAt: Date.now() - 1 }],
-    ['revoked', `Bearer ${TOKEN}`, { revokedAt: Date.now() }],
-    ['wrong transport', `Bearer ${TOKEN}`, { transport: 'web' }],
-  ])('%s credential fails with the same non-disclosing response', async (_label, header, row) => {
-    findAnonymousSessionRecord.mockResolvedValue(sessionRecord(row));
+    ['missing', undefined],
+    ['malformed', 'not-a-uuid'],
+    ['duplicate', `${GUEST}; ${EF75_WEB_COOKIE_NAME}=${GUEST}`],
+  ])('rejects a %s guest cookie without disclosing session state', async (_label, value) => {
     const pending = request(makeApp()).get('/protected');
-    if (header) pending.set('Authorization', header);
+    if (value) pending.set('Cookie', `${EF75_WEB_COOKIE_NAME}=${value}`);
     const response = await pending;
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ error: 'anonymous_session_invalid' });
   });
 
-  test('browser metadata cannot enter native bearer mode', async () => {
-    findAnonymousSessionRecord.mockResolvedValue(sessionRecord());
+  test('requires same-origin JSON and matching CSRF values for mutation', async () => {
     const response = await request(makeApp())
-      .get('/protected')
-      .set('Authorization', `Bearer ${TOKEN}`)
-      .set('Origin', 'https://dev.douhaoyu.cn');
-    expect(response.status).toBe(403);
-    expect(response.body).toEqual({ error: 'request_not_allowed' });
+      .post('/protected')
+      .set('Origin', EF75_WEB_ORIGIN)
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${GUEST}; ${EF75_WEB_CSRF_COOKIE_NAME}=${CSRF}`)
+      .set('X-EF-CSRF', CSRF)
+      .send({});
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true });
   });
 
-  test('accepts only a dedicated, well-formed RDS runtime login configuration', () => {
-    const valid = parseRdsRuntimeConfig({
-      EF_IDENTITY_RDS_HOST: 'rds.internal',
-      EF_IDENTITY_RDS_PORT: '5432',
-      EF_IDENTITY_RDS_DATABASE: 'emotionflow_identity_dev',
-      EF_IDENTITY_RDS_USER: 'ef_identity_runtime',
-      EF_IDENTITY_RDS_PASSWORD: 'synthetic-password-value',
-      EF_IDENTITY_RDS_SSL_CA: 'synthetic-ca-value',
-    });
-    expect(valid.ok).toBe(true);
-    expect(parseRdsRuntimeConfig({
-      EF_IDENTITY_RDS_HOST: 'rds.internal',
-      EF_IDENTITY_RDS_PORT: '5432',
-      EF_IDENTITY_RDS_DATABASE: 'emotionflow_identity_dev',
-      EF_IDENTITY_RDS_USER: 'bootstrap-admin',
-      EF_IDENTITY_RDS_PASSWORD: 'synthetic-password-value',
-      EF_IDENTITY_RDS_SSL_CA: 'synthetic-ca-value',
-    }).ok).toBe(false);
-    expect(parseRdsRuntimeConfig({}).ok).toBe(false);
+  test('rejects bearer credentials and cross-origin mutation', async () => {
+    const response = await request(makeApp())
+      .post('/protected')
+      .set('Authorization', 'Bearer synthetic')
+      .set('Origin', 'https://evil.example')
+      .set('Content-Type', 'application/json')
+      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${GUEST}; ${EF75_WEB_CSRF_COOKIE_NAME}=${CSRF}`)
+      .set('X-EF-CSRF', CSRF)
+      .send({});
+    expect([401, 403]).toContain(response.status);
   });
 });

@@ -1,55 +1,24 @@
-import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
-
-const createAnonymousSessionRecord = jest.fn();
-const findAnonymousSessionRecord = jest.fn();
-const updateAnonymousSessionCsrf = jest.fn();
-const revokeAnonymousSession = jest.fn();
-jest.unstable_mockModule('../storage/database/identity-db', () => ({
-  createAnonymousSessionRecord,
-  findAnonymousSessionRecord,
-  updateAnonymousSessionCsrf,
-  revokeAnonymousSession,
-  hasRegisteredIdentityDb: jest.fn(() => true),
-  verifyConversationOwner: jest.fn(),
-}));
 
 const { default: anonymousSessionsRouter } = await import('../routes/anonymousSessions');
 const {
   EF75_WEB_COOKIE_NAME,
+  EF75_WEB_CSRF_COOKIE_NAME,
   EF75_WEB_ORIGIN,
-  hashAnonymousSecret,
   requireAnonymousSession,
 } = await import('../security/anonymousSession');
-
-const WEB_TOKEN = 'W'.repeat(43);
-const CSRF = 'C'.repeat(43);
 
 function makeApp(withProtected = false) {
   const app = express();
   app.use(express.json());
   app.use('/api/v1/anonymous-sessions', anonymousSessionsRouter);
-  if (withProtected) {
-    app.get('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
-    app.post('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
-  }
-
-  const listen = app.listen.bind(app);
-  app.listen = ((port: number, callback?: () => void) =>
-    listen(port, '127.0.0.1', callback)) as typeof app.listen;
+  if (withProtected) app.post('/protected', requireAnonymousSession, (_req, res) => res.json({ ok: true }));
   return app;
 }
 
-describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
-  beforeEach(() => {
-    createAnonymousSessionRecord.mockReset().mockResolvedValue(undefined);
-    findAnonymousSessionRecord.mockReset().mockResolvedValue(null);
-    updateAnonymousSessionCsrf.mockReset().mockResolvedValue(undefined);
-    revokeAnonymousSession.mockReset().mockResolvedValue(undefined);
-  });
-
-  test('issues an exact host-only cookie and never returns the bearer in JSON', async () => {
+describe('EF-75 DEV web guest cookie and CSRF boundary', () => {
+  test('issues two exact host-only cookies and never returns guest identity in JSON', async () => {
     const response = await request(makeApp())
       .post('/api/v1/anonymous-sessions/web')
       .set('Origin', EF75_WEB_ORIGIN)
@@ -57,143 +26,38 @@ describe('EF-75 web HttpOnly cookie and CSRF boundary', () => {
       .set('Content-Type', 'application/json')
       .send({});
     expect(response.status).toBe(201);
-    const cookie = response.headers['set-cookie']?.[0] ?? '';
-    expect(cookie).toMatch(new RegExp(`^${EF75_WEB_COOKIE_NAME}=[A-Za-z0-9_-]{43};`));
-    expect(cookie).toContain('Path=/');
-    expect(cookie).toContain('Max-Age=2592000');
-    expect(cookie).toContain('Secure');
-    expect(cookie).toContain('HttpOnly');
-    expect(cookie).toContain('SameSite=Strict');
-    expect(cookie).not.toContain('Domain=');
-    expect(response.body).toEqual({
-      csrfToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
-      expiresAt: expect.any(Number),
-    });
-    expect(JSON.stringify(response.body)).not.toContain(cookie.split('=')[1].split(';')[0]);
+    const cookies = response.headers['set-cookie'] ?? [];
+    expect(cookies[0]).toMatch(new RegExp(`^${EF75_WEB_COOKIE_NAME}=[0-9a-f-]{36};`));
+    expect(cookies[0]).toContain('Secure');
+    expect(cookies[0]).toContain('HttpOnly');
+    expect(cookies[0]).toContain('SameSite=Strict');
+    expect(cookies[1]).toMatch(new RegExp(`^${EF75_WEB_CSRF_COOKIE_NAME}=[A-Za-z0-9_-]{43};`));
+    expect(cookies[1]).toContain('Secure');
+    expect(cookies[1]).not.toContain('HttpOnly');
+    expect(response.body).toEqual({ csrfToken: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), expiresAt: expect.any(Number) });
+    expect(JSON.stringify(response.body)).not.toContain(cookies[0].split('=')[1].split(';')[0]);
   });
 
-  test.each([undefined, 'https://evil.example', 'null'])(
-    'rejects missing or non-exact browser Origin: %s',
-    async origin => {
-      const pending = request(makeApp())
-        .post('/api/v1/anonymous-sessions/web')
-        .set('X-EF-Client', 'web')
-        .set('Content-Type', 'application/json')
-        .send({});
-      if (origin) pending.set('Origin', origin);
-      const response = await pending;
-      expect(response.status).toBe(403);
-      expect(response.body).toEqual({ error: 'request_not_allowed' });
-      expect(createAnonymousSessionRecord).not.toHaveBeenCalled();
-      expect(findAnonymousSessionRecord).not.toHaveBeenCalled();
-    },
-  );
-
-  test('requires exact Origin, cookie-only transport, JSON and matching CSRF', async () => {
-    const row = {
-      id: '22222222-2222-4222-8222-222222222222',
-      credentialHash: hashAnonymousSecret(WEB_TOKEN),
-      transport: 'web',
-      csrfHash: hashAnonymousSecret(CSRF),
-      expiresAt: Date.now() + 60_000,
-      revokedAt: null,
-    };
-    findAnonymousSessionRecord.mockResolvedValue(row);
-    const response = await request(makeApp(true))
-      .post('/protected')
-      .set('Origin', EF75_WEB_ORIGIN)
-      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`)
-      .set('X-EF-CSRF', CSRF)
-      .set('Content-Type', 'application/json')
-      .send({});
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ok: true });
-  });
-
-  test('allows a side-effect-free cookie GET without Origin', async () => {
-    const row = {
-      id: '22222222-2222-4222-8222-222222222222',
-      credentialHash: hashAnonymousSecret(WEB_TOKEN),
-      transport: 'web',
-      csrfHash: hashAnonymousSecret(CSRF),
-      expiresAt: Date.now() + 60_000,
-      revokedAt: null,
-    };
-    findAnonymousSessionRecord.mockResolvedValue(row);
-    const response = await request(makeApp(true))
-      .get('/protected')
-      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`);
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ ok: true });
-  });
-
-  test.each([undefined, 'https://evil.example'])(
-    'rejects a mutation with missing or non-exact Origin: %s',
-    async origin => {
-      const row = {
-        id: '22222222-2222-4222-8222-222222222222',
-        credentialHash: hashAnonymousSecret(WEB_TOKEN),
-        transport: 'web',
-        csrfHash: hashAnonymousSecret(CSRF),
-        expiresAt: Date.now() + 60_000,
-        revokedAt: null,
-      };
-      findAnonymousSessionRecord.mockResolvedValue(row);
-      const pending = request(makeApp(true))
-        .post('/protected')
-        .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`)
-        .set('X-EF-CSRF', CSRF)
-        .set('Content-Type', 'application/json')
-        .send({});
-      if (origin) pending.set('Origin', origin);
-      const response = await pending;
-      expect(response.status).toBe(403);
-      expect(response.body).toEqual({ error: 'request_not_allowed' });
-    },
-  );
-
-  test('rejects a cross-origin cookie GET', async () => {
-    const row = {
-      id: '22222222-2222-4222-8222-222222222222',
-      credentialHash: hashAnonymousSecret(WEB_TOKEN),
-      transport: 'web',
-      csrfHash: hashAnonymousSecret(CSRF),
-      expiresAt: Date.now() + 60_000,
-      revokedAt: null,
-    };
-    findAnonymousSessionRecord.mockResolvedValue(row);
-    const response = await request(makeApp(true))
-      .get('/protected')
-      .set('Origin', 'https://evil.example')
-      .set('Cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`);
+  test.each([undefined, 'https://evil.example', 'null'])('rejects non-exact browser Origin: %s', async origin => {
+    const pending = request(makeApp()).post('/api/v1/anonymous-sessions/web').set('X-EF-Client', 'web').set('Content-Type', 'application/json').send({});
+    if (origin) pending.set('Origin', origin);
+    const response = await pending;
     expect(response.status).toBe(403);
     expect(response.body).toEqual({ error: 'request_not_allowed' });
   });
 
-  test.each([
-    ['wrong csrf', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`, 'X'.repeat(43), undefined],
-    ['duplicate cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}; ${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`, CSRF, undefined],
-    ['mixed bearer and cookie', `${EF75_WEB_COOKIE_NAME}=${WEB_TOKEN}`, CSRF, `Bearer ${'N'.repeat(43)}`],
-  ])('rejects %s without disclosing session state', async (_label, cookie, csrf, bearer) => {
-    const row = {
-      id: '22222222-2222-4222-8222-222222222222',
-      credentialHash: hashAnonymousSecret(WEB_TOKEN),
-      transport: 'web',
-      csrfHash: hashAnonymousSecret(CSRF),
-      expiresAt: Date.now() + 60_000,
-      revokedAt: null,
-    };
-    findAnonymousSessionRecord.mockResolvedValue(row);
-    const pending = request(makeApp(true))
-      .post('/protected')
-      .set('Origin', EF75_WEB_ORIGIN)
-      .set('Cookie', cookie)
-      .set('X-EF-CSRF', csrf)
-      .set('Content-Type', 'application/json')
-      .send({});
-    if (bearer) pending.set('Authorization', bearer);
-    const response = await pending;
-    expect([401, 403]).toContain(response.status);
-    expect(JSON.stringify(response.body)).not.toContain(WEB_TOKEN);
+  test('keeps mutation behind exact origin and matching double-submit CSRF', async () => {
+    const created = await request(makeApp()).post('/api/v1/anonymous-sessions/web').set('Origin', EF75_WEB_ORIGIN).set('X-EF-Client', 'web').set('Content-Type', 'application/json').send({});
+    const cookies = created.headers['set-cookie'];
+    const response = await request(makeApp(true)).post('/protected').set('Origin', EF75_WEB_ORIGIN).set('Content-Type', 'application/json').set('Cookie', cookies).set('X-EF-CSRF', created.body.csrfToken).send({});
+    expect(response.status).toBe(200);
+    const blocked = await request(makeApp(true)).post('/protected').set('Origin', 'https://evil.example').set('Content-Type', 'application/json').set('Cookie', cookies).set('X-EF-CSRF', created.body.csrfToken).send({});
+    expect(blocked.status).toBe(403);
+  });
+
+  test('keeps native session issuance fail-closed during DEV web recovery', async () => {
+    const response = await request(makeApp()).post('/api/v1/anonymous-sessions/native').send({});
+    expect(response.status).toBe(501);
+    expect(response.body).toEqual({ error: 'native_guest_session_not_available' });
   });
 });

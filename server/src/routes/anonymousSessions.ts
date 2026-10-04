@@ -3,23 +3,18 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import {
   authenticateAnonymousRequest,
+  clearWebGuestCookies,
   createOpaqueToken,
+  currentWebGuest,
   EF75_SESSION_TTL_MS,
-  EF75_WEB_COOKIE_NAME,
   EF75_WEB_ORIGIN,
-  hashAnonymousSecret,
+  serializeWebCsrfCookie,
   serializeWebSessionCookie,
 } from '../security/anonymousSession';
-import {
-  createAnonymousSessionRecord,
-  revokeAnonymousSession,
-  updateAnonymousSessionCsrf,
-} from '../storage/database/identity-db';
 import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 
 const router = Router();
 const TTL_SECONDS = EF75_SESSION_TTL_MS / 1000;
-const OPAQUE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 function safeInternal(res: Response) {
   writeEf118RuntimeAudit({
@@ -29,21 +24,11 @@ function safeInternal(res: Response) {
   return res.status(500).json({ error: 'internal_server_error' });
 }
 
-async function createSession(transport: 'native' | 'web') {
-  const credentialValue = createOpaqueToken();
-  const csrfToken = transport === 'web' ? createOpaqueToken() : null;
+function createWebSession(guestId = crypto.randomUUID()) {
+  const csrfToken = createOpaqueToken();
   const now = Date.now();
   const expiresAt = now + EF75_SESSION_TTL_MS;
-  await createAnonymousSessionRecord({
-    id: crypto.randomUUID(),
-    credentialHash: hashAnonymousSecret(credentialValue),
-    transport,
-    csrfHash: csrfToken ? hashAnonymousSecret(csrfToken) : null,
-    createdAt: now,
-    expiresAt,
-    revokedAt: null,
-  });
-  return { credential: credentialValue, csrfToken, expiresAt };
+  return { guestId, csrfToken, expiresAt };
 }
 
 function webRequestIsAllowed(req: Request): boolean {
@@ -52,32 +37,9 @@ function webRequestIsAllowed(req: Request): boolean {
     && req.get('x-ef-client') === 'web';
 }
 
-function targetCookieValues(req: Request): string[] {
-  const header = req.get('cookie');
-  if (!header) return [];
-  return header.split(';').flatMap(part => {
-    const trimmed = part.trim();
-    const separator = trimmed.indexOf('=');
-    return separator >= 0 && trimmed.slice(0, separator) === EF75_WEB_COOKIE_NAME
-      ? [trimmed.slice(separator + 1)]
-      : [];
-  });
-}
-
 router.post('/native', async (req, res) => {
-  if (req.get('origin') !== undefined
-    || req.get('sec-fetch-site') !== undefined
-    || req.get('authorization') !== undefined
-    || targetCookieValues(req).length > 0) {
-    return res.status(403).json({ error: 'request_not_allowed' });
-  }
-  try {
-    const created = await createSession('native');
-    writeEf118RuntimeAudit({ dbSessionCategory: 'session_created' });
-    return res.status(201).json({ credential: created.credential, expiresAt: created.expiresAt });
-  } catch {
-    return safeInternal(res);
-  }
+  void req;
+  return res.status(501).json({ error: 'native_guest_session_not_available' });
 });
 
 router.post('/web', async (req, res) => {
@@ -88,23 +50,11 @@ router.post('/web', async (req, res) => {
     if (req.get('authorization') !== undefined) {
       return res.status(401).json({ error: 'anonymous_session_invalid' });
     }
-    const cookies = targetCookieValues(req);
-    if (cookies.length > 1 || (cookies.length === 1 && !OPAQUE_TOKEN_PATTERN.test(cookies[0]))) {
-      return res.status(401).json({ error: 'anonymous_session_invalid' });
-    }
-    const existing = await authenticateAnonymousRequest(req);
-    if (existing.ok && existing.session.transport === 'web') {
-      const csrfToken = createOpaqueToken();
-      await updateAnonymousSessionCsrf(existing.session.id, hashAnonymousSecret(csrfToken));
-      return res.status(200).json({ csrfToken, expiresAt: existing.session.expiresAt });
-    }
-    if (!existing.ok && existing.kind === 'internal') return safeInternal(res);
-    if (!existing.ok && existing.kind === 'request_not_allowed') {
-      return res.status(403).json({ error: 'request_not_allowed' });
-    }
-
-    const created = await createSession('web');
-    res.setHeader('Set-Cookie', serializeWebSessionCookie(created.credential, TTL_SECONDS));
+    const created = createWebSession(currentWebGuest(req) ?? undefined);
+    res.setHeader('Set-Cookie', [
+      serializeWebSessionCookie(created.guestId, TTL_SECONDS),
+      serializeWebCsrfCookie(created.csrfToken, TTL_SECONDS),
+    ]);
     writeEf118RuntimeAudit({ dbSessionCategory: 'session_created' });
     return res.status(201).json({ csrfToken: created.csrfToken, expiresAt: created.expiresAt });
   } catch {
@@ -122,10 +72,7 @@ router.post('/revoke', async (req, res) => {
     return res.status(status).json({ error });
   }
   try {
-    await revokeAnonymousSession(authenticated.session.id);
-    if (authenticated.session.transport === 'web') {
-      res.setHeader('Set-Cookie', `${EF75_WEB_COOKIE_NAME}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`);
-    }
+    res.setHeader('Set-Cookie', clearWebGuestCookies());
     return res.status(204).end();
   } catch {
     return safeInternal(res);

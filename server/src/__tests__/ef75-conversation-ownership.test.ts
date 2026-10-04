@@ -6,9 +6,6 @@ const getSupabaseClient = jest.fn();
 jest.unstable_mockModule('../storage/database/supabase-client', () => ({ getSupabaseClient }));
 const verifyOwnedConversation = jest.fn(async (owner: string, conversation: string) =>
   owner === 'owner-a' && conversation === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' ? 'owned' : 'missing');
-const createOwnerBinding = jest.fn(async () => undefined);
-const revokeOwnerBinding = jest.fn(async (conversation: string, owner: string) =>
-  conversation === 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' && owner === 'owner-a' ? 'owned' : 'missing');
 
 jest.unstable_mockModule('../security/anonymousSession', () => ({
   requireAnonymousSession: (req: { get: (name: string) => string | undefined }, res: { locals: Record<string, unknown> }, next: () => void) => {
@@ -20,13 +17,8 @@ jest.unstable_mockModule('../security/anonymousSession', () => ({
     };
     next();
   },
-  requireOwnerBindingRuntime: (_req: unknown, _res: unknown, next: () => void) => next(),
   getVerifiedAnonymousSession: (res: { locals: { anonymousSession: unknown } }) => res.locals.anonymousSession,
   verifyOwnedConversation,
-}));
-jest.unstable_mockModule('../storage/database/rds-owner-binding-store', () => ({
-  createOwnerBinding,
-  revokeOwnerBinding,
 }));
 
 const { default: conversationsRouter } = await import('../routes/conversations');
@@ -108,8 +100,6 @@ function loopbackOnly(app: express.Express) {
 describe('EF-75 conversation and message ownership', () => {
   beforeEach(() => {
     verifyOwnedConversation.mockClear();
-    createOwnerBinding.mockReset().mockResolvedValue(undefined);
-    revokeOwnerBinding.mockReset().mockResolvedValue('owned');
     getSupabaseClient.mockReset();
   });
   test('User B direct-id substitution is indistinguishable from a missing or legacy conversation', async () => {
@@ -129,8 +119,6 @@ describe('EF-75 conversation and message ownership', () => {
     expect(missing.body).toEqual(b.body);
     expect(legacy.body).toEqual(b.body);
     expect(getSupabaseClient).not.toHaveBeenCalled();
-    expect(createOwnerBinding).not.toHaveBeenCalled();
-    expect(revokeOwnerBinding).not.toHaveBeenCalled();
   });
 
   test('User A read is owner-filtered before any messages are returned', async () => {
@@ -172,7 +160,7 @@ describe('EF-75 conversation and message ownership', () => {
     ]));
   });
 
-  test('delete revokes the exact owner binding before removing only that owner\'s conversation', async () => {
+  test('delete removes only the caller\'s owned conversation', async () => {
     const client = makeOwnershipClient();
     getSupabaseClient.mockReturnValue(client);
     const denied = await request(makeApp())
@@ -187,25 +175,13 @@ describe('EF-75 conversation and message ownership', () => {
       .delete(`/api/v1/conversations/${CONVERSATION}`)
       .set('X-Test-Owner', 'owner-a');
     expect(deleted.status).toBe(204);
-    expect(revokeOwnerBinding).toHaveBeenCalledWith(CONVERSATION, 'owner-a');
     expect(ownedClient.calls[0].filters).toEqual(expect.arrayContaining([
       ['id', CONVERSATION],
       ['owner_session_id', 'owner-a'],
     ]));
   });
 
-  test('binding creation failure writes no conversation', async () => {
-    createOwnerBinding.mockRejectedValueOnce(new Error('binding_unavailable'));
-    const response = await request(makeApp())
-      .post('/api/v1/conversations')
-      .set('X-Test-Owner', 'owner-a')
-      .send({ roleId: 'clever-fox' });
-    expect(response.status).toBe(500);
-    expect(response.body).toEqual({ error: 'internal_server_error' });
-    expect(getSupabaseClient).not.toHaveBeenCalled();
-  });
-
-  test('conversation persistence failure revokes the exact binding before a safe error', async () => {
+  test('conversation persistence failure returns a safe error', async () => {
     const client = makeCreateClient({ data: null, error: new Error('write_failed') });
     getSupabaseClient.mockReturnValue(client);
     const response = await request(makeApp())
@@ -214,14 +190,9 @@ describe('EF-75 conversation and message ownership', () => {
       .send({ roleId: 'clever-fox' });
     expect(response.status).toBe(500);
     expect(response.body).toEqual({ error: 'internal_server_error' });
-    expect(createOwnerBinding).toHaveBeenCalledWith(expect.any(String), 'owner-a');
-    expect(revokeOwnerBinding).toHaveBeenCalledWith(
-      createOwnerBinding.mock.calls[0][0],
-      'owner-a',
-    );
   });
 
-  test('normal creation binds only the verified server owner', async () => {
+  test('normal creation stores only the verified server owner', async () => {
     const client = makeCreateClient({
       data: {
         id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc', role_id: 'clever-fox', state: 'active',
@@ -235,7 +206,6 @@ describe('EF-75 conversation and message ownership', () => {
       .set('X-Test-Owner', 'owner-a')
       .send({ roleId: 'clever-fox', userId: 'forged-client-owner' });
     expect(response.status).toBe(201);
-    expect(createOwnerBinding).toHaveBeenCalledWith(expect.any(String), 'owner-a');
     expect(client.calls).toHaveLength(1);
   });
 });

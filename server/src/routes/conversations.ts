@@ -15,13 +15,11 @@ import { writeEf118RuntimeAudit } from '../observability/ef118RuntimeAudit';
 import {
   getVerifiedAnonymousSession,
   requireAnonymousSession,
-  requireOwnerBindingRuntime,
   verifyOwnedConversation,
 } from '../security/anonymousSession';
-import { createOwnerBinding, revokeOwnerBinding } from '../storage/database/rds-owner-binding-store';
 
 const router = Router();
-router.use(requireAnonymousSession, requireOwnerBindingRuntime);
+router.use(requireAnonymousSession);
 
 type ConversationFailureCode =
   | 'conversation_storage_error'
@@ -93,47 +91,36 @@ router.post('/', async (req, res) => {
     const now = Date.now();
     const id = crypto.randomUUID();
 
-    // The binding is deliberately created first. If it cannot be created, no
-    // conversation write is attempted; a later conversation write failure
-    // revokes this exact binding before the safe failure response.
-    await createOwnerBinding(id, owner.id);
+    const { data, error } = await getSupabaseClient()
+      .from('conversations')
+      .insert({
+        id,
+        // Keep the legacy non-null column populated from server authority only.
+        user_id: owner.id,
+        owner_session_id: owner.id,
+        role_id: roleId,
+        state: 'active',
+        created_at: now,
+        updated_at: now,
+        last_message_at: null,
+      })
+      .select()
+      .single();
 
-    try {
-      const { data, error } = await getSupabaseClient()
-        .from('conversations')
-        .insert({
-          id,
-          // Keep the legacy non-null column populated from server authority only.
-          user_id: owner.id,
-          owner_session_id: owner.id,
-          role_id: roleId,
-          state: 'active',
-          created_at: now,
-          updated_at: now,
-          last_message_at: null,
-        })
-        .select()
-        .single();
+    if (error) throw error;
 
-      if (error) throw error;
-
-      writeEf118RuntimeAudit({
-        dbSessionCategory: 'conversation_created',
-        frontendErrorMappingCategory: 'none',
-      });
-      res.status(201).json({
-        id: data.id,
-        roleId: data.role_id,
-        state: data.state,
-        createdAt: data.created_at,
-        updatedAt: data.updated_at,
-        lastMessageAt: data.last_message_at,
-      });
-    } catch (err) {
-      failureCode = 'conversation_storage_error';
-      await revokeOwnerBinding(id, owner.id).catch(() => undefined);
-      throw err;
-    }
+    writeEf118RuntimeAudit({
+      dbSessionCategory: 'conversation_created',
+      frontendErrorMappingCategory: 'none',
+    });
+    res.status(201).json({
+      id: data.id,
+      roleId: data.role_id,
+      state: data.state,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      lastMessageAt: data.last_message_at,
+    });
   } catch (err) {
     void err;
     writeSafeInternalError(res, failureCode);
@@ -398,8 +385,7 @@ router.get('/:id/messages', async (req, res) => {
   }
 });
 
-// DELETE /api/v1/conversations/:id - revoke the private binding before
-// deleting the owned conversation. A later delete failure leaves it fail-closed.
+// DELETE /api/v1/conversations/:id - delete only the caller's conversation.
 router.delete('/:id', async (req, res) => {
   let failureCode: ConversationFailureCode = 'conversation_storage_error';
   try {
@@ -408,9 +394,6 @@ router.delete('/:id', async (req, res) => {
     const ownership = await requireExactConversationOwner(res, owner.id, id);
     if (ownership === 'missing') return;
     if (ownership === 'internal') throw new Error('owner_binding_lookup_failed');
-
-    const revoked = await revokeOwnerBinding(id, owner.id);
-    if (revoked !== 'owned') throw new Error('owner_binding_revoke_failed');
 
     const { error } = await getSupabaseClient()
       .from('conversations')

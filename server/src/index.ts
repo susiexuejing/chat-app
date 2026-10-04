@@ -40,11 +40,9 @@ import {
 import {
   authenticateAnonymousRequest,
   EF75_WEB_ORIGIN,
-  hasOwnerBindingRuntime,
   sendAnonymousFailure,
   verifyOwnedConversation,
 } from './security/anonymousSession';
-import { registerRuntimeOwnerBindingStore } from './storage/database/rds-owner-binding-store';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
 import { EF45_R2_PROBE_MARKER, writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
@@ -71,7 +69,6 @@ const port = process.env.PORT || 9091;
 
 // The registration performs configuration validation only; the pool remains
 // lazy and no database operation is issued during application startup.
-registerRuntimeOwnerBindingStore();
 
 // Middleware
 app.use(cors({
@@ -899,16 +896,6 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
       return sendAnonymousFailure(res, authenticated.kind);
     }
-    if (!hasOwnerBindingRuntime()) {
-      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
-      writeEf118RuntimeAudit({
-        dbSessionCategory: 'chat_start_processing_error',
-        frontendErrorMappingCategory: 'chat_start_retry',
-        ef45ProbeMarker,
-      });
-      return sendAnonymousFailure(res, 'internal');
-    }
-
     const { roleId, message, conversationId } = req.body;
     const userId = authenticated.session.id;
 
@@ -1159,11 +1146,6 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     return sendAnonymousFailure(res, authenticated.kind);
   }
-  if (!hasOwnerBindingRuntime()) {
-    recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
-    return sendAnonymousFailure(res, 'internal');
-  }
-
   const { sessionId } = req.query;
 
   if (!sessionId || typeof sessionId !== 'string') {
