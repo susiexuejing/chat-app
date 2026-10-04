@@ -48,8 +48,8 @@ function productionDeepPrompt(message: string, roleId = ROLE_ID, userTurn = 1) {
  * production prompt contract without pretending that a real model ran locally.
  */
 function mockDeepFromPrompt(prompt: string): string {
-  if (prompt.includes('===== EF-41 首两轮组合约束 =====')) {
-    return '等这一团稍微松开后，事情的轻重也许会慢慢显出来。';
+  if (prompt.includes('===== 首两轮事实合同（最高优先级）=====')) {
+    return '我听到了。';
   }
   return '你愿意再说一点吗？';
 }
@@ -81,9 +81,9 @@ describe('EF-41 QA2: target detection, role scope, and response composition', ()
     const deep = mockDeepFromPrompt(prompt);
     const combined = `${front.combined}${deep}`;
 
-    expect(prompt).toContain('前置 Reaction 与 Companion 已经完成理解、减压，并提出了本轮唯一的问题');
-    expect(prompt).toContain('Deep 续写不得提出任何问题，也不得使用问号');
-    expect(prompt).toContain('不得重复“先挑一件 / 先说一件 / 随便说 / 从哪里开始”等邀请');
+    expect(prompt).toContain('===== 首两轮事实合同（最高优先级）=====');
+    expect(prompt).toContain('当前这条用户消息是关于用户的唯一事实来源');
+    expect(prompt).toContain('完整输出不超过 120 个中文字符');
     expect((combined.match(/[？?]/g) || [])).toHaveLength(1);
     expect((combined.match(/我在听|我听到了|我都在|陪着|帮你收着|我记着/g) || []).length).toBeLessThanOrEqual(1);
     expect(combined).not.toMatch(/你应该|你可以试试|建议你|要不|不如|去窗边|先深呼吸/);
@@ -91,13 +91,34 @@ describe('EF-41 QA2: target detection, role scope, and response composition', ()
     expect(deep).not.toMatch(/先挑一件|先说一件|随便说|从哪里开始|不用一次理清|慢慢来|我在听|我帮你收着/);
   });
 
-  test.each(negativeInputs)('does not trigger the bounded behavior: %s', (message) => {
+  test.each(negativeInputs)('keeps the universal entry-turn factual contract without changing the front: %s', (message) => {
     const front = frontLayers(message);
     const prompt = productionDeepPrompt(message);
 
     expect(isConfusedOverload(message, true)).toBe(false);
     expect(front.combined).not.toContain('此刻最卡住你的，是哪一小块');
-    expect(prompt).not.toContain('===== EF-41 首两轮组合约束 =====');
+    expect(prompt).toContain('===== 首两轮事实合同（最高优先级）=====');
+  });
+
+  test('entry-turn prompt excludes role life, front, change, and LTU context', () => {
+    const prompt = buildDeepSystemPrompt(
+      ROLE_ID,
+      ROLE_NAME,
+      'FRONT_CONTEXT_SHOULD_NOT_APPEAR',
+      undefined,
+      null,
+      'CHANGE_CONTEXT_SHOULD_NOT_APPEAR',
+      null,
+      'LTU_CONTEXT_SHOULD_NOT_APPEAR',
+      1,
+      '今天有点忙。',
+    );
+
+    expect(prompt).toContain('===== 首两轮事实合同（最高优先级）=====');
+    expect(prompt).not.toContain('FRONT_CONTEXT_SHOULD_NOT_APPEAR');
+    expect(prompt).not.toContain('CHANGE_CONTEXT_SHOULD_NOT_APPEAR');
+    expect(prompt).not.toContain('LTU_CONTEXT_SHOULD_NOT_APPEAR');
+    expect(prompt).not.toContain('EmotionFlow 生命系统');
   });
 
   test('second turn keeps the bounded composition contract', () => {
@@ -117,7 +138,7 @@ describe('EF-41 QA2: target detection, role scope, and response composition', ()
     expect(userTurn).toBe(2);
     expect(front.reaction).toBe('事情全挤在脑子里，连先说什么都拿不准。');
     expect((`${front.combined}${deep}`.match(/[？?]/g) || [])).toHaveLength(1);
-    expect(prompt).toContain('===== EF-41 首两轮组合约束 =====');
+    expect(prompt).toContain('===== 首两轮事实合同（最高优先级）=====');
     expect(shouldValidateEf41DeepOutput({
       text: '',
       roleId: ROLE_ID,
@@ -128,22 +149,22 @@ describe('EF-41 QA2: target detection, role scope, and response composition', ()
     expect(deep).not.toMatch(/想到哪|随手丢|要不|窗边|[？?]/);
   });
 
-  test('third turn does not receive EF-41 front-layer or Deep constraints', () => {
+  test('third turn does not receive entry-turn Deep constraints', () => {
     const message = positiveInputs[1];
     const front = frontLayers(message, ROLE_ID, 3);
     const prompt = productionDeepPrompt(message, ROLE_ID, 3);
 
     expect(front.combined).not.toContain('很多事情一下子挤在一起');
-    expect(prompt).not.toContain('===== EF-41 首两轮组合约束 =====');
+    expect(prompt).not.toContain('===== 首两轮事实合同（最高优先级）=====');
   });
 
-  test('expanded recognition does not alter another personality', () => {
+  test('another personality receives the same entry-turn safety contract', () => {
     const message = positiveInputs[0];
     const front = frontLayers(message, 'warm-bear', 1);
     const prompt = productionDeepPrompt(message, 'warm-bear', 1);
 
     expect(front.combined).not.toContain('今天的事情一下子堆得太多');
     expect(front.combined).not.toContain('此刻最卡住你的，是哪一小块');
-    expect(prompt).not.toContain('===== EF-41 首两轮组合约束 =====');
+    expect(prompt).toContain('===== 首两轮事实合同（最高优先级）=====');
   });
 });

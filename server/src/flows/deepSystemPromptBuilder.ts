@@ -10,10 +10,15 @@
 
 import type { NeuralProfile } from './neuralProfileManager';
 import type { FlowResult, FlowContext } from './flowTypes';
-import { getFirstTwoRoundsRulesWithTurn } from './firstTwoRoundsRules';
-import { isConfusedOverload } from './firstTwoRoundsReaction';
 
-export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, userMessage?: string): string {
+export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, _userMessage?: string): string {
+  // EF-57: The first two turns are an entry experience, not a personality
+  // biography or a memory recall. Keep their provider context deliberately
+  // small so only the current user message can become a user-facing fact.
+  if (userTurn && userTurn <= 2) {
+    return buildFirstTwoRoundsDeepPrompt(roleName, userTurn);
+  }
+
   let flowBlock = '';
   if (flowResult) {
     const pos = flowResult.position;
@@ -49,31 +54,12 @@ export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlo
     flowBlock = '\n' + lines.join('\n') + '\n';
   }
 
-  // 前两轮规则注入
-  const firstTwoRoundsBlock = (userTurn && userTurn <= 2) ? `\n${getFirstTwoRoundsRulesWithTurn(userTurn)}\n` : '';
-
-  // EM-43: 前两轮不要求"从更深一层的分析开始"，避免与高优先级规则冲突
-  const depthInstruction = (userTurn && userTurn <= 2)
-    ? '- 先陪伴，不急于深入分析'
-    : '- 从更深一层的分析开始';
+  const depthInstruction = '- 从更深一层的分析开始';
 
   // EF-92: deepPromptBlock is a legacy reference not enabled in baseline.
   // Use empty string to preserve baseline Prompt behavior without enabling formatter.
   const deepPromptBlock = neuralProfile && 'deepPromptBlock' in neuralProfile
     ? (neuralProfile as { deepPromptBlock?: string }).deepPromptBlock ?? ''
-    : '';
-
-  const confusedOverloadCompositionBlock = roleId === 'clever-fox'
-    && !!userTurn
-    && userTurn <= 2
-    && isConfusedOverload(userMessage, true)
-    ? `\n===== EF-41 首两轮组合约束 =====
-前置 Reaction 与 Companion 已经完成理解、减压，并提出了本轮唯一的问题。
-- Deep 续写不得提出任何问题，也不得使用问号
-- 不得重复“先挑一件 / 先说一件 / 随便说 / 从哪里开始”等邀请
-- 不得重复“不用一次理清 / 慢慢来 / 我在听 / 我帮你收着”等安抚或承接
-- 只补充一句不带建议、不带诊断、不带新邀请的自然陈述；没有新增价值时可以极短
-================================\n`
     : '';
 
   return `你是「${roleName}」。
@@ -87,7 +73,6 @@ ${flowContext ? JSON.stringify(flowContext, null, 2) : frontFlowText}
 ${longTermSummary ? `\n${longTermSummary}\n` : ''}
 ${flowBlock}
 ${changeBlock || ''}
-${confusedOverloadCompositionBlock}
 请严格遵守：
 - 不要重复以上前置陪伴内容
 - 不要输出 JSON
@@ -95,8 +80,28 @@ ${confusedOverloadCompositionBlock}
 - 只用自然语言继续往下说
 ${depthInstruction}
 - 回复长度控制在 150 字以内，精简有力
-${firstTwoRoundsBlock}
 请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
+}
+
+function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number): string {
+  return `你是「${roleName}」。
+
+当前是第 ${userTurn} 轮。你只是在为前置 Reaction / Companion 补一句短的自然承接。
+
+===== 首两轮事实合同（最高优先级）=====
+- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。
+- 不要提及用户之前、以前、总是、每次、又、一直如何；不要声称记得任何旧会话。
+- 不要描述你自己的现实生活、所在场景、身体动作、物件或经历；不要提及咖啡、窗边、笔记本等人格素材。
+- 不要替用户补充未说出的情绪、身体感受、事件或关系经历。
+- 不要诊断、解释原因、给建议或安排任务。
+====================================
+
+输出要求：
+- 只输出自然语言，不要 JSON 或 Markdown。
+- 完整输出不超过 120 个中文字符，最多两句。
+- 最多一个问题；如有问题，必须是用户可以不回答的邀请。
+- 前置层已经在陪伴，若没有新的、可由当前输入支撑的话，只输出“我听到了。”
+`;
 }
 
 function getRoleStyle(roleId: string): string {

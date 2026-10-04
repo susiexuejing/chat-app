@@ -2,6 +2,7 @@ import { generateCompanionTimeline, generateReactionTimeline } from '../flows/lo
 import { extractSignal } from '../flows/signalExtractor';
 import {
   EF41_DEEP_FALLBACK,
+  FIRST_TWO_ROUNDS_DEEP_FALLBACK,
   type Ef41DeepOutputSource,
   validateEf41DeepOutput,
 } from '../flows/ef41DeepCompositionValidator';
@@ -91,16 +92,22 @@ describe('EF-41 Deep output composition validator', () => {
     expect(output).not.toMatch(/[？?]/);
   });
 
-  test.each([
-    ['negative physical mess', '桌面有点乱，我刚把书和杯子收拾好了。', 'clever-fox', 1],
-    ['negative busy day', '上午开会，下午买菜，晚上看了电影，今天安排得挺满。', 'clever-fox', 1],
-    ['other personality', positiveMessages[0], 'warm-bear', 1],
-    ['third turn', positiveMessages[0], 'clever-fox', 3],
-  ])('returns non-target output byte-for-byte: %s', (_name, message, roleId, userTurn) => {
+  test('returns third-turn output byte-for-byte', () => {
     const original = '你想到哪句就随手丢出来？我都在旁边陪着。';
-    const output = validateOutput(original, String(message), 'cleaned', String(roleId), Number(userTurn));
+    const output = validateOutput(original, positiveMessages[0], 'cleaned', 'clever-fox', 3);
 
     expect(output).toBe(original);
+  });
+
+  test.each([
+    ['negative physical mess', '桌面有点乱，我刚把书和杯子收拾好了。', 'clever-fox'],
+    ['negative busy day', '上午开会，下午买菜，晚上看了电影，今天安排得挺满。', 'clever-fox'],
+    ['another personality', positiveMessages[0], 'warm-bear'],
+  ])('applies the entry-turn contract to every first-turn reply: %s', (_name, message, roleId) => {
+    const original = '你想到哪句就随手丢出来？我都在旁边陪着。';
+    const output = validateOutput(original, String(message), 'cleaned', String(roleId), 1);
+
+    expect(output).toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
   });
 
   test.each(['cleaned', 'last-resort', 'reasoning'] as const)('uses deterministic fallback on the %s path when every sentence is rejected', (source) => {
@@ -124,7 +131,7 @@ describe('EF-41 Deep output composition validator', () => {
   test.each(['cleaned', 'last-resort', 'reasoning'] as const)('rejects the exact CTO runtime output on the %s path', (source) => {
     const output = validateOutput(ctoRuntimeFailure, positiveMessages[1], source);
 
-    expect(output).toBe(EF41_DEEP_FALLBACK);
+    expect(output).toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
     expect(output).not.toMatch(/你只管|喘口气|我们再|往下摸/);
   });
 
@@ -143,5 +150,51 @@ describe('EF-41 Deep output composition validator', () => {
     );
 
     expect(output).toBe(EF41_DEEP_FALLBACK);
+  });
+
+  test.each([
+    ['assistant life material', '我正坐在窗边喝咖啡，翻着笔记本。', '今天只想安静一下。'],
+    ['unsupported historical claim', '你之前总说自己累。', '今天有点忙。'],
+    ['unsupported emotional inference', '你又觉得心里沉了。', '今天开会很多。'],
+    ['overlong reply', '我听到了。'.repeat(31), '今天有点忙。'],
+  ])('uses the neutral fallback for reported entry-turn failure: %s', (_name, text, message) => {
+    expect(validateOutput(text, message, 'cleaned', 'warm-bear', 1))
+      .toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
+  });
+
+  test('allows one explicitly optional invitation grounded in the current turn', () => {
+    const output = validateOutput('如果你愿意，可以说说今天最忙的是哪一段？', '今天开会很多。', 'cleaned', 'warm-bear', 1);
+
+    expect(output).toBe('如果你愿意，可以说说今天最忙的是哪一段？');
+  });
+
+  test('keeps the complete visible entry turn within 120 characters', () => {
+    const visiblePrefix = '你说的这些，我听到了。慢慢来，不急着一次说清。';
+    const allowedDeep = '如果你愿意，可以从今天最忙的一段说起？';
+    const output = validateEf41DeepOutput({
+      text: allowedDeep,
+      roleId: 'warm-bear',
+      userTurn: 1,
+      userMessage: '今天开会很多。',
+      source: 'cleaned',
+      visiblePrefix,
+    });
+
+    expect(Array.from(`${visiblePrefix}${output}`).length).toBeLessThanOrEqual(120);
+    expect(output).toBe(allowedDeep);
+  });
+
+  test('falls back when Deep would exceed the remaining visible entry-turn budget', () => {
+    const visiblePrefix = '前置内容'.repeat(29);
+    const output = validateEf41DeepOutput({
+      text: '我听到了。',
+      roleId: 'warm-bear',
+      userTurn: 1,
+      userMessage: '今天开会很多。',
+      source: 'cleaned',
+      visiblePrefix,
+    });
+
+    expect(output).toBe('');
   });
 });
