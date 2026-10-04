@@ -3,7 +3,11 @@ import { readRdsRuntimeConfig, type RdsRuntimeConfig } from './rds-runtime-confi
 
 export type AnonymousTransport = 'native' | 'web';
 
-/** Identity data is owned by this schema; do not depend on runtime search_path. */
+/**
+ * Identity data is owned by this dedicated schema.  The runtime service may
+ * use a non-owner principal, so it must not rely on that principal's default
+ * PostgreSQL search_path to resolve the identity boundary.
+ */
 const IDENTITY_SCHEMA = 'identity';
 
 export interface AnonymousSessionRecord {
@@ -53,6 +57,8 @@ export interface IdentityDb {
   revokeOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
   /** DEV diagnostics only; removes the exact synthetic binding. */
   deleteOwnerBindingForProbe(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
+  /** DEV-only zero-row access check; its result never leaves the process. */
+  verifyIdentitySchemaAccess(): Promise<void>;
   /** DEV-only, idempotent schema repair for the dedicated identity store. */
   ensureDevIdentitySchema(): Promise<void>;
 }
@@ -212,6 +218,10 @@ export class PostgresIdentityDb implements IdentityDb {
     return result.rowCount === 1;
   }
 
+  async verifyIdentitySchemaAccess(): Promise<void> {
+    await this.sql.query(`SELECT 1 FROM ${IDENTITY_SCHEMA}.anonymous_sessions LIMIT 0`, []);
+  }
+
   async ensureDevIdentitySchema(): Promise<void> {
     await this.sql.query(
       `CREATE TABLE IF NOT EXISTS anonymous_sessions (
@@ -302,6 +312,11 @@ export function registerProtectedIdentityDb(identityDb: IdentityDb): void {
 
 export function hasRegisteredIdentityDb(): boolean {
   return protectedIdentityDb !== undefined;
+}
+
+/** Fixed DEV diagnostic primitive. It uses the runtime principal and returns no rows. */
+export async function verifyRuntimeIdentitySchemaAccess(): Promise<void> {
+  await identityDbOrThrow().verifyIdentitySchemaAccess();
 }
 
 function identityDbOrThrow(): IdentityDb {
