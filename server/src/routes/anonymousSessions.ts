@@ -24,11 +24,12 @@ function safeInternal(res: Response) {
   return res.status(500).json({ error: 'internal_server_error' });
 }
 
-function createWebSession(guestId = crypto.randomUUID()) {
+function createWebSession(guestId?: string) {
+  const effectiveGuestId = guestId ?? crypto.randomUUID();
   const csrfToken = createOpaqueToken();
   const now = Date.now();
   const expiresAt = now + EF75_SESSION_TTL_MS;
-  return { guestId, csrfToken, expiresAt };
+  return { guestId: effectiveGuestId, csrfToken, expiresAt };
 }
 
 function webRequestIsAllowed(req: Request): boolean {
