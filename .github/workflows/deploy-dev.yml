@@ -122,18 +122,10 @@ jobs:
           command -v pm2 >/dev/null
           test -d /var/www/chat-app/server/node_modules
           cd /var/www/chat-app/server
-          # A stale PM2 daemon can retain an oversized inherited environment and
-          # make Node fail to spawn with E2BIG. A fresh daemon receives only the
-          # service environment parsed from the protected .env by the ecosystem file.
-          EXISTING_PROCESSES="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(String(JSON.parse(d).length)))")"
-          if [ "$EXISTING_PROCESSES" = "0" ]; then
-            pm2 kill
-            env -i HOME="$HOME" PATH="$PATH" PM2_HOME="${PM2_HOME:-$HOME/.pm2}" \
-              pm2 start ecosystem.config.cjs
-          else
-            pm2 start ecosystem.config.cjs
-          fi
-          PROCESS_NAME="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const m=a.filter(p=>p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js');if(m.length!==1)process.exit(2);process.stdout.write(m[0].name)})")"
+          # The DEV backend is registered by the controlled host-repair path.
+          # Preflight must verify that one declared backend exists, not reinject
+          # the protected runtime environment through ecosystem.config.cjs.
+                    PROCESS_NAME="$(pm2 jlist | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const a=JSON.parse(d);const m=a.filter(p=>p.pm2_env?.pm_cwd==='/var/www/chat-app/server'||p.pm2_env?.pm_exec_path==='/var/www/chat-app/server/dist/index.js');if(m.length!==1)process.exit(2);process.stdout.write(m[0].name)})")"
           pm2 describe "$PROCESS_NAME" >/dev/null
           echo "Validated one PM2 process for the DEV backend: $PROCESS_NAME"
           REMOTE
