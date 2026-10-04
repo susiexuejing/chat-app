@@ -9,6 +9,7 @@ type WriteClass = 'pass' | 'schema_column' | 'table_missing' | 'required_field' 
 type CleanupClass = 'not_needed' | 'rolled_back_only' | 'not_clean';
 
 export interface Ef235ConversationRuntimeClassificationReceipt {
+  probe_contract: 'ef235_conversation_runtime_classification_v1';
   conversation_write: WriteClass;
   failure_boundary: 'none' | 'conversation_insert' | 'conversation_cleanup';
   side_effects: CleanupClass;
@@ -40,6 +41,7 @@ function hasNoCallerInputs(req: Request): boolean {
 /** Fixed DEV-only probe: a synthetic insert is always deleted in finally. */
 export async function runEf235ConversationRuntimeClassification(): Promise<Ef235ConversationRuntimeClassificationReceipt> {
   const receipt: Ef235ConversationRuntimeClassificationReceipt = {
+    probe_contract: 'ef235_conversation_runtime_classification_v1',
     conversation_write: 'runtime_insert_failure',
     failure_boundary: 'none',
     side_effects: 'not_needed',
