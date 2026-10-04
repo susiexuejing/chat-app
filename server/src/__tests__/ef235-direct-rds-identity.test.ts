@@ -28,7 +28,7 @@ describe('EF-235 direct RDS identity ownership boundary', () => {
 
     expect(query).toHaveBeenCalledTimes(1);
     const [statement, values] = query.mock.calls[0] as unknown as [string, unknown[]];
-    expect(statement).toContain('INSERT INTO conversation_owner_bindings');
+    expect(statement).toContain('INSERT INTO identity.conversation_owner_bindings');
     expect(statement).toContain('VALUES ($1, $2, $3, NULL)');
     expect(statement).not.toContain(CONVERSATION);
     expect(statement).not.toContain(OWNER_A);

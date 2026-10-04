@@ -3,6 +3,9 @@ import { readRdsRuntimeConfig, type RdsRuntimeConfig } from './rds-runtime-confi
 
 export type AnonymousTransport = 'native' | 'web';
 
+/** Identity data is owned by this schema; do not depend on runtime search_path. */
+const IDENTITY_SCHEMA = 'identity';
+
 export interface AnonymousSessionRecord {
   id: string;
   credentialHash: string;
@@ -81,7 +84,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async createAnonymousSession(session: NewAnonymousSessionRecord): Promise<void> {
     const result = await this.sql.query(
-      `INSERT INTO anonymous_sessions
+      `INSERT INTO ${IDENTITY_SCHEMA}.anonymous_sessions
         (id, credential_hash, transport, csrf_hash, created_at, expires_at, revoked_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
@@ -103,7 +106,7 @@ export class PostgresIdentityDb implements IdentityDb {
   ): Promise<AnonymousSessionRecord | null> {
     const result = await this.sql.query<AnonymousSessionSqlRow>(
       `SELECT id, credential_hash, transport, csrf_hash, expires_at, revoked_at
-       FROM anonymous_sessions
+       FROM ${IDENTITY_SCHEMA}.anonymous_sessions
        WHERE credential_hash = $1
          AND transport = $2
        LIMIT 1`,
@@ -135,7 +138,7 @@ export class PostgresIdentityDb implements IdentityDb {
     csrfHash: string,
   ): Promise<void> {
     const result = await this.sql.query(
-      `UPDATE anonymous_sessions
+      `UPDATE ${IDENTITY_SCHEMA}.anonymous_sessions
        SET csrf_hash = $3
        WHERE id = $1
          AND transport = $2
@@ -147,7 +150,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async revokeAnonymousSession(id: string): Promise<void> {
     const result = await this.sql.query(
-      `UPDATE anonymous_sessions
+      `UPDATE ${IDENTITY_SCHEMA}.anonymous_sessions
        SET revoked_at = $2
        WHERE id = $1
          AND revoked_at IS NULL`,
@@ -158,7 +161,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async deleteAnonymousSessionForProbe(id: string): Promise<boolean> {
     const result = await this.sql.query(
-      `DELETE FROM anonymous_sessions WHERE id = $1`,
+      `DELETE FROM ${IDENTITY_SCHEMA}.anonymous_sessions WHERE id = $1`,
       [id],
     );
     return result.rowCount === 1;
@@ -166,7 +169,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async createOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<void> {
     const result = await this.sql.query(
-      `INSERT INTO conversation_owner_bindings
+      `INSERT INTO ${IDENTITY_SCHEMA}.conversation_owner_bindings
         (conversation_ref, owner_principal_id, created_at, revoked_at)
        VALUES ($1, $2, $3, NULL)
        ON CONFLICT (conversation_ref) DO NOTHING`,
@@ -178,7 +181,7 @@ export class PostgresIdentityDb implements IdentityDb {
   async findOwnerByConversationRef(conversationRef: string): Promise<string | null> {
     const result = await this.sql.query<OwnerBindingSqlRow>(
       `SELECT owner_principal_id
-       FROM conversation_owner_bindings
+       FROM ${IDENTITY_SCHEMA}.conversation_owner_bindings
        WHERE conversation_ref = $1
          AND revoked_at IS NULL
        LIMIT 1`,
@@ -190,7 +193,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async revokeOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<boolean> {
     const result = await this.sql.query(
-      `UPDATE conversation_owner_bindings
+      `UPDATE ${IDENTITY_SCHEMA}.conversation_owner_bindings
        SET revoked_at = $3
        WHERE conversation_ref = $1
          AND owner_principal_id = $2
@@ -202,7 +205,7 @@ export class PostgresIdentityDb implements IdentityDb {
 
   async deleteOwnerBindingForProbe(conversationRef: string, ownerPrincipalId: string): Promise<boolean> {
     const result = await this.sql.query(
-      `DELETE FROM conversation_owner_bindings
+      `DELETE FROM ${IDENTITY_SCHEMA}.conversation_owner_bindings
        WHERE conversation_ref = $1 AND owner_principal_id = $2`,
       [conversationRef, ownerPrincipalId],
     );
