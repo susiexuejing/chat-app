@@ -101,6 +101,11 @@ function getSmartFoxConfusedOverloadCopy(message: string): ConfusedOverloadCopy 
  * Returns the most meaningful clause (up to ~20 chars).
  */
 function extractUserPhrase(message: string): string {
+  const exactShortInput = message.trim();
+  // A short first-turn input is itself the complete factual record. Splitting
+  // it at punctuation can discard a terminal feeling (for example “很烦”).
+  if (Array.from(exactShortInput).length <= 20) return exactShortInput;
+
   // Remove common filler words and get the core clause
   const cleaned = message
     .replace(/[，。！？、；：""''（）\s]+/g, ' ')
@@ -112,7 +117,7 @@ function extractUserPhrase(message: string): string {
   if (clauses.length === 0) return cleaned.slice(0, 20);
 
   // Prefer clauses with emotional or concrete content
-  const emotionalKeywords = ['不', '没', '好', '难', '怕', '累', '烦', '痛', '哭', '怒', '恨', '想', '要', '怕', '急'];
+  const emotionalKeywords = ['没', '难', '怕', '累', '烦', '痛', '哭', '怒', '恨', '想', '急'];
   for (const clause of clauses) {
     if (emotionalKeywords.some((k) => clause.includes(k))) {
       return clause.slice(0, 20);
@@ -145,15 +150,13 @@ export function getFirstTwoRoundsReactionTimeline(
 
   let text: string;
 
-  if (phrase && keyword) {
-    // Reference both the user's phrase and the extracted keyword
-    text = `「${keyword}」这件事，你提到了。`;
-  } else if (phrase) {
-    // Reference the user's specific words
+  if (phrase) {
+    // The exact user phrase is safer than a keyword fallback: it cannot turn
+    // a terminal feeling into a guessed event such as “这件事”.
     if (phrase.length > 8) {
       text = `你说的「${phrase.slice(0, 12)}」，我听到了。`;
     } else {
-      text = `${phrase}——你说的我记住了。`;
+      text = `${phrase}——我听到了。`;
     }
   } else if (keyword) {
     text = `关于「${keyword}」，我在听。`;
@@ -238,5 +241,3 @@ export function getFirstTwoRoundsCompanionTimeline(
 
   return [{ displayAt: 8, text }];
 }
-
-// EF57
