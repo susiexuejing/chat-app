@@ -38,6 +38,10 @@ import {
   ef235IdentityRuntimeClassificationHandler,
 } from './diagnostics/ef235IdentityRuntimeClassification';
 import {
+  EF235_CONVERSATION_RUNTIME_CLASSIFICATION_PATH,
+  ef235ConversationRuntimeClassificationHandler,
+} from './diagnostics/ef235ConversationRuntimeClassification';
+import {
   authenticateAnonymousRequest,
   EF75_WEB_ORIGIN,
   sendAnonymousFailure,
@@ -109,6 +113,7 @@ if (process.env.NODE_ENV === 'development') {
   app.post(EF235_IDENTITY_WRITE_PROBE_PATH, ef235IdentityWriteProbeHandler);
   app.post(EF235_IDENTITY_SCHEMA_REPAIR_PATH, ef235IdentitySchemaRepairHandler);
   app.post(EF235_IDENTITY_RUNTIME_CLASSIFICATION_PATH, ef235IdentityRuntimeClassificationHandler);
+  app.post(EF235_CONVERSATION_RUNTIME_CLASSIFICATION_PATH, ef235ConversationRuntimeClassificationHandler);
 }
 
 // Fixed DEV-only EF-45 diagnostic response. There are no caller-controlled
