@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import { ChatSession, ChatMessage } from '../types';
 import { PsychologistRole } from '../constants/roles';
 import {
@@ -204,9 +205,19 @@ export async function getSession(sessionId: string): Promise<ChatSession | null>
 
 // ====== EF-59 Phase 4: 后端持久化 API ======
 
-// 获取后端基础 URL
+// Keep canonical conversation calls on the same browser origin as chatStart.
 function getBackendBaseUrl(): string | null {
-  return process.env.EXPO_PUBLIC_BACKEND_BASE_URL || null;
+  const configured = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_BASE_URL
+    || process.env.EXPO_PUBLIC_BACKEND_BASE_URL;
+  if (typeof configured === 'string' && configured.length > 0) return configured;
+
+  if (typeof window !== 'undefined' && window.location?.hostname) {
+    const { protocol, hostname } = window.location;
+    const knownDomains = ['chat.douhaoyu.cn', 'dev.douhaoyu.cn', '8.145.45.174', 'localhost'];
+    if (knownDomains.includes(hostname)) return `${protocol}//${hostname}`;
+  }
+
+  return null;
 }
 
 // EF-59: 持久化消息到后端

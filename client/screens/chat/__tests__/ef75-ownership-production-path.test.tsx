@@ -37,4 +37,26 @@ describe('EF-75 protected conversation client production path', () => {
     }));
     expect(getAnonymousRequestOptions).toHaveBeenCalledTimes(3);
   });
+
+  it('creates a canonical conversation on DEV when the public backend variable is empty', async () => {
+    const originalWindow = globalThis.window;
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: { location: { protocol: 'https:', hostname: 'dev.douhaoyu.cn' } },
+    });
+    process.env.EXPO_PUBLIC_BACKEND_BASE_URL = '';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }) } as Response);
+
+    try {
+      await expect(createConversation('11111111-1111-4111-8111-111111111111', 'clever-fox'))
+        .resolves.toEqual({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' });
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://dev.douhaoyu.cn/api/v1/conversations',
+        expect.objectContaining({ method: 'POST', credentials: 'include' }),
+      );
+    } finally {
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: originalWindow });
+    }
+  });
 });
