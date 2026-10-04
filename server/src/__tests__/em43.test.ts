@@ -397,6 +397,14 @@ describe('EM-43: Companion First Two Rounds', () => {
     expect(text1).not.toBe(text2);
   });
 
+  test('single-character “烦” is not expanded into an event or memory', () => {
+    const timeline = getFirstTwoRoundsCompanionTimeline(extractSignal('烦'), '烦');
+    const text = timeline.map(segment => segment.text).join('');
+
+    expect(text).toBe('烦——我听到了。');
+    expect(text).not.toMatch(/事|记住|因为|所以|让你/);
+  });
+
   test('Companion 不含诊断、模式或内部标签', () => {
     const inputs = [
       '领导今天当众否定了我的方案。',
@@ -622,3 +630,5 @@ describe('EM-43: Deep Prompt', () => {
     expect(prompt).toContain(ROLE.systemPrompt.substring(0, 20));
   });
 });
+
+// EF57

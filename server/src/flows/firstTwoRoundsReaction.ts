@@ -208,7 +208,9 @@ export function getFirstTwoRoundsCompanionTimeline(
       relationship_conflict: `${shortPhrase}——关于在乎的人的事，确实不好处理。`,
       sadness: `${shortPhrase}——你说的这些，不用急着理清。`,
       anxiety: `${shortPhrase}——让你着急的那些，你在意。`,
-      anger: `${shortPhrase}——让你不舒服的事，你记住了。`,
+      // A one-word input such as “烦” establishes no event, cause, or memory.
+      // Keep the companion to a literal acknowledgement of what was said.
+      anger: `${shortPhrase}——我听到了。`,
       burnout: `${shortPhrase}——累了的时候，不用逼自己。`,
       meaningless: `${shortPhrase}——你觉得没意义的那些，不用假装有力气。`,
       silence: `${shortPhrase}——不想说也没关系。`,
@@ -236,3 +238,5 @@ export function getFirstTwoRoundsCompanionTimeline(
 
   return [{ displayAt: 8, text }];
 }
+
+// EF57
