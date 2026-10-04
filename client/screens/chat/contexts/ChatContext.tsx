@@ -2598,3 +2598,61 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messages,
         sessions,
         currentRole,
+        currentSessionId,
+        currentSession,
+        isLoading,
+        isThinking,
+        thinkingContent,
+        deepThinkingContent,
+        chatPhase,
+        flowContext,
+        error,
+        showHistory,
+        lightAnalysis,
+        inputText,
+        showRoleIntro,
+        roles,
+        canRetry,
+        canRegenerate,
+        // EF-58: 消息队列状态和 UI
+        messageQueue,
+        queueCount,
+        isProcessingQueue,
+        queuePosition,
+        currentlyProcessingMessageId,
+        // EF-59 Fix: 水合状态
+        isHydrated,
+        // EF-38: Turn lifecycle for interrupted generation recovery
+        turnStatus: authoritativeTurnStatus,
+        isInterrupted: authoritativeTurnStatus === 'interrupted',
+        pendingTurn: currentSession?.pendingTurn,
+        setInputText,
+        setCurrentRole,
+        setShowRoleIntro,
+        sendMessage,
+        retryLastMessage,
+        regenerateLastResponse,
+        clearError: () => setError(null),
+        setShowHistory,
+        selectSession,
+        deleteSession,
+        createNewChat,
+        loadSession: loadSessionFn,
+        // EF-58: 队列管理函数
+        clearQueue,
+        removeQueuedMessage,
+        retryQueuedMessage,
+      }}
+    >
+      {children}
+    </ChatContext.Provider>
+  );
+}
+
+export function useChat() {
+  const context = useContext(ChatContext);
+  if (!context) {
+    throw new Error('useChat must be used within a ChatProvider');
+  }
+  return context;
+}
