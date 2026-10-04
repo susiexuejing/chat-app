@@ -405,6 +405,18 @@ describe('EM-43: Companion First Two Rounds', () => {
     expect(text).not.toMatch(/事|记住|因为|所以|让你/);
   });
 
+  test('punctuated short input preserves its terminal feeling in both front layers', () => {
+    const input = '不知道为什么，很烦';
+    const signal = extractSignal(input);
+    const reaction = getFirstTwoRoundsReactionTimeline(signal, input).map(segment => segment.text).join('');
+    const companion = getFirstTwoRoundsCompanionTimeline(signal, input).map(segment => segment.text).join('');
+
+    expect(reaction).toContain('不知道为什么，很烦');
+    expect(companion).toContain('不知道为什么，很烦');
+    expect(`${reaction}${companion}`).toContain('烦');
+    expect(`${reaction}${companion}`).not.toMatch(/这件事|记住|因为|所以|让你不舒服/);
+  });
+
   test('Companion 不含诊断、模式或内部标签', () => {
     const inputs = [
       '领导今天当众否定了我的方案。',
@@ -630,5 +642,3 @@ describe('EM-43: Deep Prompt', () => {
     expect(prompt).toContain(ROLE.systemPrompt.substring(0, 20));
   });
 });
-
-// EF57
