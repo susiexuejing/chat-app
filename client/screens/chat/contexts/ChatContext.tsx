@@ -1574,7 +1574,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           // first reply. Keep the authenticated runtime path available when
           // DEV persistence is unavailable; messages remain local-only until
           // the canonical store is restored.
-          backendConvId = undefined;
+          // Empty is the established optional-conversation sentinel in this
+          // UI state: it is omitted by the backend request and prevents
+          // persistence calls until a canonical row can be created.
+          backendConvId = '';
           console.warn('[EF-235] Canonical conversation persistence deferred:', getEf77ErrorType(mappingError));
         }
       }
