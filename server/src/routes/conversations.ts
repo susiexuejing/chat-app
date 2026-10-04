@@ -95,9 +95,8 @@ router.post('/', async (req, res) => {
       .from('conversations')
       .insert({
         id,
-        // Keep the legacy non-null column populated from server authority only.
+        // user_id is the pre-existing persistent owner column for DEV guests.
         user_id: owner.id,
-        owner_session_id: owner.id,
         role_id: roleId,
         state: 'active',
         created_at: now,
@@ -143,7 +142,7 @@ router.get('/:id', async (req, res) => {
       .from('conversations')
       .select('id, role_id, state, created_at, updated_at, last_message_at')
       .eq('id', id)
-      .eq('owner_session_id', owner.id)
+      .eq('user_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -217,7 +216,7 @@ router.post('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
-      .eq('owner_session_id', owner.id)
+      .eq('user_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -285,7 +284,7 @@ router.post('/:id/messages', async (req, res) => {
       .from('conversations')
       .update({ last_message_at: now, updated_at: now })
       .eq('id', id)
-      .eq('owner_session_id', owner.id);
+      .eq('user_id', owner.id);
 
     if (updateError) {
       failureCode = 'conversation_update_error';
@@ -328,7 +327,7 @@ router.get('/:id/messages', async (req, res) => {
       .from('conversations')
       .select('id')
       .eq('id', id)
-      .eq('owner_session_id', owner.id)
+      .eq('user_id', owner.id)
       .maybeSingle();
 
     if (convError) {
@@ -399,7 +398,7 @@ router.delete('/:id', async (req, res) => {
       .from('conversations')
       .delete()
       .eq('id', id)
-      .eq('owner_session_id', owner.id);
+      .eq('user_id', owner.id);
     if (error) throw error;
 
     return res.status(204).end();

@@ -41,7 +41,7 @@ function makeOwnershipClient() {
       });
       chain.maybeSingle = jest.fn(async () => {
         if (table === 'conversations') {
-          const owner = filters.find(([field]) => field === 'owner_session_id')?.[1];
+          const owner = filters.find(([field]) => field === 'user_id')?.[1];
           const id = filters.find(([field]) => field === 'id')?.[1];
           return {
             data: owner === 'owner-a' && id === CONVERSATION
@@ -133,7 +133,7 @@ describe('EF-75 conversation and message ownership', () => {
     expect(verifyOwnedConversation).toHaveBeenCalledWith('owner-a', CONVERSATION);
     expect(client.calls[0].filters).toEqual(expect.arrayContaining([
       ['id', CONVERSATION],
-      ['owner_session_id', 'owner-a'],
+      ['user_id', 'owner-a'],
     ]));
   });
 
@@ -177,7 +177,7 @@ describe('EF-75 conversation and message ownership', () => {
     expect(deleted.status).toBe(204);
     expect(ownedClient.calls[0].filters).toEqual(expect.arrayContaining([
       ['id', CONVERSATION],
-      ['owner_session_id', 'owner-a'],
+      ['user_id', 'owner-a'],
     ]));
   });
 
