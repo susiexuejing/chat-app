@@ -8,9 +8,13 @@ export interface Ef41DeepCompositionInput {
   userTurn: number;
   userMessage: string;
   source: Ef41DeepOutputSource;
+  /** Reaction + Companion already visible before Deep is appended. */
+  visiblePrefix?: string;
 }
 
 export const EF41_DEEP_FALLBACK = '等这一团稍微松开，事情的轻重也许会慢慢显出来。';
+export const FIRST_TWO_ROUNDS_DEEP_FALLBACK = '我听到了。';
+export const FIRST_TWO_ROUNDS_MAX_CHARS = 120;
 
 const QUESTION_PATTERN = /[？?]/;
 
@@ -23,6 +27,17 @@ const UNSOLICITED_ACTION_PATTERN = /(?:你(?:可以|应该|需要|最好)|不妨
 const USER_DIRECTED_ACTION_PATTERN = /(?:^|[，,；;。]\s*)你(?:只管|先(?!前|后)|去|来(?!自|到))/;
 
 const JOINT_PROGRESSION_PATTERN = /(?:^|[，,；;。]\s*)(?:我们|咱们)(?:再|一起)/;
+
+const ASSISTANT_LIFE_PATTERN = /(?:我(?:正|正在|在|刚|会).{0,12}(?:喝咖啡|咖啡|窗边|笔记本|散步|看书|旅行|坐在)|我的.{0,8}(?:咖啡|窗边|笔记本)|(?:窗边|咖啡|笔记本).{0,12}(?:我|狐狸))/;
+
+const HISTORY_CLAIM_PATTERN = /(?:你|用户).{0,12}(?:之前|以前|总是|每次|又|一直|还记得)|(?:之前|以前|总是|每次|又|一直|还记得).{0,12}(?:说|提到|觉得|感到|经历)/;
+
+const OPTIONAL_INVITATION_PATTERN = /(?:如果你愿意|要是你愿意|想的话|若你愿意|愿意的话|可以不回答)/;
+
+const INFERRED_FACT_TERMS = [
+  '心里沉', '沉重', '胸口', '胃里', '疲惫', '委屈', '难过', '伤心',
+  '孤独', '焦虑', '害怕', '不安', '压抑', '耗竭', '撑不住',
+] as const;
 
 function splitSentences(text: string): string[] {
   return text
@@ -51,16 +66,51 @@ export function shouldValidateEf41DeepOutput(input: Ef41DeepCompositionInput): b
     && isConfusedOverload(input.userMessage, true);
 }
 
+function isFirstTwoRounds(input: Ef41DeepCompositionInput): boolean {
+  return input.userTurn >= 1 && input.userTurn <= 2;
+}
+
+function hasUnsupportedInferredFact(text: string, userMessage: string): boolean {
+  return INFERRED_FACT_TERMS.some(term => text.includes(term) && !userMessage.includes(term));
+}
+
+function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = ''): boolean {
+  const trimmed = text.trim();
+  const remainingVisibleBudget = FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(visiblePrefix).length;
+  if (!trimmed || Array.from(trimmed).length > remainingVisibleBudget) return false;
+  if (ASSISTANT_LIFE_PATTERN.test(trimmed)) return false;
+  if (HISTORY_CLAIM_PATTERN.test(trimmed)) return false;
+  if (hasUnsupportedInferredFact(trimmed, userMessage)) return false;
+
+  const questionCount = (trimmed.match(/[？?]/g) || []).length;
+  if (questionCount > 1) return false;
+  if (questionCount === 1 && !OPTIONAL_INVITATION_PATTERN.test(trimmed)) return false;
+  return true;
+}
+
+function firstTwoRoundsFallback(visiblePrefix = ''): string {
+  return Array.from(`${visiblePrefix}${FIRST_TWO_ROUNDS_DEEP_FALLBACK}`).length <= FIRST_TWO_ROUNDS_MAX_CHARS
+    ? FIRST_TWO_ROUNDS_DEEP_FALLBACK
+    : '';
+}
+
 /**
- * EF-41-only post-cleaning composition validator.
+ * First-two-rounds post-cleaning composition validator.
  *
- * Non-target output is returned byte-for-byte. In the bounded target scenario,
- * it preserves at most the first useful declarative sentence and falls back to
- * a deterministic statement when the model supplied only disallowed content.
+ * Every first/second-turn Deep output gets a small factual and length gate.
+ * The EF-41 confused-overload variant keeps its stricter one-sentence rule.
+ * Later turns are returned byte-for-byte.
  */
 export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
-  if (!shouldValidateEf41DeepOutput(input)) return input.text;
+  if (!isFirstTwoRounds(input)) return input.text;
 
-  const sentence = splitSentences(input.text).find(isUsefulDeclarativeSentence);
-  return sentence || EF41_DEEP_FALLBACK;
+  const candidate = shouldValidateEf41DeepOutput(input)
+    ? splitSentences(input.text).find(isUsefulDeclarativeSentence) || EF41_DEEP_FALLBACK
+    : input.text.trim();
+
+  return isSafeFirstTwoRoundsOutput(candidate, input.userMessage, input.visiblePrefix)
+    ? candidate
+    : firstTwoRoundsFallback(input.visiblePrefix);
 }
+
+// EF57

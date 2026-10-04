@@ -276,10 +276,12 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
   let streamStartTime = Date.now();
 
   try {
-    const changeBlock = getChangeBlock(session.userId, session.roleId);
-    // Load long-term understanding for this user+role
-    const ltuProfile = await loadProfile(session.userId, session.roleId);
-    const longTermSummary = generateLTUSummary(ltuProfile);
+    // EF-57: New-chat entry turns must not read or present cross-session
+    // memories. They may still be updated after completion for later turns.
+    const isEntryTurn = userTurn >= 1 && userTurn <= 2;
+    const changeBlock = isEntryTurn ? undefined : getChangeBlock(session.userId, session.roleId);
+    const ltuProfile = isEntryTurn ? undefined : await loadProfile(session.userId, session.roleId);
+    const longTermSummary = ltuProfile ? generateLTUSummary(ltuProfile) : undefined;
     const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn, session.userMessage);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
@@ -458,6 +460,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         userTurn,
         userMessage: session.userMessage,
         source: 'cleaned',
+        visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
       }));
       console.log('[Deep] Cleaned content ready', {
         cleanedChars: cleaned.length,
@@ -474,6 +477,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           userTurn,
           userMessage: session.userMessage,
           source: 'last-resort',
+          visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
         }));
         console.log('[Deep] Last-resort content selected', {
           fallbackChars: last300.length,
@@ -495,6 +499,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         userTurn,
         userMessage: session.userMessage,
         source: 'reasoning',
+        visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
       }));
       const duration = Date.now() - streamStartTime;
       console.log('[Deep] Reasoning fallback selected', {
