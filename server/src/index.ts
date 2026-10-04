@@ -30,6 +30,10 @@ import {
   ef235IdentityWriteProbeHandler,
 } from './diagnostics/ef235IdentityWriteProbe';
 import {
+  EF235_IDENTITY_SCHEMA_REPAIR_PATH,
+  ef235IdentitySchemaRepairHandler,
+} from './diagnostics/ef235IdentitySchemaRepair';
+import {
   authenticateAnonymousRequest,
   EF75_WEB_ORIGIN,
   hasOwnerBindingRuntime,
@@ -102,6 +106,7 @@ app.get('/api/v1/version', (_req, res) => {
 // parameter-free request and returns a closed category receipt.
 if (process.env.NODE_ENV === 'development') {
   app.post(EF235_IDENTITY_WRITE_PROBE_PATH, ef235IdentityWriteProbeHandler);
+  app.post(EF235_IDENTITY_SCHEMA_REPAIR_PATH, ef235IdentitySchemaRepairHandler);
 }
 
 // Fixed DEV-only EF-45 diagnostic response. There are no caller-controlled

@@ -50,6 +50,8 @@ export interface IdentityDb {
   revokeOwnerBinding(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
   /** DEV diagnostics only; removes the exact synthetic binding. */
   deleteOwnerBindingForProbe(conversationRef: string, ownerPrincipalId: string): Promise<boolean>;
+  /** DEV-only, idempotent schema repair for the dedicated identity store. */
+  ensureDevIdentitySchema(): Promise<void>;
 }
 
 interface AnonymousSessionSqlRow extends Record<string, unknown> {
@@ -206,6 +208,38 @@ export class PostgresIdentityDb implements IdentityDb {
     );
     return result.rowCount === 1;
   }
+
+  async ensureDevIdentitySchema(): Promise<void> {
+    await this.sql.query(
+      `CREATE TABLE IF NOT EXISTS anonymous_sessions (
+        id VARCHAR(36) PRIMARY KEY,
+        credential_hash CHAR(64) NOT NULL UNIQUE,
+        transport VARCHAR(8) NOT NULL CHECK (transport IN ('native', 'web')),
+        csrf_hash CHAR(64),
+        created_at BIGINT NOT NULL,
+        expires_at BIGINT NOT NULL,
+        revoked_at BIGINT
+      )`,
+      [],
+    );
+    await this.sql.query(
+      'CREATE INDEX IF NOT EXISTS anonymous_sessions_active_idx ON anonymous_sessions(credential_hash, transport, expires_at)',
+      [],
+    );
+    await this.sql.query(
+      `CREATE TABLE IF NOT EXISTS conversation_owner_bindings (
+        conversation_ref VARCHAR(36) PRIMARY KEY,
+        owner_principal_id VARCHAR(36) NOT NULL,
+        created_at BIGINT NOT NULL,
+        revoked_at BIGINT
+      )`,
+      [],
+    );
+    await this.sql.query(
+      'CREATE INDEX IF NOT EXISTS conversation_owner_bindings_owner_active_idx ON conversation_owner_bindings(owner_principal_id, conversation_ref) WHERE revoked_at IS NULL',
+      [],
+    );
+  }
 }
 
 let protectedIdentityDb: IdentityDb | undefined;
@@ -248,6 +282,15 @@ export function registerRuntimeIdentityDb(): boolean {
   if (!result.ok) return false;
   protectedIdentityDb = createRuntimeIdentityDb(result.config);
   return true;
+}
+
+/**
+ * The only DDL entry point is a loopback-only DEV diagnostic endpoint. It is
+ * idempotent, creates no credentials or data rows, and never returns SQL.
+ */
+export async function ensureDevIdentitySchema(): Promise<void> {
+  if (!protectedIdentityDb) throw new Error('identity_runtime_unavailable');
+  await protectedIdentityDb.ensureDevIdentitySchema();
 }
 
 export function registerProtectedIdentityDb(identityDb: IdentityDb): void {
