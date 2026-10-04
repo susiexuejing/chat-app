@@ -1570,11 +1570,12 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           setSessions(prepared.sessions);
           backendConvId = prepared.conversationId;
         } catch (mappingError) {
-          if (mountedRef.current) setError(SAFE_RETRYABLE_CHAT_FAILURE_PROMPT);
-          retrySnapshotRef.current = snapshot;
-          console.error('[EF-105] Canonical conversation unavailable:', getEf77ErrorType(mappingError));
-          await markTurnFailed(snapshot.sessionId, 'outer_catch_mark_failed');
-          return 'chatstart_failed';
+          // A conversation row is durable history, not a prerequisite for a
+          // first reply. Keep the authenticated runtime path available when
+          // DEV persistence is unavailable; messages remain local-only until
+          // the canonical store is restored.
+          backendConvId = undefined;
+          console.warn('[EF-235] Canonical conversation persistence deferred:', getEf77ErrorType(mappingError));
         }
       }
 
@@ -2597,61 +2598,3 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         messages,
         sessions,
         currentRole,
-        currentSessionId,
-        currentSession,
-        isLoading,
-        isThinking,
-        thinkingContent,
-        deepThinkingContent,
-        chatPhase,
-        flowContext,
-        error,
-        showHistory,
-        lightAnalysis,
-        inputText,
-        showRoleIntro,
-        roles,
-        canRetry,
-        canRegenerate,
-        // EF-58: 消息队列状态和 UI
-        messageQueue,
-        queueCount,
-        isProcessingQueue,
-        queuePosition,
-        currentlyProcessingMessageId,
-        // EF-59 Fix: 水合状态
-        isHydrated,
-        // EF-38: Turn lifecycle for interrupted generation recovery
-        turnStatus: authoritativeTurnStatus,
-        isInterrupted: authoritativeTurnStatus === 'interrupted',
-        pendingTurn: currentSession?.pendingTurn,
-        setInputText,
-        setCurrentRole,
-        setShowRoleIntro,
-        sendMessage,
-        retryLastMessage,
-        regenerateLastResponse,
-        clearError: () => setError(null),
-        setShowHistory,
-        selectSession,
-        deleteSession,
-        createNewChat,
-        loadSession: loadSessionFn,
-        // EF-58: 队列管理函数
-        clearQueue,
-        removeQueuedMessage,
-        retryQueuedMessage,
-      }}
-    >
-      {children}
-    </ChatContext.Provider>
-  );
-}
-
-export function useChat() {
-  const context = useContext(ChatContext);
-  if (!context) {
-    throw new Error('useChat must be used within a ChatProvider');
-  }
-  return context;
-}
