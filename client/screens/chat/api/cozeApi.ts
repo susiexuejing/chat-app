@@ -498,7 +498,8 @@ export async function chatStart(
     if (!response.ok) {
       // Never read or propagate an HTTP error body into the client error path.
       // The caller maps this opaque failure to the single safe retryable prompt.
-      throw new Error('chat_start_request_failed');
+      const boundary = response.headers.get('X-EF235-Chat-Start-Boundary') || 'unknown';
+      throw new Error(`chat_start_${boundary}_${httpStatus}`);
     }
     const result: ChatStartResponse = await response.json();
     emitEf77Trace('chat_start_completed', {

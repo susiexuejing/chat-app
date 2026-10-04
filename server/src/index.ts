@@ -883,6 +883,7 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // 即时返回前端流 + 触发后台百炼调用
 // ============================================================
 app.post('/api/v1/chat/start', async (req, res) => {
+  let ef235StartBoundary: 'anonymous_auth' | 'request_validation' | 'conversation_ownership' | 'runtime_profile' | 'flow_preparation' | 'session_create' = 'anonymous_auth';
   const ef45ProbeMarker = isFixedEf45SyntheticProbe(
     req.get('x-ef45-diagnostic-marker'),
     req.body,
@@ -893,6 +894,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
   try {
     const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
     if (!authenticated.ok) {
+      if (process.env.NODE_ENV === 'development') res.setHeader('X-EF235-Chat-Start-Boundary', 'anonymous_auth');
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
       writeEf118RuntimeAudit({
         dbSessionCategory: 'session_missing',
@@ -904,6 +906,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     const { roleId, message, conversationId } = req.body;
     const userId = authenticated.session.id;
 
+    ef235StartBoundary = 'request_validation';
     if (!roleId || !message) {
       writeEf118RuntimeAudit({
         dbSessionCategory: 'request_invalid',
@@ -915,6 +918,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
     // EM-43: 验证 conversationId 格式
     if (conversationId !== undefined) {
+      ef235StartBoundary = 'conversation_ownership';
       if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(conversationId)) {
         writeEf118RuntimeAudit({
           dbSessionCategory: 'request_invalid',
@@ -945,9 +949,11 @@ app.post('/api/v1/chat/start', async (req, res) => {
       userTurn = incrementConversationTurnIdempotent(conversationId, requestId);
     }
 
+    ef235StartBoundary = 'runtime_profile';
     const roleName = ROLE_NAMES[roleId] || roleId;
     const neuralProfile = neuralManager.getOrCreateProfile(userId, roleId);
 
+    ef235StartBoundary = 'flow_preparation';
     // 0. 检测 normal_chat（纯问候/问身份，不走情感支持）
     const normalChat = isNormalChat(message);
 
@@ -1007,6 +1013,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     }
 
     // 5. 创建会话
+    ef235StartBoundary = 'session_create';
     const sessionId = crypto.randomUUID();
     const now = Date.now();
     const session: ChatSession = {
@@ -1117,6 +1124,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
     }
   } catch (error) {
+    if (process.env.NODE_ENV === 'development') res.setHeader('X-EF235-Chat-Start-Boundary', ef235StartBoundary);
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
       dbSessionCategory: 'chat_start_processing_error',
