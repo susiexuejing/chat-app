@@ -489,7 +489,10 @@ export async function chatStart(
       method: 'POST',
       credentials: auth.credentials,
       headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) },
-      body: JSON.stringify({ roleId, message, conversationId, requestId }),
+      // An empty value marks a local-only turn while canonical persistence is
+      // unavailable. Omit it so the authenticated runtime path does not
+      // attempt durable-conversation ownership validation.
+      body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId }),
     });
     httpStatus = response.status;
     if (!response.ok) {
