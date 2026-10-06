@@ -30,6 +30,7 @@ test('EF-115 runner is manual, read-only, and accepts only a named verification 
   assert.match(workflow, /^permissions:\n  contents: read$/m);
   assert.match(workflow, /authorized_sha:/);
   assert.match(workflow, /ef110-code-verification/);
+  assert.match(workflow, /ef75-identity-isolation/);
   assert.doesNotMatch(workflow, /pull_request:|push:|schedule:|secrets\.|ssh|rsync|curl|deploy|supabase/i);
 });
 
@@ -82,6 +83,17 @@ test('EF-115 runner installs pinned dependencies, executes the fixed suites, and
     'ef110-security-sanitization.test.ts',
     'ef102-stream-events.test.ts',
   ]) assert.match(workflow, new RegExp(suite.replaceAll('.', '\\.')));
+  for (const suite of [
+    'ef75-native-secure-session.test.ts',
+    'ef75-ownership-production-path.test.tsx',
+    'ef75-web-cookie-session.test.ts',
+    'ef75-anonymous-session.test.ts',
+    'ef75-chat-ownership.test.ts',
+    'ef75-conversation-ownership.test.ts',
+    'ef75-web-session-security.test.ts',
+  ]) assert.match(workflow, new RegExp(suite.replaceAll('.', '\\.')));
+  assert.match(workflow, /inputs\.pack == 'ef75-identity-isolation'/);
+  assert.match(workflow, /NODE_OPTIONS: --experimental-vm-modules/);
   assert.match(workflow, /actions\/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02/);
   assert.match(workflow, /retention-days: 30/);
   assert.match(workflow, /runtimeE2E:'not-executed'/);
