@@ -1,0 +1,11 @@
+export const DEMO_NUMBER='00000000000';
+export const STORAGE_KEY='emotionflow.ef376.demo.v1';
+export class DemoAuth {
+  constructor(storage,{now=()=>Date.now(), random=()=>Math.random()}={}){this.storage=storage;this.now=now;this.random=random;this.challenge=null;this.lastCode=null;}
+  read(){const raw=this.storage.getItem(STORAGE_KEY);if(raw===null)return {accounts:{},session:null};let data;try{data=JSON.parse(raw)}catch{throw Error('本地数据无法读取，请检查浏览器存储后重试。')};if(!data||typeof data.accounts!=='object'||!data.accounts||Array.isArray(data.accounts)||(data.session!==null&&typeof data.session!=='string')||Object.keys(data.accounts).some(k=>k!==DEMO_NUMBER||typeof data.accounts[k]!=='string')||(data.session!==null&&data.session!==data.accounts[DEMO_NUMBER]))throw Error('本地数据无法读取，请检查浏览器存储后重试。');return data;}
+  current(){return this.read().session;}
+  request(number){this.challenge=null;if(!number.trim())throw Error('请输入预置演示号码。');if(number.trim()!==DEMO_NUMBER)throw Error('仅可使用页面提供的虚构演示号码。');this.read();let n=Math.floor(this.random()*1000000);if(!Number.isInteger(n)||n<0||n>=1000000)throw Error('演示验证码生成失败，请重试。');let code=String(n).padStart(6,'0');if(code===this.lastCode)code=String((n+1)%1000000).padStart(6,'0');this.lastCode=code;this.challenge={number:DEMO_NUMBER,code,expires:this.now()+300000,attempts:0};return code;}
+  verify(code){const c=this.challenge;if(!c)throw Error('演示验证码已失效，请重新获取。');if(this.now()>=c.expires){this.challenge=null;throw Error('演示验证码已过期，请重新获取。');}if(c.attempts>=5){this.challenge=null;throw Error('尝试次数已用完，请重新获取演示验证码。');}c.attempts++;if(code!==c.code){if(c.attempts>=5){this.challenge=null;throw Error('验证码不正确，尝试次数已用完，请重新获取。');}throw Error('验证码不正确，请重试。');}const data=this.read();const existing=data.accounts[c.number];const id=existing||('demo-'+Math.floor(this.random()*1000000000000).toString(36)+'-'+this.now().toString(36));const next={accounts:{...data.accounts,[c.number]:id},session:id};this.storage.setItem(STORAGE_KEY,JSON.stringify(next));this.challenge=null;return {id,created:!existing};}
+  logout(){const data=this.read();this.storage.setItem(STORAGE_KEY,JSON.stringify({...data,session:null}));this.challenge=null;}
+  cancel(){this.challenge=null;}
+}
