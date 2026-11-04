@@ -103,10 +103,10 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
     }
     if (screen !== 'detail' || selected !== PATTERN_ID) return;
     on('path-open', async () => {
-      const token = ++generation;
+      const viewGeneration = ++generation;
       pathEditing = null;
       await journey.path.open(active(), selected);
-      if (token === generation) draw();
+      if (viewGeneration === generation) draw();
     });
     if (practice) {
       on('practice-edit', redraw(() => practice.edit()));
@@ -124,11 +124,11 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
       type('record-note', v => practice.note(v));
       on('record-skip', redraw(() => practice.skip()));
       on('record-save', async () => {
-        const token = generation;
+        const viewGeneration = generation;
         if (practice.saveRecord() && journey.path.snapshot().status === 'ready') {
           await journey.path.open(active(), selected);
         }
-        if (token === generation) draw();
+        if (viewGeneration === generation) draw();
       });
     }
     type('path-text', v => { explanation = v; });
@@ -136,17 +136,17 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
     journey.path.snapshot().entries.forEach((entry, i) => {
       on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; }));
       on('path-save-' + i, async () => {
-        const token = generation;
+        const viewGeneration = generation;
         const r = await journey.path.save(entry.entryId, { explanation }, entry.version);
-        if (token !== generation) return;
+        if (viewGeneration !== generation) return;
         if (r?.ok) pathEditing = null;
         draw();
       });
       on('path-remove-' + i, async () => {
         if (!window.confirm('移除这项关联？')) return;
-        const token = generation;
+        const viewGeneration = generation;
         await journey.path.save(entry.entryId, { linked: false }, entry.version);
-        if (token !== generation) return;
+        if (viewGeneration !== generation) return;
         pathEditing = null;
         draw();
       });

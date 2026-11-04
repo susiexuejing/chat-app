@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-v57hILnb7ZitfO4YFTMIGgHyGr5oA5eWMD8PD+6bHX0='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"><title>EmotionFlow · 整合演示</title><style>*{box-sizing:border-box}body{margin:0;background:#f3ebe0;color:#482b25;font:16px/1.6 system-ui,-apple-system,sans-serif}.app{max-width:450px;min-height:100vh;margin:auto;padding:26px 24px 100px;background:radial-gradient(circle at 90% 6%,#f9e4c9,transparent 32%),#fffaf3}h1{font-size:29px;margin:20px 0 8px}h2{font-size:20px;margin:0 0 6px}p{color:#78655e}.demo{padding:12px 14px;border-radius:12px;background:#fff0de;color:#734c31}.card{background:white;border:1px solid #f0e5d9;border-radius:18px;padding:18px;margin:13px 0;width:100%;text-align:left;color:inherit;box-shadow:0 4px 14px #815c4010}.card p{margin:4px 0}.badge{display:inline-block;background:#f8eee4;border-radius:20px;padding:3px 10px;color:#8a5c46;font-size:13px}.btn{border:0;border-radius:12px;background:#f77b48;color:white;padding:12px 16px;font:inherit;cursor:pointer;margin:6px 5px 6px 0}.sub{background:#f5e9dd;color:#7d4d3a}select{font:inherit;border:1px solid #e4d6c8;border-radius:10px;padding:9px;width:100%;background:#fff}button{cursor:pointer}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(450px,100%);display:flex;background:#fffefa;border-top:1px solid #eadbd1}.nav button{width:50%;padding:15px;background:none;border:0;color:#896f66;font:inherit}.nav .active{color:#df6935;font-weight:700}.error{background:#fff0ec;padding:12px;border-radius:12px;color:#9d3528}.fox{display:block;width:76px;height:76px;margin:18px auto}small{color:#78655e}button:focus-visible,select:focus-visible{outline:3px solid #cf6b39}input,textarea,select{width:100%;padding:12px;border:1px solid #e4d6c8;border-radius:10px;font:inherit;background:white}label{display:block;margin:14px 0 6px}textarea{min-height:100px}button.primary{background:#f77b48;color:white;border:0;border-radius:12px;padding:12px 16px;margin:8px 0}button#toggle,button#leave,button#retry{border:0;border-radius:12px;padding:12px;margin:8px 4px}.code{font-size:25px;letter-spacing:.2em}</style></head><body><main class="app"><div id="root"></div><nav class="nav" aria-label="底部导航"><button id="chat-nav">♡ 聊天</button><button id="me-nav">♟ 我的</button></nav></main><script>const {DemoAuth,DEMO_NUMBER}=(function(){
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Xsesb5Ld7n6hNOifx8duYwLy5tl6ROLXMCGv+2wQTqw='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"><title>EmotionFlow · 整合演示</title><style>*{box-sizing:border-box}body{margin:0;background:#f3ebe0;color:#482b25;font:16px/1.6 system-ui,-apple-system,sans-serif}.app{max-width:450px;min-height:100vh;margin:auto;padding:26px 24px 100px;background:radial-gradient(circle at 90% 6%,#f9e4c9,transparent 32%),#fffaf3}h1{font-size:29px;margin:20px 0 8px}h2{font-size:20px;margin:0 0 6px}p{color:#78655e}.demo{padding:12px 14px;border-radius:12px;background:#fff0de;color:#734c31}.card{background:white;border:1px solid #f0e5d9;border-radius:18px;padding:18px;margin:13px 0;width:100%;text-align:left;color:inherit;box-shadow:0 4px 14px #815c4010}.card p{margin:4px 0}.badge{display:inline-block;background:#f8eee4;border-radius:20px;padding:3px 10px;color:#8a5c46;font-size:13px}.btn{border:0;border-radius:12px;background:#f77b48;color:white;padding:12px 16px;font:inherit;cursor:pointer;margin:6px 5px 6px 0}.sub{background:#f5e9dd;color:#7d4d3a}select{font:inherit;border:1px solid #e4d6c8;border-radius:10px;padding:9px;width:100%;background:#fff}button{cursor:pointer}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(450px,100%);display:flex;background:#fffefa;border-top:1px solid #eadbd1}.nav button{width:50%;padding:15px;background:none;border:0;color:#896f66;font:inherit}.nav .active{color:#df6935;font-weight:700}.error{background:#fff0ec;padding:12px;border-radius:12px;color:#9d3528}.fox{display:block;width:76px;height:76px;margin:18px auto}small{color:#78655e}button:focus-visible,select:focus-visible{outline:3px solid #cf6b39}input,textarea,select{width:100%;padding:12px;border:1px solid #e4d6c8;border-radius:10px;font:inherit;background:white}label{display:block;margin:14px 0 6px}textarea{min-height:100px}button.primary{background:#f77b48;color:white;border:0;border-radius:12px;padding:12px 16px;margin:8px 0}button#toggle,button#leave,button#retry{border:0;border-radius:12px;padding:12px;margin:8px 4px}.code{font-size:25px;letter-spacing:.2em}</style></head><body><main class="app"><div id="root"></div><nav class="nav" aria-label="底部导航"><button id="chat-nav">♡ 聊天</button><button id="me-nav">♟ 我的</button></nav></main><script>const {DemoAuth,DEMO_NUMBER}=(function(){
 const DEMO_NUMBER='00000000000';
 const STORAGE_KEY='emotionflow.ef376.demo.v1';
 class DemoAuth {
@@ -504,10 +504,10 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
     }
     if (screen !== 'detail' || selected !== PATTERN_ID) return;
     on('path-open', async () => {
-      const token = ++generation;
+      const viewGeneration = ++generation;
       pathEditing = null;
       await journey.path.open(active(), selected);
-      if (token === generation) draw();
+      if (viewGeneration === generation) draw();
     });
     if (practice) {
       on('practice-edit', redraw(() => practice.edit()));
@@ -525,11 +525,11 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
       type('record-note', v => practice.note(v));
       on('record-skip', redraw(() => practice.skip()));
       on('record-save', async () => {
-        const token = generation;
+        const viewGeneration = generation;
         if (practice.saveRecord() && journey.path.snapshot().status === 'ready') {
           await journey.path.open(active(), selected);
         }
-        if (token === generation) draw();
+        if (viewGeneration === generation) draw();
       });
     }
     type('path-text', v => { explanation = v; });
@@ -537,17 +537,17 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
     journey.path.snapshot().entries.forEach((entry, i) => {
       on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; }));
       on('path-save-' + i, async () => {
-        const token = generation;
+        const viewGeneration = generation;
         const r = await journey.path.save(entry.entryId, { explanation }, entry.version);
-        if (token !== generation) return;
+        if (viewGeneration !== generation) return;
         if (r?.ok) pathEditing = null;
         draw();
       });
       on('path-remove-' + i, async () => {
         if (!window.confirm('移除这项关联？')) return;
-        const token = generation;
+        const viewGeneration = generation;
         await journey.path.save(entry.entryId, { linked: false }, entry.version);
-        if (token !== generation) return;
+        if (viewGeneration !== generation) return;
         pathEditing = null;
         draw();
       });

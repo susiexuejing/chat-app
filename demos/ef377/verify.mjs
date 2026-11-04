@@ -11,7 +11,7 @@ for (const path of ['build.mjs', 'journey-test.mjs']) {
 }
 const html = readFileSync(new URL('./ef377-integrated-v01/EmotionFlow-EF377-Integrated.html', import.meta.url));
 const sha256 = createHash('sha256').update(html).digest('hex');
-if (sha256 !== 'd9b06016059078e4872abdcf3601fefbf43bf11313c51ec30342a7ef7443fd76') {
+if (sha256 !== '95680f8f44d03bf62c7e6586de81b75ba21ca84f526b09646550e7735d04cc22') {
   throw Error('EF-377 candidate digest mismatch');
 }
 console.log(JSON.stringify({
