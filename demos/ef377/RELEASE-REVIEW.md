@@ -1,80 +1,13 @@
-# EF-376/377 fixed integrated Demo: source admission and release review
+# EF-377 完整合成 Demo
 
-## Fixed source
+本 PR 仅维护一个候选。在现有 EF-376/377 页面上接入固定狐狸聊天、候选确认、同一模式的练习、选择题记录与路径。统一使用虚构号码 00000000000 和页面动态验证码，同号回访同一个浏览器内的本地账户。
 
-Imported without changes from EmotionFlow-EF377-Integrated-v0.1.zip, SHA-256
-`7e975cc8b6f8e658f8214cae1fb817f3aa51aa60eca354935dc71caaf3da4f1e`.
-The two original source/QA directories retain their relative layout. No archive
-or duplicate root HTML is needed in git. See PROVENANCE.md for module identities.
-EF-378/379 are deferred until this application is delivered.
+- 产品基线见 [EF-377](https://douhaoyu.atlassian.net/browse/EF-377)。
+- 起点为 PR #160 的 fbc0a4b3843b9446415215b04f9d1da0ef09f59b。旧 HTML e40ae524…4771 及旧 42 项合成证据只属于该提交。
+- EF-378/379 输入来自 CTO 指定联合 ZIP，SHA-256 43788aaab84052daa7223329662700e58f3b8071c720eb7f4c269d50f6eaf2d6。practice.mjs 在原练习核心上增加可注入状态和失败回退。path.mjs 保持原件，路径控制器接入同一账户和模式的本地仓储。
+- 聊天精确匹配一条合成句。只在确认后保存用户提交的理解和合成事件。练习记录与路径关联一次写入，写入失败保留已存内容与当前输入。
+- 新候选 HTML 为 58,235 字节，SHA-256 d9b06016059078e4872abdcf3601fefbf43bf11313c51ec30342a7ef7443fd76。
 
-Run from the repository root: `node demos/ef377/verify.mjs`.
-This builds and checks the fixed 32,816-byte HTML. Its SHA-256 must remain
-`e40ae524f7f48a5304e0bb14b7fb3008fa5c97f8a737b55f4b510a5ef39a4771`.
-The wrapper sets the original QA working directory rather than changing frozen
-QA scripts. The imported report describes historical independent QA; replay by
-the integration owner is not fresh independent QA. Local replay on 2026-11-01
-used Node v24.22.1, not the deployment workflow's Node 20. Owner checks and all
-42 synthetic assertions passed. Browser rendering/E2E remain Not Run.
+在仓库根目录运行 `node demos/ef377/verify.mjs`。该命令重建 HTML 并用 Node DOM 模拟执行从登录到同号回访的页面交互，包括错误验证码、拒绝候选、失败后重试、跳过记录和移除路径关联。历史 QA 脚本和报告保留在原提交。新候选的原生浏览器、视觉和独立整合 QA 尚未运行。
 
-## Existing release chain: read-only findings, 2026-11-01
-
-- Application repository: susiexuejing/chat-app; default/release branch: dev.
-- Read HEAD: `392161d20f86bb2d710a8cb6a25e32253dff6b5a`.
-- `.github/workflows/deploy-dev.yml` (blob
-  `c933c4d2e037f0889e7a2470c6711ba18f70b04f`) triggers on dev push or manual
-  workflow_dispatch. It uses Node 20/pnpm 9, frozen install, client/server tests,
-  Expo frontend export and backend build, then SSH/rsync activation.
-- Run 37212217957 completed successfully for this HEAD; upload, activation,
-  domain verification and audit-file metadata steps succeeded. Public
-  https://dev.douhaoyu.cn/deployment-sha.txt returned this same HEAD during
-  this review. This proves domain version agreement, not ECS instance identity.
-- Existing activation replaces `/var/www/chat-app/dev` and server dist under
-  `/var/www/chat-app/server`, restarts the backend via PM2, and has backup/rollback.
-  Host identity is referenced by DEV_SSH_HOST; its value was not read.
-- Repository source does not bind that protected host to the designated ECS
-  `i-0jlbuvzvw9afq1ssgkj1`. Historical EF-377 #12972 is not a fresh host attestation.
-
-## Exact difference and shortest remaining release action
-
-This PR adds only `demos/ef377/**`. It creates no public route, changes no
-workflow/runtime/secret/access policy, and does not copy the Demo into the Expo
-public export. Merging would still trigger the existing whole-application DEV
-workflow, so merge/dispatch are not part of this source-import action.
-
-The missing capability is a reviewed, target-bound **single-file EF-377 publish
-operation**. The existing whole-app pipeline cannot be treated as that operation:
-it does not publish `/srv/emotionflow-internal`, configure a restricted location,
-or enforce the Demo's fixed digest. Do not dispatch it as a substitute.
-
-Shortest action: the existing DEV deployment owner uses the established protected
-host channel to attest that it targets the designated ECS, then prepares one
-bounded publish operation for the fixed HTML and exact nginx location below.
-No new host connection, service, port, security group, backend restart or model
-call is required for that operation. Its target/source-access details must be
-completed and reviewed before execution.
-
-| Item | Existing workflow | EF-377 proposal (not applied) |
-| --- | --- | --- |
-| Frontend destination | /var/www/chat-app/dev | /srv/emotionflow-internal/ef377/a-e40ae524/index.html |
-| URL | Existing application on dev.douhaoyu.cn | /_internal/ef377/a-e40ae524/index.html on existing 443 vhost |
-| Content | Entire frontend and backend builds | Only the fixed 32,816-byte HTML |
-| Allowed source | No EF-377 rule in workflow | 154.40.33.211/32 is a candidate from historical QA observation; actual DEV remote_addr still unverified |
-| Activation | Backend restart | nginx test/reload only after exact configuration review |
-| Rollback | Full application backups | Remove only this file/location; stop on configuration drift |
-
-The proposed path/IP are inherited draft values, not approved or newly deployed.
-Fresh read-only checks must cover the designated instance, vhost/includes,
-directory ownership/symlinks, route conflicts, previous-page baseline and
-effective access-control source (including trusted-proxy configuration).
-
-Preserve the draft restrictions: exact file GET/HEAD, other sources denied,
-no-store/no-referrer/nosniff/DENY headers, CSP default-src/connect-src 'none',
-img-src data:, object-src/base-uri/form-action 'none', style-src 'unsafe-inline',
-script-src 'sha256-tr9aai8ZEQaonZ7PyuvL8d6jXGFwLKNVni4A8/MxpSs=',
-frame-ancestors 'none'. Do not use storage-breaking CSP sandbox.
-
-No server write, deployment, browser QA, fresh independent QA, or Epic acceptance
-is claimed by this PR. Real phone numbers/text/users, SMS, keys/models and
-production remain outside scope. This application import must not be used to
-bypass a browser tool's earlier file-access denial.
+PR 仍待独立审查和受保护 dev 的合法准入。现有全站 DEV 流程会在合并时替换前后端并重启后台，不提供此 Demo 的受限单文件发布。指定 ECS 绑定、已有主机通道的受限写入能力和 DEV 所见 QA 来源尚待确认。旧候选 e40ae524 的路径草案不适用于新摘要。未来受限发布需要先核实新文件、精确 URL、访问来源与回退差异。当前无部署、无新增路径或 IP。
