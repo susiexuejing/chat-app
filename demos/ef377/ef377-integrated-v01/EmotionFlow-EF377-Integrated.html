@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-Xsesb5Ld7n6hNOifx8duYwLy5tl6ROLXMCGv+2wQTqw='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"><title>EmotionFlow · 整合演示</title><style>*{box-sizing:border-box}body{margin:0;background:#f3ebe0;color:#482b25;font:16px/1.6 system-ui,-apple-system,sans-serif}.app{max-width:450px;min-height:100vh;margin:auto;padding:26px 24px 100px;background:radial-gradient(circle at 90% 6%,#f9e4c9,transparent 32%),#fffaf3}h1{font-size:29px;margin:20px 0 8px}h2{font-size:20px;margin:0 0 6px}p{color:#78655e}.demo{padding:12px 14px;border-radius:12px;background:#fff0de;color:#734c31}.card{background:white;border:1px solid #f0e5d9;border-radius:18px;padding:18px;margin:13px 0;width:100%;text-align:left;color:inherit;box-shadow:0 4px 14px #815c4010}.card p{margin:4px 0}.badge{display:inline-block;background:#f8eee4;border-radius:20px;padding:3px 10px;color:#8a5c46;font-size:13px}.btn{border:0;border-radius:12px;background:#f77b48;color:white;padding:12px 16px;font:inherit;cursor:pointer;margin:6px 5px 6px 0}.sub{background:#f5e9dd;color:#7d4d3a}select{font:inherit;border:1px solid #e4d6c8;border-radius:10px;padding:9px;width:100%;background:#fff}button{cursor:pointer}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(450px,100%);display:flex;background:#fffefa;border-top:1px solid #eadbd1}.nav button{width:50%;padding:15px;background:none;border:0;color:#896f66;font:inherit}.nav .active{color:#df6935;font-weight:700}.error{background:#fff0ec;padding:12px;border-radius:12px;color:#9d3528}.fox{display:block;width:76px;height:76px;margin:18px auto}small{color:#78655e}button:focus-visible,select:focus-visible{outline:3px solid #cf6b39}input,textarea,select{width:100%;padding:12px;border:1px solid #e4d6c8;border-radius:10px;font:inherit;background:white}label{display:block;margin:14px 0 6px}textarea{min-height:100px}button.primary{background:#f77b48;color:white;border:0;border-radius:12px;padding:12px 16px;margin:8px 0}button#toggle,button#leave,button#retry{border:0;border-radius:12px;padding:12px;margin:8px 4px}.code{font-size:25px;letter-spacing:.2em}</style></head><body><main class="app"><div id="root"></div><nav class="nav" aria-label="底部导航"><button id="chat-nav">♡ 聊天</button><button id="me-nav">♟ 我的</button></nav></main><script>const {DemoAuth,DEMO_NUMBER}=(function(){
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-C33eLpCKq6WM6wvm1Vovrojt42OL54hoodTRobNf/mA='; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'"><title>EmotionFlow · 整合演示</title><style>*{box-sizing:border-box}body{margin:0;background:#f3ebe0;color:#482b25;font:16px/1.6 system-ui,-apple-system,sans-serif}.app{max-width:450px;min-height:100vh;margin:auto;padding:26px 24px 100px;background:radial-gradient(circle at 90% 6%,#f9e4c9,transparent 32%),#fffaf3}h1{font-size:29px;margin:20px 0 8px}h2{font-size:20px;margin:0 0 6px}p{color:#78655e}.demo{padding:12px 14px;border-radius:12px;background:#fff0de;color:#734c31}.card{background:white;border:1px solid #f0e5d9;border-radius:18px;padding:18px;margin:13px 0;width:100%;text-align:left;color:inherit;box-shadow:0 4px 14px #815c4010}.card p{margin:4px 0}.badge{display:inline-block;background:#f8eee4;border-radius:20px;padding:3px 10px;color:#8a5c46;font-size:13px}.btn{border:0;border-radius:12px;background:#f77b48;color:white;padding:12px 16px;font:inherit;cursor:pointer;margin:6px 5px 6px 0}.sub{background:#f5e9dd;color:#7d4d3a}select{font:inherit;border:1px solid #e4d6c8;border-radius:10px;padding:9px;width:100%;background:#fff}button{cursor:pointer}.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:min(450px,100%);display:flex;background:#fffefa;border-top:1px solid #eadbd1}.nav button{width:50%;padding:15px;background:none;border:0;color:#896f66;font:inherit}.nav .active{color:#df6935;font-weight:700}.error{background:#fff0ec;padding:12px;border-radius:12px;color:#9d3528}.fox{display:block;width:76px;height:76px;margin:18px auto}small{color:#78655e}button:focus-visible,select:focus-visible{outline:3px solid #cf6b39}input,textarea,select{width:100%;padding:12px;border:1px solid #e4d6c8;border-radius:10px;font:inherit;background:white}label{display:block;margin:14px 0 6px}textarea{min-height:100px}button.primary{background:#f77b48;color:white;border:0;border-radius:12px;padding:12px 16px;margin:8px 0}button#toggle,button#leave,button#retry{border:0;border-radius:12px;padding:12px;margin:8px 4px}.code{font-size:25px;letter-spacing:.2em}</style></head><body><main class="app"><div id="root"></div><nav class="nav" aria-label="底部导航"><button id="chat-nav">♡ 聊天</button><button id="me-nav">♟ 我的</button></nav></main><script>const {DemoAuth,DEMO_NUMBER}=(function(){
 const DEMO_NUMBER='00000000000';
 const STORAGE_KEY='emotionflow.ef376.demo.v1';
 class DemoAuth {
@@ -306,7 +306,7 @@ function createJourney(storage, session, now) {
       if (!accountId) return failure('unauthenticated');
       const data = read();
       const existing = data.patterns.find(row => owns(row, accountId, PATTERN_ID));
-      const stamp = new Date(now()).toISOString();
+      const stamp = new Date(Math.max(now(), existing ? Date.parse(existing.updatedAt) + 1 : 0)).toISOString();
       const pattern = {
         schemaVersion: 1, demoSource: 'synthetic', accountId, patternId: PATTERN_ID,
         name: existing?.name ?? PATTERN_NAME, currentUnderstanding: text.trim(), decision: 'confirmed',
@@ -387,9 +387,10 @@ function createJourney(storage, session, now) {
       const row = rows.find(entry => entry.entryId === entryId);
       if (!row) return failure('not_found');
       if (row.version !== version) return failure('conflict');
-      if (Object.keys(patch).some(key => key !== 'linked' && key !== 'explanation')
+      if (!patch || Object.getPrototypeOf(patch) !== Object.prototype
+        || Object.keys(patch).some(key => !['linked', 'explanation', 'feeling'].includes(key))
         || ('linked' in patch && typeof patch.linked !== 'boolean')
-        || ('explanation' in patch && (typeof patch.explanation !== 'string' || patch.explanation.length > 1000))) return failure('invalid');
+        || ['explanation', 'feeling'].some(key => key in patch && (typeof patch[key] !== 'string' || patch[key].length > 1000))) return failure('invalid');
       Object.assign(row, patch, { version: version + 1 });
       write(data);
       return { ok: true, data: row };
@@ -403,12 +404,12 @@ const {createJourneyUI}=(function(CHAT_INPUT,CANDIDATE,PATTERN_ID){
 
 function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, showNotice }) {
   let input = '', candidate = false, editing = false, understanding = '';
-  let practice, pathEditing = null, explanation = '';
+  let practice, pathEditing = null, explanation = '', pathFeeling = '';
   let generation = 0;
 
   function reset() {
     generation++;
-    input = understanding = explanation = '';
+    input = understanding = explanation = pathFeeling = '';
     candidate = editing = false;
     practice?.leave();
     practice = undefined;
@@ -443,10 +444,11 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
     if (checkin) {
       html += '<h2>今天的记录</h2><p>是否发生了？ ' + button('occurred-yes','发生了') + button('occurred-no','没有发生') +
         (checkin.occurred === null ? '' : checkin.occurred ? ' 已选：发生了' : ' 已选：没有发生') + '</p>';
-      if (checkin.occurred) html += '<p>做了什么？ ' + button('action-agreed','试了') + button('action-none','没有做') +
-        (checkin.action ? ' 已选：' + (checkin.action === 'agreed' ? '试了' : '没有做') : '') + '</p>';
-      if (checkin.action === 'agreed') html += '<p>感觉如何？ ' + button('feeling-helped','有一点帮助') +
-        button('feeling-unchanged','差不多') + button('feeling-worse','更不舒服') +
+      if (checkin.occurred) html += '<p>做了什么？ ' + button('action-agreed','试了') +
+        button('action-other','做了别的动作') + button('action-none','没有做') +
+        (checkin.action ? ' 已选：' + actions[checkin.action] : '') + '</p>';
+      if (['agreed','other'].includes(checkin.action)) html += '<p>感觉如何？ ' + button('feeling-helped','有一点帮助') +
+        button('feeling-unchanged','差不多') + button('feeling-worse','更不舒服') + button('feeling-not_recorded','不想记录感受') +
         (checkin.feeling ? ' 已选：' + feelings[checkin.feeling] : '') + '</p>';
       html += '<label for="record-note">可选备注</label><input id="record-note" maxlength="200" value="' +
         esc(checkin.note) + '">' + button('record-save','保存记录','primary') + button('record-skip','跳过');
@@ -456,7 +458,9 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
     return html + '</section>';
   }
 
-  const feelings = { helped: '有一点帮助', unchanged: '差不多', worse: '更不舒服' };
+  const actions = { agreed: '试了', other: '做了别的动作', none: '没有做' };
+  const feelings = { helped: '有一点帮助', unchanged: '差不多', worse: '更不舒服', not_recorded: '不想记录感受' };
+  const entryTypes = { event: '经历', exception: '例外', practice: '练习记录', correction: '理解修正' };
   function pathView() {
     const state = journey.path.snapshot();
     if (state.status !== 'ready') return '<h2>路径</h2><p>暂时无法读取路径。</p>' + button('path-open','重试');
@@ -464,13 +468,17 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
     if (state.error) html += '<p role="alert">路径未更新，原关联保持不变。可重试。</p>';
     for (const [i, entry] of state.entries.entries()) {
       const r = entry.record;
-      const fact = r ? [r.occurred ? '发生了' : '没有发生', r.action === 'agreed' ? '试了' : r.action === 'none' ? '没有做' : '',
+      const fact = r ? [r.occurred ? '发生了' : '没有发生', actions[r.action],
         feelings[r.feeling], r.note].filter(Boolean).join(' → ') : entry.fact;
-      html += '<article><h3>' + esc(entry.entryId) + '</h3><p>' + esc(fact) + '</p><small>' +
-        esc(entry.createdAt) + ' · ' + esc(entry.source) + '</small>' +
+      html += '<article><h3>' + esc(entryTypes[entry.type] ?? '记录') + ' · ' + esc(entry.entryId) + '</h3><p>' + esc(fact ?? '') + '</p><small>' +
+        esc(entry.createdAt) + ' · ' + esc(entry.source ?? '来源未知') + '</small>' +
+        (entry.type === 'correction' ? '<p>原来的理解：' + esc(entry.oldUnderstanding ?? '未记录') +
+          '</p><p>这次保存的理解：' + esc(entry.currentUnderstanding ?? '未记录') + '</p>' : '') +
         (r ? '<p>关联练习：' + esc(r.practiceId) + '</p>' : '') +
+        (entry.feeling ? '<p>补充／修正感受：' + esc(entry.feeling) + '</p>' : '') +
         (entry.explanation ? '<p>' + esc(entry.explanation) + '</p>' : '') +
-        (pathEditing === i ? '<label for="path-text">关联说明</label><textarea id="path-text" maxlength="1000">' +
+        (pathEditing === i ? '<label for="path-feeling">补充／修正感受（仅合成演示文字）</label><textarea id="path-feeling" maxlength="1000">' +
+          esc(pathFeeling) + '</textarea><label for="path-text">关联说明</label><textarea id="path-text" maxlength="1000">' +
           esc(explanation) + '</textarea>' + button('path-save-' + i,'保存说明') + button('path-cancel','取消')
           : button('path-edit-' + i,'编辑说明')) + button('path-remove-' + i,'移除关联') + '</article>';
     }
@@ -520,6 +528,7 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
       on('occurred-yes', redraw(() => practice.chooseOccurred(true)));
       on('occurred-no', redraw(() => practice.chooseOccurred(false)));
       on('action-agreed', redraw(() => practice.chooseAction('agreed')));
+      on('action-other', redraw(() => practice.chooseAction('other')));
       on('action-none', redraw(() => practice.chooseAction('none')));
       for (const key of Object.keys(feelings)) on('feeling-' + key, redraw(() => practice.chooseFeeling(key)));
       type('record-note', v => practice.note(v));
@@ -533,12 +542,15 @@ function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, s
       });
     }
     type('path-text', v => { explanation = v; });
-    on('path-cancel', redraw(() => { pathEditing = null; explanation = ''; }));
+    type('path-feeling', v => { pathFeeling = v; });
+    on('path-cancel', redraw(() => { pathEditing = null; explanation = pathFeeling = ''; }));
     journey.path.snapshot().entries.forEach((entry, i) => {
-      on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; }));
+      on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; pathFeeling = entry.feeling ?? ''; }));
       on('path-save-' + i, async () => {
         const viewGeneration = generation;
-        const r = await journey.path.save(entry.entryId, { explanation }, entry.version);
+        const patch = { explanation };
+        if (pathFeeling !== (entry.feeling ?? '')) patch.feeling = pathFeeling;
+        const r = await journey.path.save(entry.entryId, patch, entry.version);
         if (viewGeneration !== generation) return;
         if (r?.ok) pathEditing = null;
         draw();
@@ -570,7 +582,40 @@ const {createIntegrated}=(function(DemoAuth,createOverview,PatternDetail,createR
 
 
 function createIntegrated(storage,{now=()=>Date.now(),random=()=>Math.random()}={}){
- const physical=storage;storage={getItem:key=>physical.getItem('emotionflow.ef377.integrated.v1.'+key),setItem:(key,value)=>{const target='emotionflow.ef377.integrated.v1.'+key;if(key===STORAGE_KEY){let next=JSON.parse(value),prior=physical.getItem(target);if(prior&&next.seededAccounts===undefined){let old=JSON.parse(prior);if(old.seededAccounts!==undefined)next.seededAccounts=old.seededAccounts;if(next.journey===undefined&&old.journey!==undefined)next.journey=old.journey;}value=JSON.stringify(next)}physical.setItem(target,value)}};const auth=new DemoAuth(storage,{now,random});const session=()=>auth.current();const repo=createRepository({storage,session,clock:now});let cached={ok:true,data:[]},generation=0;const overview=createOverview({listPatterns:()=>cached});const detail=new PatternDetail({getPattern:repo.getPattern});const editor=createEditor({repository:repo,session});
+ const physical=storage;
+ storage={
+  getItem:key=>physical.getItem('emotionflow.ef377.integrated.v1.'+key),
+  setItem(key,value){
+   const target='emotionflow.ef377.integrated.v1.'+key;
+   if(key===STORAGE_KEY){
+    const next=JSON.parse(value),prior=physical.getItem(target);
+    if(prior){
+     const old=JSON.parse(prior);
+     if(next.seededAccounts===undefined&&old.seededAccounts!==undefined)next.seededAccounts=old.seededAccounts;
+     if(next.journey===undefined&&old.journey!==undefined)next.journey=old.journey;
+     // Save understanding history in the same atomic write as the pattern update.
+     // This covers both editor saves and a later explicit chat confirmation.
+     for(const pattern of next.patterns){
+      const previous=old.patterns.find(row=>row.accountId===pattern.accountId&&row.patternId===pattern.patternId);
+      if(pattern.patternId!==PATTERN_ID||!previous||previous.currentUnderstanding===pattern.currentUnderstanding)continue;
+      next.journey??={practices:[],records:[],entries:[]};
+      if(!Array.isArray(next.journey.entries))throw Error('unavailable');
+      let n=1;
+      while(next.journey.entries.some(row=>row.accountId===pattern.accountId&&row.patternId===pattern.patternId&&row.entryId==='correction-'+n))n++;
+      next.journey.entries.push({
+       schemaVersion:1,demoSource:'synthetic',accountId:pattern.accountId,patternId:pattern.patternId,
+       entryId:'correction-'+n,type:'correction',createdAt:pattern.updatedAt,version:1,linked:true,
+       fact:'用户明确保存的理解修正。',source:'用户确认修改',userConfirmed:true,
+       oldUnderstanding:previous.currentUnderstanding,currentUnderstanding:pattern.currentUnderstanding,
+      });
+     }
+    }
+    value=JSON.stringify(next);
+   }
+   physical.setItem(target,value);
+  },
+ };
+ const auth=new DemoAuth(storage,{now,random});const session=()=>auth.current();const repo=createRepository({storage,session,clock:now});let cached={ok:true,data:[]},generation=0;const overview=createOverview({listPatterns:()=>cached});const detail=new PatternDetail({getPattern:repo.getPattern});const editor=createEditor({repository:repo,session});
  const journey=createJourney(storage,session,now);
  async function list(){let a;const g=++generation;try{a=session()}catch{overview.logout();return {accountId:null,screen:'list',items:[],selected:null,error:'unavailable'}}overview.setAccount(a);if(!a)return overview.openList();const result=await repo.listPatterns(a);let current;try{current=session()}catch{return {accountId:null,screen:'list',items:[],selected:null,error:'unavailable'}}if(g!==generation||current!==a)return null;cached=result;return overview.openList()}
  async function open(id){let a;try{a=session()}catch{detail.leave();return {ok:false,error:'unavailable'}}if(!a){detail.leave();return {ok:false,error:'unauthenticated'}}await detail.open(a,id);return detail.snapshot()}

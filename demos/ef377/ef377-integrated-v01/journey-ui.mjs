@@ -2,12 +2,12 @@ import { CHAT_INPUT, CANDIDATE, PATTERN_ID } from './journey.mjs';
 
 export function createJourneyUI({ journey, active, by, esc, button, draw, openDetail, showNotice }) {
   let input = '', candidate = false, editing = false, understanding = '';
-  let practice, pathEditing = null, explanation = '';
+  let practice, pathEditing = null, explanation = '', pathFeeling = '';
   let generation = 0;
 
   function reset() {
     generation++;
-    input = understanding = explanation = '';
+    input = understanding = explanation = pathFeeling = '';
     candidate = editing = false;
     practice?.leave();
     practice = undefined;
@@ -42,10 +42,11 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
     if (checkin) {
       html += '<h2>今天的记录</h2><p>是否发生了？ ' + button('occurred-yes','发生了') + button('occurred-no','没有发生') +
         (checkin.occurred === null ? '' : checkin.occurred ? ' 已选：发生了' : ' 已选：没有发生') + '</p>';
-      if (checkin.occurred) html += '<p>做了什么？ ' + button('action-agreed','试了') + button('action-none','没有做') +
-        (checkin.action ? ' 已选：' + (checkin.action === 'agreed' ? '试了' : '没有做') : '') + '</p>';
-      if (checkin.action === 'agreed') html += '<p>感觉如何？ ' + button('feeling-helped','有一点帮助') +
-        button('feeling-unchanged','差不多') + button('feeling-worse','更不舒服') +
+      if (checkin.occurred) html += '<p>做了什么？ ' + button('action-agreed','试了') +
+        button('action-other','做了别的动作') + button('action-none','没有做') +
+        (checkin.action ? ' 已选：' + actions[checkin.action] : '') + '</p>';
+      if (['agreed','other'].includes(checkin.action)) html += '<p>感觉如何？ ' + button('feeling-helped','有一点帮助') +
+        button('feeling-unchanged','差不多') + button('feeling-worse','更不舒服') + button('feeling-not_recorded','不想记录感受') +
         (checkin.feeling ? ' 已选：' + feelings[checkin.feeling] : '') + '</p>';
       html += '<label for="record-note">可选备注</label><input id="record-note" maxlength="200" value="' +
         esc(checkin.note) + '">' + button('record-save','保存记录','primary') + button('record-skip','跳过');
@@ -55,7 +56,9 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
     return html + '</section>';
   }
 
-  const feelings = { helped: '有一点帮助', unchanged: '差不多', worse: '更不舒服' };
+  const actions = { agreed: '试了', other: '做了别的动作', none: '没有做' };
+  const feelings = { helped: '有一点帮助', unchanged: '差不多', worse: '更不舒服', not_recorded: '不想记录感受' };
+  const entryTypes = { event: '经历', exception: '例外', practice: '练习记录', correction: '理解修正' };
   function pathView() {
     const state = journey.path.snapshot();
     if (state.status !== 'ready') return '<h2>路径</h2><p>暂时无法读取路径。</p>' + button('path-open','重试');
@@ -63,13 +66,17 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
     if (state.error) html += '<p role="alert">路径未更新，原关联保持不变。可重试。</p>';
     for (const [i, entry] of state.entries.entries()) {
       const r = entry.record;
-      const fact = r ? [r.occurred ? '发生了' : '没有发生', r.action === 'agreed' ? '试了' : r.action === 'none' ? '没有做' : '',
+      const fact = r ? [r.occurred ? '发生了' : '没有发生', actions[r.action],
         feelings[r.feeling], r.note].filter(Boolean).join(' → ') : entry.fact;
-      html += '<article><h3>' + esc(entry.entryId) + '</h3><p>' + esc(fact) + '</p><small>' +
-        esc(entry.createdAt) + ' · ' + esc(entry.source) + '</small>' +
+      html += '<article><h3>' + esc(entryTypes[entry.type] ?? '记录') + ' · ' + esc(entry.entryId) + '</h3><p>' + esc(fact ?? '') + '</p><small>' +
+        esc(entry.createdAt) + ' · ' + esc(entry.source ?? '来源未知') + '</small>' +
+        (entry.type === 'correction' ? '<p>原来的理解：' + esc(entry.oldUnderstanding ?? '未记录') +
+          '</p><p>这次保存的理解：' + esc(entry.currentUnderstanding ?? '未记录') + '</p>' : '') +
         (r ? '<p>关联练习：' + esc(r.practiceId) + '</p>' : '') +
+        (entry.feeling ? '<p>补充／修正感受：' + esc(entry.feeling) + '</p>' : '') +
         (entry.explanation ? '<p>' + esc(entry.explanation) + '</p>' : '') +
-        (pathEditing === i ? '<label for="path-text">关联说明</label><textarea id="path-text" maxlength="1000">' +
+        (pathEditing === i ? '<label for="path-feeling">补充／修正感受（仅合成演示文字）</label><textarea id="path-feeling" maxlength="1000">' +
+          esc(pathFeeling) + '</textarea><label for="path-text">关联说明</label><textarea id="path-text" maxlength="1000">' +
           esc(explanation) + '</textarea>' + button('path-save-' + i,'保存说明') + button('path-cancel','取消')
           : button('path-edit-' + i,'编辑说明')) + button('path-remove-' + i,'移除关联') + '</article>';
     }
@@ -119,6 +126,7 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
       on('occurred-yes', redraw(() => practice.chooseOccurred(true)));
       on('occurred-no', redraw(() => practice.chooseOccurred(false)));
       on('action-agreed', redraw(() => practice.chooseAction('agreed')));
+      on('action-other', redraw(() => practice.chooseAction('other')));
       on('action-none', redraw(() => practice.chooseAction('none')));
       for (const key of Object.keys(feelings)) on('feeling-' + key, redraw(() => practice.chooseFeeling(key)));
       type('record-note', v => practice.note(v));
@@ -132,12 +140,15 @@ export function createJourneyUI({ journey, active, by, esc, button, draw, openDe
       });
     }
     type('path-text', v => { explanation = v; });
-    on('path-cancel', redraw(() => { pathEditing = null; explanation = ''; }));
+    type('path-feeling', v => { pathFeeling = v; });
+    on('path-cancel', redraw(() => { pathEditing = null; explanation = pathFeeling = ''; }));
     journey.path.snapshot().entries.forEach((entry, i) => {
-      on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; }));
+      on('path-edit-' + i, redraw(() => { pathEditing = i; explanation = entry.explanation ?? ''; pathFeeling = entry.feeling ?? ''; }));
       on('path-save-' + i, async () => {
         const viewGeneration = generation;
-        const r = await journey.path.save(entry.entryId, { explanation }, entry.version);
+        const patch = { explanation };
+        if (pathFeeling !== (entry.feeling ?? '')) patch.feeling = pathFeeling;
+        const r = await journey.path.save(entry.entryId, patch, entry.version);
         if (viewGeneration !== generation) return;
         if (r?.ok) pathEditing = null;
         draw();

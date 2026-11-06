@@ -42,7 +42,7 @@ export function createJourney(storage, session, now) {
       if (!accountId) return failure('unauthenticated');
       const data = read();
       const existing = data.patterns.find(row => owns(row, accountId, PATTERN_ID));
-      const stamp = new Date(now()).toISOString();
+      const stamp = new Date(Math.max(now(), existing ? Date.parse(existing.updatedAt) + 1 : 0)).toISOString();
       const pattern = {
         schemaVersion: 1, demoSource: 'synthetic', accountId, patternId: PATTERN_ID,
         name: existing?.name ?? PATTERN_NAME, currentUnderstanding: text.trim(), decision: 'confirmed',
@@ -123,9 +123,10 @@ export function createJourney(storage, session, now) {
       const row = rows.find(entry => entry.entryId === entryId);
       if (!row) return failure('not_found');
       if (row.version !== version) return failure('conflict');
-      if (Object.keys(patch).some(key => key !== 'linked' && key !== 'explanation')
+      if (!patch || Object.getPrototypeOf(patch) !== Object.prototype
+        || Object.keys(patch).some(key => !['linked', 'explanation', 'feeling'].includes(key))
         || ('linked' in patch && typeof patch.linked !== 'boolean')
-        || ('explanation' in patch && (typeof patch.explanation !== 'string' || patch.explanation.length > 1000))) return failure('invalid');
+        || ['explanation', 'feeling'].some(key => key in patch && (typeof patch[key] !== 'string' || patch[key].length > 1000))) return failure('invalid');
       Object.assign(row, patch, { version: version + 1 });
       write(data);
       return { ok: true, data: row };
