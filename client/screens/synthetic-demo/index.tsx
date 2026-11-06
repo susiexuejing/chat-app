@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/Screen';
+import { useRouter } from 'expo-router';
 import {
   CANDIDATE, CHAT_INPUT, DEMO_NUMBER, PRACTICE_TEXT, createDemoRepository,
   type Decision, type DemoRepository, type PathEntry, type RecordPayload, type Snapshot,
@@ -46,6 +47,7 @@ function Choices<T extends string>({ label, options, value, onChange, testID }: 
 
 /** DEV only. Deliberately never consumes ChatContext or calls the live chat API. */
 export default function SyntheticDemoScreen() {
+  const router = useRouter();
   const repository = useRef<DemoRepository | null>(null);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [initialError, setInitialError] = useState('');
@@ -281,6 +283,10 @@ export default function SyntheticDemoScreen() {
     <View className="flex-1 bg-stone-50">
       <View className="border-b border-amber-200 bg-amber-50 px-5 py-3"><Text className="font-semibold text-amber-900">DEV · 合成数据演示</Text>
         <Text className="text-xs text-amber-900">无真实短信、模型分析或真实聊天数据。仅限同一浏览器、一个活动标签页。</Text>
+        <Button testID="return-live-chat" title="离开演示 · 返回原聊天与历史" secondary onPress={() => {
+          navigate('chat');
+          router.replace('/');
+        }} />
       </View>
       <ScrollView className="flex-1" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16, maxWidth: 720, width: '100%', alignSelf: 'center', paddingBottom: 32 }}>
         {notice && <View accessibilityLiveRegion="polite" className={`rounded-xl p-4 ${notice.kind === 'error' ? 'bg-red-50' : 'bg-green-50'}`}><Text className={notice.kind === 'error' ? 'text-red-800' : 'text-green-800'}>{notice.text}</Text></View>}

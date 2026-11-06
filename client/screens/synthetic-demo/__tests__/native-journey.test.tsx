@@ -3,6 +3,9 @@ import renderer, { act, type ReactTestInstance, type ReactTestRenderer } from 'r
 import SyntheticDemoScreen from '../index';
 import { createDemoRepository, STORAGE_KEY, type Snapshot } from '@/features/synthetic-demo/repository';
 
+const mockReplace = jest.fn();
+jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace }) }));
+
 // Host-only rendering deliberately excludes Expo, real ChatProvider and all APIs.
 // Unlike a plain Modal host mock, this respects visibility for user-facing assertions.
 jest.mock('react-native', () => {
@@ -29,6 +32,7 @@ describe('EF-384 actual native screen journey, backed by the real repository', (
 
   beforeEach(() => {
     mounted = false;
+    mockReplace.mockClear();
     values = new Map();
     failWrites = false;
     storage = {
@@ -223,4 +227,31 @@ describe('EF-384 actual native screen journey, backed by the real repository', (
     expect(saved().path[0]).toEqual({ ...before.path[0], linked: false, version: before.path[0].version + 1 });
     expect(nodes('path-remove-confirm')).toHaveLength(0); expect(output()).toContain('已解除关联');
   });
+
+  it('return to original chat discards a record draft without saving and replaces the route', async () => {
+    await setupPractice(); await recordOther();
+    const before = values.get(STORAGE_KEY); storage.setItem.mockClear();
+    await press('return-live-chat');
+    expect(mockReplace).toHaveBeenCalledTimes(1);
+    expect(mockReplace).toHaveBeenCalledWith('/');
+    expect(nodes('record-save')).toHaveLength(0);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(values.get(STORAGE_KEY)).toBe(before);
+    await practice(); await press('record-open');
+    expect(node('record-note').props.value).toBe('');
+    expect(node('record-save').props.disabled).toBe(true);
+  });
+
+  it('return to original chat cancels the pending code challenge without storage writes', async () => {
+    await mount(); await press('get-code');
+    const oldCode = node('displayed-code').children.join('').match(/\d{6}/)![0];
+    await type('code', oldCode);
+    const staleLogin = node('login').props.onPress;
+    await press('return-live-chat');
+    expect(mockReplace).toHaveBeenCalledWith('/');
+    expect(nodes('displayed-code')).toHaveLength(0);
+    await act(async () => { staleLogin(); });
+    expect(output()).toContain('演示验证码已失效');
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
 });
