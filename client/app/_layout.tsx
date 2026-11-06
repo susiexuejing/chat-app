@@ -1,9 +1,8 @@
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { LogBox } from 'react-native';
 import Toast from 'react-native-toast-message';
 import { Provider } from '@/components/Provider';
-import { ChatProvider } from '@/screens/chat/contexts/ChatContext';
+import { AppRuntimeProvider } from '@/features/synthetic-demo/RuntimeBoundary';
 
 import '../global.css';
 
@@ -15,7 +14,7 @@ LogBox.ignoreLogs([
 export default function RootLayout() {
   return (
     <Provider>
-      <ChatProvider>
+      <AppRuntimeProvider>
         <Stack
           screenOptions={{
             animation: 'slide_from_right',
@@ -27,8 +26,9 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ title: "" }} />
           <Stack.Screen name="chat" options={{ title: "" }} />
         </Stack>
-      </ChatProvider>
+      </AppRuntimeProvider>
       <Toast />
     </Provider>
   );
 }
+
