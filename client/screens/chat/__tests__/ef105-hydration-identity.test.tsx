@@ -104,7 +104,7 @@ describe('EF-105 hydration identity proof', () => {
   it('hydrates a proven matching mapping and reconciles backend history', async () => {
     const { result, unmount } = await renderHook(() => useChat(), { wrapper });
     await settleHydration();
-    expect(sessionStore.fetchConversation).toHaveBeenCalledWith(canonicalConversationId);
+    expect(sessionStore.fetchConversation).toHaveBeenCalledWith(canonicalConversationId, expect.any(AbortSignal));
     expect(result.current?.messages.map(message => message.content)).toEqual(['backend history']);
     unmount();
   });
@@ -190,7 +190,7 @@ describe('EF-105 hydration identity proof', () => {
     });
     const second = await renderHook(() => useChat(), { wrapper });
     await settleHydration();
-    expect(sessionStore.fetchConversation).toHaveBeenCalledWith(canonicalConversationId);
+    expect(sessionStore.fetchConversation).toHaveBeenCalledWith(canonicalConversationId, expect.any(AbortSignal));
     expect(second.result.current?.messages.map(message => message.content)).toEqual(['backend history']);
     second.unmount();
   });
@@ -214,3 +214,4 @@ describe('EF-105 hydration identity proof', () => {
     unmount();
   });
 });
+

@@ -586,6 +586,10 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   // EM-54: 初始化时从 AsyncStorage 加载会话和角色
   useEffect(() => {
+    // Each hydration lifetime owns its reads. Already accepted persistence is
+    // allowed to finish, but a stale read must not start recovery writes.
+    const controller = new AbortController();
+    const isCurrent = () => mountedRef.current && !controller.signal.aborted;
     const loadPersistedState = async () => {
       try {
         const diagnosticEnabled = isEf77DiagnosticEnabled();
@@ -603,7 +607,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         let diagnosticRawSnapshot: string | null = null;
         const persistedSessions = await getChatSessions(rawSnapshot => {
           diagnosticRawSnapshot = rawSnapshot;
-        });
+        }, controller.signal);
+        if (!isCurrent()) return;
 
         // EF-59 STATE TRACE: getChatSessions 返回后
         console.log('[EF59_STATE_TRACE] persisted sessions loaded', {
@@ -627,6 +632,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           
           // 加载当前会话 ID
           const persistedSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
+          if (!isCurrent()) return;
           if (diagnosticEnabled) {
             emitEf77Trace('hydration_read_completed', {
               providerInstanceId: providerInstanceId.current,
@@ -737,6 +743,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 });
                 throw error;
               }
+              if (!isCurrent()) return;
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: restoredSession.id,
                 previousTurnStatus: 'generating',
@@ -832,6 +839,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
                 });
                 throw error;
               }
+              if (!isCurrent()) return;
               traceTurnLifecycle('hydration_interrupted', {
                 sessionId: mostRecentSession.id,
                 previousTurnStatus: 'generating',
@@ -856,18 +864,23 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         
         // EF-59 TRACE: loadPersistedState 完成后的状态（移到外层作用域）
         const traceSessionId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_SESSION_ID);
-        const traceSessions = await getChatSessions();
+        if (!isCurrent()) return;
+        const traceSessions = await getChatSessions(undefined, controller.signal);
+        if (!isCurrent()) return;
+        const traceRoleId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID);
+        if (!isCurrent()) return;
         const traceSession = traceSessionId ? traceSessions.find(s => s.id === traceSessionId) : null;
         console.log('[EF59_TRACE] loadPersistedState completed', {
           currentSessionIdPresent: !!traceSessionId,
           sessionsCount: traceSessions.length,
           messagesCount: traceSession?.messages?.length ?? 0,
           conversationIdPresent: !!traceSession?.conversationId,
-          roleId: (await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID)) ?? null
+          roleId: traceRoleId ?? null
         });
         
         // 加载当前角色
         const persistedRoleId = await AsyncStorage.getItem(STORAGE_KEY_CURRENT_ROLE_ID);
+        if (!isCurrent()) return;
         if (persistedRoleId) {
           const role = getRoleById(persistedRoleId);
           if (role) {
@@ -877,6 +890,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         
         // EF-58: 加载消息队列（只恢复 queued 状态的消息，processing 状态重置为 queued）
         const persistedQueue = await AsyncStorage.getItem(STORAGE_KEY_MESSAGE_QUEUE);
+        if (!isCurrent()) return;
         if (persistedQueue) {
           try {
             const queue: QueuedMessage[] = JSON.parse(persistedQueue);
@@ -910,6 +924,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           sessionsCount: persistedSessions?.length ?? 0,
         });
       } catch (error) {
+        if (!isCurrent()) return;
         console.error('EM-54: 加载持久化状态失败:', error);
         // EF-59 Fix: 即使失败也要解除阻塞，避免永久卡住
         setIsHydrated(true);
@@ -917,6 +932,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     };
     
     loadPersistedState();
+    return () => controller.abort();
   }, [persistSessions]);
 
   // EF-59 Phase 5: 刷新恢复 - 初始化后从后端同步对话和消息
@@ -958,11 +974,19 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     // Lock this effect while identity proof is in progress. Failed proof clears
     // the lock so a later lifecycle-triggered attempt can read storage again.
     hasSyncedRef.current = true;
+    const controller = new AbortController();
+    const intentGeneration = intentGenerationRef.current;
+    let settled = false;
+    let requestStarted = false;
+    const isCurrent = () => mountedRef.current
+      && !controller.signal.aborted
+      && intentGenerationRef.current === intentGeneration;
     const syncFromBackend = async () => {
       let installationIdentity;
       try {
         installationIdentity = await readInstallationIdentity();
       } catch (error) {
+        if (!isCurrent()) return;
         hasSyncedRef.current = false;
         console.warn('[EF-105] Backend hydration skipped', {
           reason: 'identity_read_failed',
@@ -971,6 +995,8 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         });
         return;
       }
+
+      if (!isCurrent()) return;
 
       if (!installationIdentity) {
         hasSyncedRef.current = false;
@@ -1014,7 +1040,11 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           conversationIdPresent: true,
         });
 
-        const result = await fetchConversation(backendConversationId);
+        // Do not reconcile stale startup history over a new live send.
+        if (sendingRef.current) return;
+        requestStarted = true;
+        const result = await fetchConversation(backendConversationId, controller.signal);
+        if (!isCurrent() || sendingRef.current) return;
         
         // EF-59 TRACE: backend response
         console.log('[EF59_TRACE] backend response', {
@@ -1058,6 +1088,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch (error) {
+        if (!isCurrent()) return;
         // 网络错误时保持缓存数据，不覆盖
         console.error('[EF-59] Failed to sync from backend', {
           errorType: getEf77ErrorType(error),
@@ -1065,7 +1096,15 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    syncFromBackend();
+    void syncFromBackend().finally(() => {
+      settled = true;
+    });
+    return () => {
+      controller.abort();
+      // Release only unfinished identity proof. Once a request starts, keep
+      // the existing one-time sync policy, even if its result is discarded.
+      if (!settled && !requestStarted) hasSyncedRef.current = false;
+    };
   }, [currentSessionId, sessions, isHydrated]);
 
   // EM-54: 当前会话 ID 变化时保存到 AsyncStorage
@@ -2659,3 +2698,4 @@ export function useChat() {
   }
   return context;
 }
+

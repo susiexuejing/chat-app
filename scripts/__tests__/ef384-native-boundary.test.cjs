@@ -38,7 +38,7 @@ test('/demo is DEV-only and imports no live provider or chat fallback', () => {
   assert.doesNotMatch(entry, /from ['"][^'"]*(?:ChatContext|screens\/chat)['"]|<ChatProvider|<ChatScreen/);
 });
 
-test('original chat demo button only replaces route, is DEV-only, and is disabled during a live request', () => {
+test('original chat demo button only replaces route, is DEV-only, and waits for hydration and live requests', () => {
   const chat = read('client/screens/chat/index.tsx');
   const button = chat.match(/function NativeDemoEntry\([\s\S]*?\nfunction ChatContent\(/)?.[0];
   assert.ok(button, 'expected bounded NativeDemoEntry component');
@@ -47,7 +47,7 @@ test('original chat demo button only replaces route, is DEV-only, and is disable
   assert.match(button, /disabled=\{disabled\}/);
   assert.match(button, /onPress=\{\(\) => \{\s*if \(!disabled\) router\.replace\('\/demo'\);\s*\}\}/);
   assert.doesNotMatch(button, /sendMessage|fetch\s*\(|axios|useChat\s*\(/);
-  assert.equal((chat.match(/<NativeDemoEntry disabled=\{isLoading\}\s*\/>/g) || []).length, 2);
+  assert.equal((chat.match(/<NativeDemoEntry disabled=\{!isHydrated \|\| isLoading\}\s*\/>/g) || []).length, 2);
 });
 
 test('synthetic screen and repository use injected demo storage with no live chat, networking or embedded HTML', () => {

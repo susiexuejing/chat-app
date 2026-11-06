@@ -266,7 +266,7 @@ function ChatContent() {
             </Text>
           </TouchableOpacity>
 
-          <NativeDemoEntry disabled={isLoading} />
+          <NativeDemoEntry disabled={!isHydrated || isLoading} />
 
           {/* 状态入口 */}
           <View className="items-center">
@@ -316,7 +316,7 @@ function ChatContent() {
         hasHistory={sessions.length > 0}
       />
 
-      <NativeDemoEntry disabled={isLoading} />
+      <NativeDemoEntry disabled={!isHydrated || isLoading} />
 
       {/* FlowContext 状态变化卡片 - 仅在 Debug 模式显示 */}
       {shouldRenderChangeSystemCard(Platform.OS, typeof window !== 'undefined' ? window.location.search : '', !!changeSystemData) && <ChangeSystemCard data={changeSystemData} />}
