@@ -1,0 +1,11 @@
+# 源码与交付边界
+- EF-376 auth.mjs SHA256 0cca79b218abff9e1f8103bc81e225b29bf21a3a4cd3f6ebc0089ec9d0a549f5；本地提交 e9ed56dfd99547c0b72016a8b759a51f48eb0efa。
+- EF-381 overview.mjs SHA256 0f8ecb2252df7d86cf82111f534324ae271cb0f13e79b336a413df91c46b05df；本地提交 1d27bfbd9eaf3d264fb971270bc5747862afe787。
+- EF-382 固定 ZIP SHA256 5fd5858e1df2a8403dc7c15d1d2c92824c77c8074419312bd601c7d09e29c32e，detail.mjs SHA256 8c4cc8badb1cb6e5389f3eb6d798c9401d8281852eab3868dddf62d0fb20f5de，view.mjs SHA256 bdd17b7f82cf2492cbdda6d3d39592b5bd725988804b98140e01acd2678dbad6。
+- EF-383 固定 ZIP SHA256 cba79da0453ced8ca8e5c8540af1b37ee578959ff124563919970e5328b80738，core.mjs SHA256 cf7ccb5826b9f1c3df307b17ac7c8825a4300194aae75b927f4d71feadd9140c，复制为 vendor/editor.mjs。
+- 历史集成 HTML（PR #160 起点 fbc0a4b3843b9446415215b04f9d1da0ef09f59b）SHA256 e40ae524f7f48a5304e0bb14b7fb3008fa5c97f8a737b55f4b510a5ef39a4771；不是当前候选。
+- 修正前候选（94811ce5d517cf0b252cf5e126d77a9fb7d28645）HTML 58307 字节，SHA256 95680f8f44d03bf62c7e6586de81b75ba21ca84f526b09646550e7735d04cc22。
+- 当前候选 HTML 为 60885 字节，SHA-256 2bde6207d2665dee93dc15f78e2bc445b5a579efddd675fb8a0020029bf77eae。
+- 本次从 94811ce5d517cf0b252cf5e126d77a9fb7d28645 定向修正 EF-378 选项接线及 EF-379 感受编辑、理解修正留存与例外/历史显示；保留现有单一流程和合成数据边界。vendor 文件、原联合 ZIP 43788aaab84052daa7223329662700e58f3b8071c720eb7f4c269d50f6eaf2d6 均不替换。
+- 理解历史只记录本次修正之后用户明确保存的变更；不补造过去已丢失的旧版本，也不自动创建例外事实。例外显示使用测试专用合成夹具验证，不声称新增例外创建流程。
+- 运行 `node demos/ef377/verify.mjs` 重建、校验精确摘要/本文档并执行原用户流程及10项新增定向回归（包含实际生成 HTML 的 Node DOM 模拟）。原生浏览器、视觉及独立整合 QA 不由作者自签通过。
