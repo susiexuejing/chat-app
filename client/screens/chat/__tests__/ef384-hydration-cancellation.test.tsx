@@ -59,7 +59,7 @@ describe('EF-384 hydration lifetime isolation', () => {
   let sessionIdRead: () => Promise<string | null>;
   let spies: jest.SpyInstance[];
   let fetchMock: jest.Mock;
-  const originalFetch = global.fetch;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -78,10 +78,10 @@ describe('EF-384 hydration lifetime isolation', () => {
     (sessionStore.fetchConversation as jest.Mock).mockResolvedValue(backendResult);
     (getAnonymousRequestOptions as jest.Mock).mockResolvedValue({ credentials: 'include', headers: {} });
     fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => backendResult });
-    global.fetch = fetchMock;
+    globalThis.fetch = fetchMock;
   });
   afterEach(() => {
-    global.fetch = originalFetch;
+    globalThis.fetch = originalFetch;
     spies.forEach(spy => spy.mockRestore());
   });
 
@@ -292,3 +292,4 @@ describe('EF-384 hydration lifetime isolation', () => {
     expect(AsyncStorage.removeItem).not.toHaveBeenCalled();
   });
 });
+
