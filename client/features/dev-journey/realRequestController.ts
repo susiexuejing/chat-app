@@ -53,7 +53,7 @@ export const DEV_REAL_REQUEST_NOTICE = '真实请求会产生 API 费用；仅�
 export const DEV_REAL_REQUEST_STOP_NOTICE = '停止会中止本地等待与连接，但不能保证已被服务端接受的工作或计费停止。';
 export const DEV_REAL_REQUEST_SOURCE_NOTICE = '仅确认收到后端 Deep 内容；实际供应商、模型与费用未验证。';
 export const DEV_REAL_REQUEST_MAX_INPUT = 1000;
-export const DEV_REAL_REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+export const DEV_REAL_REQUEST_ID_PATTERN = /^[\w-]{1,100}$/;
 
 const FAILED_MESSAGE = '本次真实请求未完成，请新开对话后再显式发送。';
 const EMPTY_MESSAGE = '未收到完整的 Deep 回复，前层内容不代表真实 API 成功。';

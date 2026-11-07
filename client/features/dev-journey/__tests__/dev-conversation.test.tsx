@@ -127,7 +127,8 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(node('chat-input').props.editable).toBe(true);
     expect(node('chat-send').props.disabled).toBe(true);
     expect(output()).toContain(DEV_REAL_REQUEST_NOTICE);
-    expect(tree.root.findAll(item => item.type === 'Image')).toHaveLength(0);
+    // The host mock uses RN names outside React's DOM intrinsic-name union.
+    expect(tree.root.findAll(item => typeof item.type === 'string' && (item.type as string) === 'Image')).toHaveLength(0);
     const list = tree.root.findByType(MessageListView);
     await act(async () => { list.props.setInputText('我感觉我很累'); list.props.onShowIntro(); });
     expect(node('chat-input').props.value).toBe('虚构场景：我感觉我很累');

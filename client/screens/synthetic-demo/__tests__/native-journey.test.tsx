@@ -158,7 +158,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await press('nav-me'); await press('logout'); await login();
     expect(mockStart).not.toHaveBeenCalled();
     expect(mockStream).not.toHaveBeenCalled();
-    expect(tree.root.findAll(node => node.type === 'Image')).toHaveLength(0);
+    // The host mock uses RN names outside React's DOM intrinsic-name union.
+    expect(tree.root.findAll(node => typeof node.type === 'string' && (node.type as string) === 'Image')).toHaveLength(0);
   });
 
   it('keeps Deep volatile until an edited local confirmation saves it once with request provenance', async () => {

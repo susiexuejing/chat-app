@@ -93,16 +93,16 @@ test('stop during native SSE module import prevents construction', async () => {
 });
 
 test('live native stream without signal still constructs and completes', async () => {
-  let instance;
+  const instances = [];
   class NativeSSE {
     listeners = new Map();
-    constructor() { instance = this; }
+    constructor() { instances.push(this); }
     addEventListener(event, callback) { this.listeners.set(event, callback); }
     close() { this.listeners.get('close')?.(); }
   }
   const { api } = await setup({ platform: 'ios', NativeSSE }); let done = 0;
   const result = api.chatStream('live-s', { onDone: () => done++ });
-  for (let i = 0; i < 10 && !instance; i++) await flush();
-  assert.ok(instance); instance.listeners.get('message')({ data: '[DONE]' }); await result;
+  for (let i = 0; i < 10 && instances.length === 0; i++) await flush();
+  assert.equal(instances.length, 1); instances[0].listeners.get('message')({ data: '[DONE]' }); await result;
   assert.equal(done, 1);
 });

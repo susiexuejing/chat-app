@@ -31,7 +31,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey }:
   const [state, setState] = useState(initial);
   const [input, setInput] = useState('');
   const [showIntro, setShowIntro] = useState(false);
-  const timestamp = useRef(0);
+  const [timestamp, setTimestamp] = useState(0);
   useEffect(() => {
     const instance = createDevRealRequestControllerForRuntime();
     controller.current = instance;
@@ -45,20 +45,20 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey }:
   function reset() { onDraftDiscard(); controller.current?.reset(); setInput(''); }
   function send() {
     if (!input.trim() || controller.current?.getSnapshot() !== state || !state.canSend) return;
-    onDraftDiscard(); timestamp.current = Date.now();
+    onDraftDiscard(); setTimestamp(Date.now());
     void controller.current.send(input);
   }
   const messages: ChatMessage[] = [];
-  if (state.inputText) messages.push({ id: 'user', role: 'user', content: state.inputText, timestamp: timestamp.current });
+  if (state.inputText) messages.push({ id: 'user', role: 'user', content: state.inputText, timestamp });
   for (const [layer, content] of [['reaction', state.reactionText], ['companion', state.companionText], ['deep', state.deepText]] as const) {
-    if (content) messages.push({ id: layer, role: 'assistant', content, responseLayer: layer, timestamp: timestamp.current });
+    if (content) messages.push({ id: layer, role: 'assistant', content, responseLayer: layer, timestamp });
   }
   const confirm = () => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.source === 'backend-deep' && state.requestId) {
       onConfirm({ text: state.deepText, input: state.inputText, requestId: state.requestId });
     }
   };
-  const statusText = {
+  const statusText = state.error ?? {
     idle: '仅点击发送才会请求。每个新对话测试一轮，不加载原聊天历史。',
     starting: '正在向 DEV 服务端发送当前输入…',
     streaming: '等待完整的后端 Deep 回复，前层回应不代表上游模型成功。',

@@ -30,7 +30,7 @@ const stamp = x => typeof x === 'string' && Number.isFinite(Date.parse(x));
 const keys = (x, allowed) => plain(x) && Object.keys(x).every(k => allowed.includes(k));
 function requireThat(ok, message = '内容无效，请检查后重试。') { if (!ok) throw Error(message); }
 const owned = x => plain(x) && x.accountId === ACCOUNT_ID && x.patternId === PATTERN_ID;
-const validOrigin = x => keys(x, ['input','requestId']) && text(x.input,1000) && typeof x.requestId === 'string' && /^[A-Za-z0-9_-]{1,100}$/.test(x.requestId);
+const validOrigin = x => keys(x, ['input','requestId']) && text(x.input,1000) && typeof x.requestId === 'string' && /^[\w-]{1,100}$/.test(x.requestId);
 const marked = x => owned(x) && x.schemaVersion === 1 && ['synthetic','dev-api-test'].includes(x.demoSource)
   && (x.origin === undefined || (x.demoSource === 'dev-api-test' && validOrigin(x.origin)));
 function validPayload(x) {
