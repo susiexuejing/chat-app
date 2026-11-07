@@ -28,7 +28,7 @@ const USER_DIRECTED_ACTION_PATTERN = /(?:^|[，,；;。]\s*)你(?:只管|先(?!�
 
 const JOINT_PROGRESSION_PATTERN = /(?:^|[，,；;。]\s*)(?:我们|咱们)(?:再|一起)/;
 
-const ASSISTANT_LIFE_PATTERN = /(?:我(?:正|正在|在|刚|会).{0,12}(?:喝咖啡|咖啡|窗边|笔记本|散步|看书|旅行|坐在)|我的.{0,8}(?:咖啡|窗边|笔记本)|(?:窗边|咖啡|笔记本).{0,12}(?:我|狐狸))/;
+const ASSISTANT_LIFE_PATTERN = /(?:我(?:正|正在|在|刚|会).{0,12}(?:喝咖啡|咖啡|窗边|笔记本|散步|看书|旅行|坐在)|我(?:手边|身边).{0,12}(?:咖啡|笔记本)|我的.{0,8}(?:咖啡|窗边|笔记本)|(?:窗边|咖啡|笔记本).{0,12}(?:我|狐狸))/;
 
 const HISTORY_CLAIM_PATTERN = /(?:你|用户).{0,12}(?:之前|以前|总是|每次|又|一直|还记得)|(?:之前|以前|总是|每次|又|一直|还记得).{0,12}(?:说|提到|觉得|感到|经历)/;
 
@@ -74,13 +74,18 @@ function hasUnsupportedInferredFact(text: string, userMessage: string): boolean 
   return INFERRED_FACT_TERMS.some(term => text.includes(term) && !userMessage.includes(term));
 }
 
+function hasFirstTwoRoundsFactViolation(text: string, userMessage: string): boolean {
+  return ASSISTANT_LIFE_PATTERN.test(text)
+    || HISTORY_CLAIM_PATTERN.test(text)
+    || hasUnsupportedInferredFact(text, userMessage);
+}
+
 function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = ''): boolean {
   const trimmed = text.trim();
   const remainingVisibleBudget = FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(visiblePrefix).length;
   if (!trimmed || Array.from(trimmed).length > remainingVisibleBudget) return false;
-  if (ASSISTANT_LIFE_PATTERN.test(trimmed)) return false;
-  if (HISTORY_CLAIM_PATTERN.test(trimmed)) return false;
-  if (hasUnsupportedInferredFact(trimmed, userMessage)) return false;
+  // Sentence cleanup may join text that did not match the raw factual gate.
+  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage)) return false;
 
   const questionCount = (trimmed.match(/[？?]/g) || []).length;
   if (questionCount > 1) return false;
@@ -104,6 +109,11 @@ function firstTwoRoundsFallback(visiblePrefix = ''): string {
 export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
   if (!isFirstTwoRounds(input)) return input.text;
 
+  // Preserve factual violations before sentence selection can discard or replace them.
+  if (hasFirstTwoRoundsFactViolation(input.text, input.userMessage)) {
+    return firstTwoRoundsFallback(input.visiblePrefix);
+  }
+
   const candidate = shouldValidateEf41DeepOutput(input)
     ? splitSentences(input.text).find(isUsefulDeclarativeSentence) || EF41_DEEP_FALLBACK
     : input.text.trim();
@@ -114,3 +124,4 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
 }
 
 // EF57
+

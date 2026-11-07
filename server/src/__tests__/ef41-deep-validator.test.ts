@@ -197,4 +197,78 @@ describe('EF-41 Deep output composition validator', () => {
 
     expect(output).toBe('');
   });
+
+  describe.each(['cleaned', 'last-resort', 'reasoning'] as const)('EF-386 factual gates on the %s path', (source) => {
+    const usefulStatement = '现在的混乱不代表每件事同样重要。';
+
+    describe.each([1, 2])('on user turn %s', (userTurn) => {
+      const message = userTurn === 1 ? positiveMessages[1] : secondTurnMessage;
+
+      test.each([
+        ['exact CTO runtime output', ctoRuntimeFailure],
+        ['nearby coffee claim', '我手边放着一杯咖啡，你先慢慢说。'],
+        ['nearby notebook claim', '我身边摆着笔记本，你先缓一缓。'],
+      ])('uses the neutral fallback for %s', (_name, text) => {
+        expect(validateOutput(text, message, source, 'clever-fox', userTurn))
+          .toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
+      });
+
+      test.each([
+        ['assistant life', '我正坐在窗边喝咖啡，你先缓一缓。'],
+        ['unsupported history', '你之前提到过这些事，你先缓一缓。'],
+        ['unsupported current fact', '你心里沉，你先缓一缓。'],
+      ])('does not hide %s when selecting a useful statement', (_name, factViolation) => {
+        expect(validateOutput(`${factViolation}${usefulStatement}`, message, source, 'clever-fox', userTurn))
+          .toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
+        expect(validateOutput(`${usefulStatement}${factViolation}`, message, source, 'clever-fox', userTurn))
+          .toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
+      });
+
+      test.each([
+        ['assistant life', '我在', '喝咖啡，思绪可以暂时放在这里。'],
+        ['unsupported history', '你', '总是如此，眼前的事情有自己的先后。'],
+      ])('rejects %s exposed by code-block removal', (_name, beforeCode, afterCode) => {
+        const text = `${beforeCode}\`\`\`${'普通代码'.repeat(10)}\`\`\`${afterCode}`;
+
+        expect(validateOutput(text, message, source, 'clever-fox', userTurn))
+          .toBe(FIRST_TWO_ROUNDS_DEEP_FALLBACK);
+      });
+
+      test('allows an inferred-fact term explicitly present in the current user message', () => {
+        const groundedStatement = '这份焦虑和眼前的混乱挤在了一起。';
+
+        expect(validateOutput(groundedStatement, `${message}我有些焦虑。`, source, 'clever-fox', userTurn))
+          .toBe(groundedStatement);
+      });
+
+      test('keeps a useful later statement after nonoptional questions even when raw text exceeds the budget', () => {
+        const text = `${'你愿意先挑一件说吗？'.repeat(12)}${usefulStatement}`;
+
+        expect(Array.from(text).length).toBeGreaterThan(120);
+        expect(validateOutput(text, message, source, 'clever-fox', userTurn)).toBe(usefulStatement);
+      });
+
+      test.each([115, 116])('respects a %s-character visible prefix when facts require the neutral fallback', (prefixLength) => {
+        const visiblePrefix = '🙂'.repeat(prefixLength);
+        const output = validateEf41DeepOutput({
+          text: ctoRuntimeFailure,
+          roleId: 'clever-fox',
+          userTurn,
+          userMessage: message,
+          source,
+          visiblePrefix,
+        });
+
+        expect(output).toBe(prefixLength === 115 ? FIRST_TWO_ROUNDS_DEEP_FALLBACK : '');
+        expect(Array.from(`${visiblePrefix}${output}`).length).toBeLessThanOrEqual(120);
+      });
+    });
+
+    test('returns third-turn factual violations byte-for-byte including whitespace', () => {
+      const original = ` \n${ctoRuntimeFailure}你之前提到过这些事。你心里沉。\n `;
+
+      expect(validateOutput(original, positiveMessages[1], source, 'clever-fox', 3)).toBe(original);
+    });
+  });
 });
+
