@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "revision": 4,
+  "accountId": "ef384-synthetic-account",
+  "session": "ef384-synthetic-account",
+  "pattern": {
+    "schemaVersion": 1,
+    "demoSource": "synthetic",
+    "accountId": "ef384-synthetic-account",
+    "patternId": "mode-fatigue-self-criticism-v1",
+    "name": "累时容易先责备自己",
+    "currentUnderstanding": "累的时候，会不会容易先把责任揽到自己身上？",
+    "decision": "confirmed",
+    "clues": [],
+    "createdAt": "1970-01-01T00:16:40.000Z",
+    "updatedAt": "1970-01-01T00:16:40.000Z",
+    "version": 1
+  },
+  "practice": {
+    "demoSource": "synthetic",
+    "accountId": "ef384-synthetic-account",
+    "patternId": "mode-fatigue-self-criticism-v1",
+    "practiceId": "practice-pause-10s-v1",
+    "name": "停十秒，回到眼前",
+    "ifCue": "旧触发（虚构）",
+    "thenAction": "听到自责时，先叫儿子的名字，停十秒，回到眼前。",
+    "confirmed": true,
+    "paused": false,
+    "version": 1
+  },
+  "records": [
+    {
+      "schemaVersion": 1,
+      "demoSource": "synthetic",
+      "accountId": "ef384-synthetic-account",
+      "patternId": "mode-fatigue-self-criticism-v1",
+      "practiceId": "practice-pause-10s-v1",
+      "practiceVersion": 1,
+      "recordId": "record-1",
+      "operationId": "legacy-record",
+      "createdAt": "1970-01-01T00:16:40.000Z",
+      "occurred": false,
+      "action": null,
+      "feeling": null,
+      "note": "旧合成记录"
+    }
+  ],
+  "path": [
+    {
+      "schemaVersion": 1,
+      "demoSource": "synthetic",
+      "accountId": "ef384-synthetic-account",
+      "patternId": "mode-fatigue-self-criticism-v1",
+      "entryId": "evt-1",
+      "type": "event",
+      "createdAt": "1970-01-01T00:16:40.000Z",
+      "version": 1,
+      "linked": true,
+      "userConfirmed": true,
+      "fact": "用户明确保存的合成事件：累的时候注意到自己先责备自己。",
+      "source": "用户确认保存"
+    },
+    {
+      "schemaVersion": 1,
+      "demoSource": "synthetic",
+      "accountId": "ef384-synthetic-account",
+      "patternId": "mode-fatigue-self-criticism-v1",
+      "entryId": "record-1",
+      "type": "practice",
+      "createdAt": "1970-01-01T00:16:40.000Z",
+      "version": 1,
+      "linked": true,
+      "userConfirmed": true,
+      "fact": "用户明确保存的练习记录。",
+      "source": "用户明确保存的练习记录",
+      "recordId": "record-1"
+    }
+  ]
+}

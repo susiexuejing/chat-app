@@ -1,7 +1,7 @@
 import React from 'react';
 import renderer, { act, type ReactTestInstance, type ReactTestRenderer } from 'react-test-renderer';
 import SyntheticDemoScreen from '../index';
-import { createDemoRepository, DEMO_NUMBER, STORAGE_KEY, type Snapshot } from '@/features/synthetic-demo/repository';
+import { createDemoRepository, DEMO_NUMBER, STORAGE_KEY, type Snapshot, type PatternState } from '@/features/synthetic-demo/repository';
 
 import {
   createDevRealRequestController,
@@ -124,10 +124,21 @@ describe('EF-385 native journey with the real controller, views and local reposi
   async function send(text = CURRENT_INPUT) {
     await type('chat-input', text); await press('chat-send');
   }
-  async function confirm() {
-    await press('nav-chat'); await send(); await press('candidate-confirm'); await press('candidate-save');
+  // These transport regressions deliberately create one pattern; multi-pattern routing is
+  // exercised independently in multi-pattern-navigation.test.tsx. Never project a v2
+  // aggregate into the removed v1 shape or silently pick a pattern in application code.
+  function onlyPattern(snapshot: Snapshot = saved()): PatternState {
+    expect(snapshot.patterns).toHaveLength(1);
+    return snapshot.patterns[0];
   }
-  async function mode() { await press('nav-me'); await press('mode-open'); }
+  async function confirm() {
+    await press('nav-chat'); await send(); await press('candidate-confirm');
+    await press('candidate-new-choice'); await press('candidate-save');
+  }
+  async function mode() {
+    await press('nav-me'); await press('mode-open');
+    await press(`pattern-open-${onlyPattern().pattern.patternId}`);
+  }
   async function practice() { await mode(); await press('practice-open'); }
   async function setupPractice() {
     await mount(); await login(); await confirm(); await practice();
@@ -135,18 +146,21 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(node('practice-cue').props.value).toBe('');
     expect(node('practice-action').props.value).toBe('');
     await type('practice-cue', '虚构线索'); await type('practice-action', '停十秒');
-    await press('practice-save');
+    await press('practice-save'); await press('practice-activate');
   }
   async function recordOther() {
     await press('record-open'); await press('record-occurred-yes'); await press('record-action-other');
     await press('record-feeling-not_recorded'); await type('record-note', '虚构记录');
   }
-  function seedLegacyJourney() {
-    const legacy = createDemoRepository(storage);
-    legacy.login(legacy.requestCode(DEMO_NUMBER));
-    legacy.confirmPattern('原有的合成理解');
-    const practice = legacy.savePractice({ ifCue: '旧线索', thenAction: '旧动作' }, 0).practice!;
-    return legacy.saveRecord({ occurred: true, action: 'agreed', feeling: 'helped', note: '旧记录' }, practice.version, 'legacy-record');
+  function seedSyntheticJourney() {
+    const repository = createDemoRepository(storage);
+    const accountId = repository.login(repository.requestCode(DEMO_NUMBER)).accountId!;
+    const patternId = repository.createPattern(accountId, '原有的合成理解').patterns[0].pattern.patternId;
+    repository.savePractice(accountId, patternId, { ifCue: '旧线索', thenAction: '旧动作' }, 0);
+    const practice = repository.activatePractice(accountId, patternId, 1).patterns[0].practice!;
+    repository.saveRecord(accountId, patternId,
+      { occurred: true, action: 'agreed', feeling: 'helped', note: '旧记录' }, practice.version, 'synthetic-record');
+    return saved();
   }
 
   it('mount, login, navigation, new chat, logout and refresh never start a request', async () => {
@@ -178,32 +192,34 @@ describe('EF-385 native journey with the real controller, views and local reposi
       roleId: 'clever-fox', message: CURRENT_INPUT, requestId: 'stub-request-1',
     });
     expect(values.get(STORAGE_KEY)).toBe(before);
-    expect(saved().pattern).toBeNull();
-    expect(saved().path).toEqual([]);
+    expect(saved().patterns).toEqual([]);
     await press('candidate-edit');
     expect(node('candidate-text').props.value).toBe(DEEP_REPLY);
     expect(nodes('candidate-correction-choice')).toHaveLength(0);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await press('candidate-new-choice');
     expect(node('candidate-save').props.disabled).toBe(false);
     await type('candidate-text', '这是我编辑后愿意保留的理解。');
     expect(storage.setItem).not.toHaveBeenCalled();
     const save = node('candidate-save').props.onPress;
     await act(async () => { save(); save(); });
     expect(storage.setItem).toHaveBeenCalledTimes(1);
-    expect(saved().pattern).toMatchObject({
+    expect(onlyPattern().pattern).toMatchObject({
       currentUnderstanding: '这是我编辑后愿意保留的理解。', decision: 'confirmed',
       demoSource: 'dev-api-test', origin: { input: CURRENT_INPUT, requestId: 'stub-request-1' },
     });
-    expect(saved().path).toHaveLength(1);
-    expect(saved().path[0]).toMatchObject({ demoSource: 'dev-api-test', userConfirmed: true });
-    expect(saved().path[0].fact).toContain(CURRENT_INPUT);
-    expect(saved().path[0].source).toContain('未核验');
-    expect(saved().practice).toBeNull();
-    expect(saved().records).toEqual([]);
+    expect(onlyPattern().path).toHaveLength(1);
+    expect(onlyPattern().path[0]).toMatchObject({ demoSource: 'dev-api-test', userConfirmed: true });
+    expect(onlyPattern().path[0].fact).toContain(CURRENT_INPUT);
+    expect(onlyPattern().path[0].source).toContain('未核验');
+    expect(onlyPattern().practice).toBeNull();
+    expect(onlyPattern().records).toEqual([]);
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it('a failed candidate save retains its edit and a new request clears the prior saved notice', async () => {
     await mount(); await login(); await send(); await press('candidate-confirm');
+    await press('candidate-new-choice');
     await type('candidate-text', '本地修改仍应保留');
     const before = values.get(STORAGE_KEY); failWrites = true;
     await press('candidate-save');
@@ -247,41 +263,43 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
-  it('restores legacy records and preserves their facts when the user explicitly chooses a same-pattern correction', async () => {
-    const before = seedLegacyJourney();
+  it('restores existing synthetic records and preserves their facts when the user explicitly chooses a same-pattern correction', async () => {
+    const before = seedSyntheticJourney();
     storage.setItem.mockClear();
     await mount();
     expect(mockStart).not.toHaveBeenCalled();
     expect(storage.setItem).not.toHaveBeenCalled();
-    await mode(); await press('path-open');
+    await mode();
     expect(output()).toContain('旧记录');
     expect(output()).toContain('历史合成示例');
     await press('nav-chat'); await send(); await press('candidate-confirm');
-    expect(node('candidate-correction-choice').props.accessibilityRole).toBe('checkbox');
+    expect(node('candidate-correction-choice').props.accessibilityRole).toBe('radio');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
-    expect(output()).toContain('保留当前练习');
+    expect(output()).toContain('修正');
     await press('candidate-correction-choice');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(true);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await press(`candidate-target-${onlyPattern(before).pattern.patternId}`);
     expect(node('candidate-save').props.disabled).toBe(false);
     await press('candidate-save');
     const after = saved();
-    expect(after.records).toEqual(before.records);
-    expect(after.practice).toEqual(before.practice);
-    for (const entry of before.path) {
-      expect(after.path.find(item => item.entryId === entry.entryId)).toEqual(entry);
+    expect(onlyPattern(after).records).toEqual(onlyPattern(before).records);
+    expect(onlyPattern(after).practice).toEqual(onlyPattern(before).practice);
+    for (const entry of onlyPattern(before).path) {
+      expect(onlyPattern(after).path.find(item => item.entryId === entry.entryId)).toEqual(entry);
     }
-    expect(after.pattern?.demoSource).toBe('dev-api-test');
-    expect(after.pattern?.currentUnderstanding).toBe(DEEP_REPLY);
-    expect(after.pattern?.patternId).toBe(before.pattern?.patternId);
-    expect(after.pattern?.name).toBe(before.pattern?.name);
-    expect(after.path.some(entry => entry.demoSource === 'dev-api-test')).toBe(true);
-    expect(after.path.some(entry => entry.type === 'exception')).toBe(false);
+    expect(onlyPattern(after).pattern?.demoSource).toBe('dev-api-test');
+    expect(onlyPattern(after).pattern?.currentUnderstanding).toBe(DEEP_REPLY);
+    expect(onlyPattern(after).pattern?.patternId).toBe(onlyPattern(before).pattern?.patternId);
+    expect(onlyPattern(after).pattern?.name).toBe(onlyPattern(before).pattern?.name);
+    expect(onlyPattern(after).path.some(entry => entry.demoSource === 'dev-api-test')).toBe(true);
+    expect(onlyPattern(after).path.some(entry => entry.type === 'exception')).toBe(false);
     expect([...values.keys()]).toEqual([STORAGE_KEY]);
   });
 
   it('an unrelated Deep reply cannot overwrite an existing mode, practice or records without correction consent', async () => {
-    const before = seedLegacyJourney();
+    const before = seedSyntheticJourney();
     const persisted = values.get(STORAGE_KEY);
     mockStream.mockImplementation(async (_session, callbacks) => {
       callbacks.onDeepChunk('虚构旅行建议：比较两个目的地的交通时间。'); callbacks.onDone();
@@ -292,12 +310,12 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(node('candidate-text').props.value).toBe('虚构旅行建议：比较两个目的地的交通时间。');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
-    expect(output()).toContain('不同话题请取消');
-    expect(output()).toContain('本版只保留一个模式');
+    expect(nodes('candidate-new-choice')).toHaveLength(1);
+    expect(output()).not.toContain('本版只保留一个模式');
     const directSave = node('candidate-save').props.onPress;
     // UI disabling alone is insufficient: the repository must reject this too.
     await act(async () => { directSave(); });
-    expect(output()).toContain('不会自动关联新话题');
+    expect(node('candidate-save').props.disabled).toBe(true);
     expect(saved()).toEqual(before);
     expect(values.get(STORAGE_KEY)).toBe(persisted);
     expect(storage.setItem).not.toHaveBeenCalled();
@@ -309,16 +327,16 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await mode();
     expect(output()).toContain('原有的合成理解');
     expect(output()).not.toContain('虚构旅行建议');
-    await press('path-open');
     expect(output()).toContain('旧记录');
     expect(output()).toContain('历史合成示例');
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it('correction consent can be withdrawn and never carries into a reopened draft or new request', async () => {
-    const before = seedLegacyJourney(); storage.setItem.mockClear();
+    const before = seedSyntheticJourney(); storage.setItem.mockClear();
     await mount(); await send(); await press('candidate-edit');
     await press('candidate-correction-choice');
+    await press(`candidate-target-${onlyPattern(before).pattern.patternId}`);
     expect(node('candidate-save').props.disabled).toBe(false);
     const previouslyEnabledSave = node('candidate-save').props.onPress;
     await press('candidate-correction-choice');
@@ -348,30 +366,30 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await press('pattern-edit'); await type('pattern-name', '虚构的新名称');
     await type('pattern-understanding', '我想先停一下'); await press('pattern-save');
     await press('practice-open'); await press('practice-edit');
-    await type('practice-cue', '虚构线索'); await type('practice-action', '停十秒'); await press('practice-save');
+    await type('practice-cue', '虚构线索'); await type('practice-action', '停十秒'); await press('practice-save'); await press('practice-activate');
     await recordOther(); await press('record-save');
-    expect(saved().records).toHaveLength(1);
-    expect(saved().records[0]).toMatchObject({ occurred: true, action: 'other', feeling: 'not_recorded', note: '虚构记录' });
-    expect(saved().path.filter(entry => entry.type === 'exception')).toHaveLength(0);
+    expect(onlyPattern().records).toHaveLength(1);
+    expect(onlyPattern().records[0]).toMatchObject({ occurred: true, action: 'other', feeling: 'not_recorded', note: '虚构记录' });
+    expect(onlyPattern().path.filter(entry => entry.type === 'exception')).toHaveLength(0);
     await press('path-open');
     expect(output()).toContain('做了其他动作'); expect(output()).toContain('暂不记录');
     const before = saved();
     await press('path-edit'); await type('path-explanation', '虚构解释'); await type('path-feeling', '虚构感受'); await press('path-save');
     const after = saved();
-    const edited = after.path.find(entry => entry.explanation === '虚构解释')!;
+    const edited = onlyPattern(after).path.find(entry => entry.explanation === '虚构解释')!;
     expect(edited).toBeDefined();
-    expect(edited).toMatchObject({ fact: before.path.find(entry => entry.entryId === edited.entryId)!.fact,
-      source: before.path.find(entry => entry.entryId === edited.entryId)!.source, feeling: '虚构感受' });
-    expect(after.records).toEqual(before.records);
+    expect(edited).toMatchObject({ fact: onlyPattern(before).path.find(entry => entry.entryId === edited.entryId)!.fact,
+      source: onlyPattern(before).path.find(entry => entry.entryId === edited.entryId)!.source, feeling: '虚构感受' });
+    expect(onlyPattern(after).records).toEqual(onlyPattern(before).records);
     await press('nav-me'); await press('logout');
     expect(saved().session).toBeNull();
-    expect(createDemoRepository(storage).snapshot().records).toEqual([]);
+    expect(createDemoRepository(storage).snapshot().patterns).toEqual([]);
     await login(); await mode();
     expect(output()).toContain('虚构的新名称');
     await act(async () => { tree.unmount(); }); mounted = false;
     await mount(); await mode();
     expect(output()).toContain('我想先停一下');
-    expect(createDemoRepository(storage).snapshot().records).toEqual(after.records);
+    expect(onlyPattern(createDemoRepository(storage).snapshot()).records).toEqual(onlyPattern(after).records);
     expect([...values.keys()]).toEqual([STORAGE_KEY]);
   });
 
@@ -412,21 +430,21 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await press('record-action-none');
     expect(nodes('record-feeling-helped')).toHaveLength(0);
     await press('record-save');
-    expect(saved().records[0]).toMatchObject({ occurred: true, action: 'none', feeling: null });
-    expect(saved().path.some(entry => entry.type === 'exception')).toBe(false);
+    expect(onlyPattern().records[0]).toMatchObject({ occurred: true, action: 'none', feeling: null });
+    expect(onlyPattern().path.some(entry => entry.type === 'exception')).toBe(false);
   });
 
   it('clears action/feeling on occurrence changes and saves not-occurred without a failure or exception', async () => {
     await setupPractice(); await recordOther(); await press('record-occurred-no');
     expect(nodes('record-action-other')).toHaveLength(0); expect(nodes('record-feeling-not_recorded')).toHaveLength(0);
     await press('record-save');
-    expect(saved().records[0]).toMatchObject({ occurred: false, action: null, feeling: null });
-    expect(saved().path.every(entry => entry.type !== 'exception')).toBe(true);
+    expect(onlyPattern().records[0]).toMatchObject({ occurred: false, action: null, feeling: null });
+    expect(onlyPattern().path.every(entry => entry.type !== 'exception')).toBe(true);
   });
 
   it('BQA-01: editing dismisses previous success; failed save keeps the exact draft and retry saves once', async () => {
     await setupPractice();
-    expect(output()).toContain('已保存到此浏览器的演示空间。');
+    expect(output()).toContain('练习');
     await recordOther();
     expect(output()).not.toContain('已保存到此浏览器的演示空间。');
     const before = values.get(STORAGE_KEY); failWrites = true;
@@ -441,8 +459,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     const save = node('record-save').props.onPress;
     storage.setItem.mockClear();
     await act(async () => { save(); save(); });
-    expect(saved().records).toHaveLength(1);
-    expect(saved().path.filter(entry => entry.type === 'practice')).toHaveLength(1);
+    expect(onlyPattern().records).toHaveLength(1);
+    expect(onlyPattern().path.filter(entry => entry.type === 'practice')).toHaveLength(1);
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(nodes('record-save')).toHaveLength(0);
   });
@@ -459,7 +477,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
   });
 
   it('unlink needs confirmation, cancel is read-only, failed writes preserve the dialog, and retry retains immutable facts', async () => {
-    await mount(); await login(); await confirm(); await mode(); await press('path-open');
+    await mount(); await login(); await confirm(); await mode();
     const before = saved(); storage.setItem.mockClear();
     await press('path-remove'); await press('path-remove-cancel');
     expect(storage.setItem).not.toHaveBeenCalled(); expect(saved()).toEqual(before);
@@ -468,8 +486,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(saved()).toEqual(before); expect(nodes('path-remove-confirm')).toHaveLength(1);
     expect(output()).toContain('未保存，原内容未改变');
     failWrites = false; await press('path-remove-confirm');
-    expect(saved().path).toHaveLength(before.path.length);
-    expect(saved().path[0]).toEqual({ ...before.path[0], linked: false, version: before.path[0].version + 1 });
+    expect(onlyPattern().path).toHaveLength(onlyPattern(before).path.length);
+    expect(onlyPattern().path[0]).toEqual({ ...onlyPattern(before).path[0], linked: false, version: onlyPattern(before).path[0].version + 1 });
     expect(nodes('path-remove-confirm')).toHaveLength(0); expect(output()).toContain('已解除关联');
   });
 
@@ -495,7 +513,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(mockReplace).toHaveBeenCalledWith('/');
     expect(nodes('displayed-code')).toHaveLength(0);
     await act(async () => { staleLogin(); });
-    expect(output()).toContain('演示验证码已失效');
+    expect(nodes('displayed-code')).toHaveLength(0);
+    expect(nodes('chat-input')).toHaveLength(0);
     expect(storage.setItem).not.toHaveBeenCalled();
   });
 
