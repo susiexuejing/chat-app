@@ -53,6 +53,8 @@ jobs:
           EXPO_PUBLIC_APP_ENV: DEV
         run: pnpm --dir client exec expo export --platform web --output-dir dist
       - name: Existing backend contracts (mocked)
+        id: backend_contracts
+        continue-on-error: true
         env:
           NODE_OPTIONS: --experimental-vm-modules
           NODE_ENV: test
@@ -68,3 +70,6 @@ jobs:
           path: client/dist
           if-no-files-found: error
           retention-days: 7
+      - name: Enforce backend contract result
+        if: always()
+        run: test "${{ steps.backend_contracts.outcome }}" = success
