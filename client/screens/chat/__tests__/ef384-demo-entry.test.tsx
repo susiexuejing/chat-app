@@ -266,7 +266,7 @@ describe('EF-384 DEV entry in the actual original ChatScreen', () => {
       await updateState({ isHydrated: true });
       expect(demoEntry().props.disabled).toBe(false);
       expect(demoEntry().props.accessibilityRole).toBe('button');
-      expect(demoEntry().props.accessibilityLabel).toBe('合成演示（不调用模型）');
+      expect(demoEntry().props.accessibilityLabel).toBe('DEV 体验流程（真实 API）');
       expect(demoEntry().props.accessibilityState).toEqual({ disabled: false });
       const beforeState = JSON.stringify(mockChatState);
       await press(demoEntry());

@@ -1,12 +1,14 @@
 'use strict';
 /* global module */
 /**
- * Native, synthetic-only adaptation of PR #160, fixed reference SHA:
+ * Local-only journey repository adapted from PR #160, fixed reference SHA:
  * 519b67ddc476751c43f76f439ddeb5ed75cee701
  * https://github.com/susiexuejing/chat-app/pull/160
  * https://github.com/susiexuejing/chat-app/tree/519b67ddc476751c43f76f439ddeb5ed75cee701/demos/ef377/ef377-integrated-v01
  * Sources: journey.mjs, integration.mjs, vendor/auth.mjs, vendor/practice.mjs,
- * vendor/editor.mjs. No production APIs, models, accounts, or storage keys.
+ * vendor/editor.mjs. No API calls, credentials, real accounts, or live chat keys.
+ * EF-385 adds explicitly confirmed DEV-response provenance; legacy fixed
+ * fixtures retain their original source and immutable facts.
  * One localStorage setItem atomically replaces the whole aggregate. Every write
  * rereads and checks versions, but localStorage provides no cross-tab lock/CAS.
  * This demo supports one active tab; it does not promise concurrent-tab safety.
@@ -28,7 +30,9 @@ const stamp = x => typeof x === 'string' && Number.isFinite(Date.parse(x));
 const keys = (x, allowed) => plain(x) && Object.keys(x).every(k => allowed.includes(k));
 function requireThat(ok, message = '内容无效，请检查后重试。') { if (!ok) throw Error(message); }
 const owned = x => plain(x) && x.accountId === ACCOUNT_ID && x.patternId === PATTERN_ID;
-const marked = x => owned(x) && x.schemaVersion === 1 && x.demoSource === 'synthetic';
+const validOrigin = x => keys(x, ['input','requestId']) && text(x.input,1000) && typeof x.requestId === 'string' && /^[\w-]{1,100}$/.test(x.requestId);
+const marked = x => owned(x) && x.schemaVersion === 1 && ['synthetic','dev-api-test'].includes(x.demoSource)
+  && (x.origin === undefined || (x.demoSource === 'dev-api-test' && validOrigin(x.origin)));
 function validPayload(x) {
   return plain(x) && typeof x.occurred === 'boolean' && text(x.note === undefined ? '' : x.note, 200, true)
     && (!x.occurred ? x.action === null && x.feeling === null
@@ -41,8 +45,8 @@ function validate(d) {
   requireThat([null, ACCOUNT_ID].includes(d.accountId) && [null, ACCOUNT_ID].includes(d.session) && (!d.session || d.accountId === d.session));
   requireThat(Array.isArray(d.records) && Array.isArray(d.path));
   const p = d.pattern, q = d.practice;
-  requireThat(p === null || (d.accountId === ACCOUNT_ID && marked(p) && text(p.name,80) && text(p.currentUnderstanding,2000,true) && decisions.includes(p.decision) && Array.isArray(p.clues) && p.clues.length === 0 && version(p.version) && stamp(p.createdAt) && stamp(p.updatedAt)));
-  requireThat(q === null || (p && owned(q) && q.practiceId === PRACTICE_ID && text(q.name,80) && text(q.ifCue,200) && text(q.thenAction,200) && q.confirmed === true && typeof q.paused === 'boolean' && version(q.version)));
+  requireThat(p === null || (d.accountId === ACCOUNT_ID && marked(p) && (p.demoSource !== 'dev-api-test' || validOrigin(p.origin)) && text(p.name,80) && text(p.currentUnderstanding,2000,true) && decisions.includes(p.decision) && Array.isArray(p.clues) && p.clues.length === 0 && version(p.version) && stamp(p.createdAt) && stamp(p.updatedAt)));
+  requireThat(q === null || (p && owned(q) && q.practiceId === PRACTICE_ID && (q.demoSource === undefined || ['synthetic','dev-api-test'].includes(q.demoSource)) && (q.origin === undefined || (q.demoSource === 'dev-api-test' && validOrigin(q.origin))) && text(q.name,80) && text(q.ifCue,200) && text(q.thenAction,200) && q.confirmed === true && typeof q.paused === 'boolean' && version(q.version)));
   requireThat(!d.records.length || !!q);
   requireThat(!d.path.length || !!p);
   requireThat(d.records.every(r => marked(r) && r.practiceId === PRACTICE_ID && version(r.practiceVersion) && r.practiceVersion <= q.version && text(r.recordId,150) && text(r.operationId,100) && stamp(r.createdAt) && validPayload(r)));
@@ -70,7 +74,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
   function matches(actual, expected) { requireThat(Number.isSafeInteger(expected) && actual === expected, '已存版本已变化，请重新读取并核对草稿后重试。'); }
   function time(previous) { return new Date(Math.max(now(), previous ? Date.parse(previous) + 1 : 0)).toISOString(); }
   function entry(d, type, entryId, extra, createdAt) {
-    d.path.push({ schemaVersion:1,demoSource:'synthetic',accountId:ACCOUNT_ID,patternId:PATTERN_ID,entryId,type,createdAt,version:1,linked:true,userConfirmed:true,...extra });
+    d.path.push({ schemaVersion:1,demoSource:d.pattern?.demoSource ?? 'synthetic',...(d.pattern?.origin ? {origin:clone(d.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId:PATTERN_ID,entryId,type,createdAt,version:1,linked:true,userConfirmed:true,...extra });
   }
   function correction(d, old, next, createdAt) {
     if (old !== next) entry(d,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source:'用户确认修改',oldUnderstanding:old,currentUnderstanding:next},createdAt);
@@ -103,6 +107,31 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       }
       return write(d);
     },
+    confirmDevUnderstanding(payload, expectedVersion) {
+      requireThat(keys(payload,['text','input','requestId','relation']) && (payload.relation === undefined || payload.relation === 'correct-current') && text(payload.text,2000) && validOrigin({input:payload.input,requestId:payload.requestId}));
+      const value = payload.text.trim(), origin = {input:payload.input.trim(),requestId:payload.requestId};
+      const d = authorized();
+      // A duplicate confirmation of the same completed turn is a no-op. A
+      // reused request identity must never silently attach different content.
+      if (d.pattern?.origin?.requestId === origin.requestId) {
+        requireThat(d.pattern.origin.input === origin.input && d.pattern.currentUnderstanding === value, '这次请求标识已用于不同内容，请重新核对。');
+        return view(d);
+      }
+      requireThat(!d.path.some(e=>e.origin?.requestId === origin.requestId), '这次请求已经保存，请查看现有路径。');
+      requireThat(!d.pattern || payload.relation === 'correct-current', '已有保存的模式；请先明确选择这是对当前模式的修正，不会自动关联新话题。');
+      matches(d.pattern?.version ?? 0,expectedVersion);
+      const at = time(d.pattern?.updatedAt), previous = d.pattern?.currentUnderstanding;
+      const source = 'DEV 服务端 Deep 回复（上游供应商/模型未核验），用户编辑确认';
+      if (d.pattern) {
+        Object.assign(d.pattern,{demoSource:'dev-api-test',origin,currentUnderstanding:value,decision:'confirmed',updatedAt:at,version:d.pattern.version+1});
+        if (previous !== value) entry(d,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source,oldUnderstanding:previous,currentUnderstanding:value},at);
+        entry(d,'event','dev-input-'+(d.revision+1),{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
+      } else {
+        d.pattern = {schemaVersion:1,demoSource:'dev-api-test',origin,accountId:ACCOUNT_ID,patternId:PATTERN_ID,name:'我想保留的理解',currentUnderstanding:value,decision:'confirmed',clues:[],createdAt:at,updatedAt:at,version:1};
+        entry(d,'event','evt-1',{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
+      }
+      return write(d);
+    },
     updatePattern(patch, expectedVersion) {
       requireThat(keys(patch,['name','currentUnderstanding','decision']) && Object.keys(patch).length > 0);
       if ('name' in patch) requireThat(text(patch.name,80));
@@ -115,7 +144,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
     savePractice(patch, expectedVersion) {
       requireThat(keys(patch,['ifCue','thenAction']) && text(patch.ifCue,200) && text(patch.thenAction,200));
       const d = authorized(); hasPattern(d); requireThat(d.pattern.decision === 'confirmed', '请先确认这条模式。'); matches(d.practice?.version ?? 0,expectedVersion);
-      d.practice = {accountId:ACCOUNT_ID,patternId:PATTERN_ID,practiceId:PRACTICE_ID,name:'停十秒，回到眼前',ifCue:patch.ifCue.trim(),thenAction:patch.thenAction.trim(),confirmed:true,paused:d.practice?.paused ?? false,version:expectedVersion+1};
+      d.practice = {demoSource:d.pattern.demoSource,...(d.pattern.origin ? {origin:clone(d.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId:PATTERN_ID,practiceId:PRACTICE_ID,name:d.pattern.demoSource === 'dev-api-test' ? '我确认的小练习' : '停十秒，回到眼前',ifCue:patch.ifCue.trim(),thenAction:patch.thenAction.trim(),confirmed:true,paused:d.practice?.paused ?? false,version:expectedVersion+1};
       return write(d);
     },
     pausePractice(expectedVersion) {
@@ -134,8 +163,9 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       hasPattern(d); requireThat(d.pattern.decision === 'confirmed' && d.practice?.confirmed && !d.practice.paused, '请先确认模式和练习；暂停的练习不能记录。');
       matches(d.practice.version,expectedPracticeVersion);
       const at = time(); const recordId = 'record-'+(d.records.length+1);
-      d.records.push({schemaVersion:1,demoSource:'synthetic',accountId:ACCOUNT_ID,patternId:PATTERN_ID,practiceId:PRACTICE_ID,practiceVersion:expectedPracticeVersion,recordId,operationId,createdAt:at,...normalized});
-      entry(d,'practice',recordId,{fact:'用户明确保存的练习记录。',source:'用户明确保存的练习记录',recordId},at);
+      const practiceSource = d.practice.demoSource ?? 'synthetic';
+      d.records.push({schemaVersion:1,demoSource:practiceSource,accountId:ACCOUNT_ID,patternId:PATTERN_ID,practiceId:PRACTICE_ID,practiceVersion:expectedPracticeVersion,recordId,operationId,createdAt:at,...normalized});
+      entry(d,'practice',recordId,{demoSource:practiceSource,origin:practiceSource === 'dev-api-test' ? d.practice.origin : undefined,fact:'用户明确保存的练习记录。',source:'用户明确保存的练习记录',recordId},at);
       return write(d);
     },
     updatePath(entryId, patch, expectedVersion) {

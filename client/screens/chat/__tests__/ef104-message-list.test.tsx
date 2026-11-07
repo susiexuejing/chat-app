@@ -10,8 +10,8 @@ jest.mock('../contexts/ChatContext', () => ({
   useChat: () => mockedUseChat(),
 }));
 
-jest.mock('../components/MessageBubble', () => ({
-  MessageBubble: ({ message }: { message: ChatMessage }) => (
+jest.mock('../components/MessageBubbleView', () => ({
+  MessageBubbleView: ({ message }: { message: ChatMessage }) => (
     <Text testID={`message-${message.id}`}>{message.content}</Text>
   ),
 }));
@@ -58,3 +58,4 @@ describe('EF-104 MessageList layer rendering', () => {
     expect(view.getAllByText(/User|Reaction|Companion|Deep/)).toHaveLength(4);
   });
 });
+

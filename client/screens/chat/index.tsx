@@ -44,7 +44,7 @@ function NativeDemoEntry({ disabled }: { disabled: boolean }) {
     <TouchableOpacity
       testID="native-demo-open"
       accessibilityRole="button"
-      accessibilityLabel="合成演示（不调用模型）"
+      accessibilityLabel="DEV 体验流程（真实 API）"
       accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={() => {
@@ -52,7 +52,7 @@ function NativeDemoEntry({ disabled }: { disabled: boolean }) {
       }}
       className={`mx-4 my-3 rounded-xl border border-amber-200 dark:border-amber-800 px-4 py-3 items-center ${disabled ? 'opacity-40' : 'bg-amber-50 dark:bg-amber-900/20'}`}
     >
-      <Text className="text-sm text-amber-700 dark:text-amber-300">合成演示（不调用模型）</Text>
+      <Text className="text-sm text-amber-700 dark:text-amber-300">DEV 体验流程（真实 API）</Text>
     </TouchableOpacity>
   );
 }

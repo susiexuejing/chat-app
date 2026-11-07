@@ -48,7 +48,7 @@ test.each(['production', 'PROD', '', undefined])('non-DEV /demo fails closed (%s
   await act(async () => { tree = TestRenderer.create(<DemoEntry />); });
   expect(mockLiveProvider).not.toHaveBeenCalled();
   expect(mockDemoScreen).not.toHaveBeenCalled();
-  expect(JSON.stringify(tree!.toJSON())).toContain('合成演示仅在 DEV 环境开放');
+  expect(JSON.stringify(tree!.toJSON())).toContain('体验流程仅在 DEV 环境开放');
 });
 
 test.each(['DEV', 'production'])('live group preserves one shared provider and index/chat routes (%s)', async environment => {

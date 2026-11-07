@@ -1,11 +1,13 @@
-name: EF-384 Native Demo Verification
+name: Native Journey Verification
 
 on:
   pull_request:
     branches: [dev]
     paths:
       - 'client/**'
+      - 'server/**'
       - 'scripts/__tests__/ef384-*'
+      - 'scripts/__tests__/ef385-*'
       - '.github/workflows/ef384-native-demo.yml'
 
 permissions:
@@ -35,7 +37,11 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Repository transactions and source isolation guards
-        run: node --test scripts/__tests__/ef384-native-*.test.cjs
+        run: node --test scripts/__tests__/ef384-native-*.test.cjs scripts/__tests__/ef385-*.test.cjs
+      - name: Bounded DEV transport and cancellation (mocked)
+        run: node --experimental-vm-modules --test client/features/dev-journey/__tests__/*.test.mjs
+      - name: Ephemeral DEV backend isolation (mocked)
+        run: node --experimental-vm-modules --test server/src/__tests__/ef385-dev-ephemeral.test.mjs
       - name: All existing and new client tests
         run: pnpm --dir client exec jest --runInBand
       - name: Type-check client
@@ -46,6 +52,15 @@ jobs:
         env:
           EXPO_PUBLIC_APP_ENV: DEV
         run: pnpm --dir client exec expo export --platform web --output-dir dist
+      - name: Existing backend contracts (mocked)
+        id: backend_contracts
+        continue-on-error: true
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+          NODE_ENV: test
+        run: pnpm --dir server exec jest --runInBand --runTestsByPath src/__tests__/em43.test.ts src/__tests__/ef41-composition.test.ts src/__tests__/ef41-deep-validator.test.ts src/__tests__/ef102-stream-events.test.ts src/__tests__/ef118-runtime-audit.test.ts src/__tests__/ef75-chat-ownership.test.ts
+      - name: Build backend without deployment
+        run: pnpm --dir server run build
       - name: Check tracked runtime data
         run: pnpm run check:runtime-data
       - name: Upload review-only web build
@@ -55,3 +70,6 @@ jobs:
           path: client/dist
           if-no-files-found: error
           retention-days: 7
+      - name: Enforce backend contract result
+        if: always()
+        run: test "${{ steps.backend_contracts.outcome }}" = success
