@@ -7,5 +7,5 @@ import SyntheticDemoScreen from '@/screens/synthetic-demo';
 // original / and /chat entries keep their existing behavior in every build.
 export default function DemoEntry() {
   if (process.env.EXPO_PUBLIC_APP_ENV === 'DEV') return <SyntheticDemoScreen />;
-  return <Screen><Text>合成演示仅在 DEV 环境开放。原有聊天入口保持不变。</Text></Screen>;
+  return <Screen><Text>体验流程仅在 DEV 环境开放。原有聊天入口保持不变。</Text></Screen>;
 }

@@ -34,7 +34,7 @@ test('/demo is DEV-only and imports no live provider or chat fallback', () => {
   assert.match(read('client/app/demo.tsx'), /from ['"]@\/features\/synthetic-demo\/DemoEntry['"]/);
   const entry = read('client/features/synthetic-demo/DemoEntry.tsx');
   assert.match(entry, /if\s*\(process\.env\.EXPO_PUBLIC_APP_ENV === 'DEV'\) return <SyntheticDemoScreen\s*\/>/);
-  assert.match(entry, /合成演示仅在 DEV 环境开放/);
+  assert.match(entry, /体验流程仅在 DEV 环境开放/);
   assert.doesNotMatch(entry, /from ['"][^'"]*(?:ChatContext|screens\/chat)['"]|<ChatProvider|<ChatScreen/);
 });
 
@@ -50,7 +50,7 @@ test('original chat demo button only replaces route, is DEV-only, and waits for 
   assert.equal((chat.match(/<NativeDemoEntry disabled=\{!isHydrated \|\| isLoading\}\s*\/>/g) || []).length, 2);
 });
 
-test('synthetic screen and repository use injected demo storage with no live chat, networking or embedded HTML', () => {
+test('journey state stays local without live provider, direct networking or embedded HTML', () => {
   const screen = read('client/screens/synthetic-demo/index.tsx');
   const repository = read('client/features/synthetic-demo/repository.js');
   for (const source of [screen, repository]) {
