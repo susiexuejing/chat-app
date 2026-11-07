@@ -36,10 +36,13 @@ function createMessage(
 
 // 获取所有对话历史
 export async function getChatSessions(
-  onRawRead?: (raw: string | null) => void
+  onRawRead?: (raw: string | null) => void,
+  signal?: AbortSignal
 ): Promise<ChatSession[]> {
   try {
+    if (signal?.aborted) return [];
     const data = await AsyncStorage.getItem(STORAGE_KEY);
+    if (signal?.aborted) return [];
     onRawRead?.(data);
     console.log('[EF59_STORE_TRACE] getChatSessions called', {
       hasData: !!data,
@@ -289,21 +292,27 @@ export async function persistMessage(
 
 // EF-59: 从后端获取对话和消息
 export async function fetchConversation(
-  conversationId: string
+  conversationId: string,
+  signal?: AbortSignal
 ): Promise<{ conversation: unknown; messages: PersistedMessage[] } | null> {
   const baseUrl = getBackendBaseUrl();
-  if (!baseUrl) return null;
+  if (!baseUrl || signal?.aborted) return null;
 
   try {
     const auth = await getAnonymousRequestOptions(baseUrl, 'GET');
+    if (signal?.aborted) return null;
     const response = await fetch(`${baseUrl}/api/v1/conversations/${conversationId}`, {
       credentials: auth.credentials,
       headers: auth.headers,
+      signal,
     });
-    if (!response.ok) return null;
-    return await response.json();
+    if (signal?.aborted || !response.ok) return null;
+    const result = await response.json();
+    return signal?.aborted ? null : result;
   } catch {
+    if (signal?.aborted) return null;
     console.error('[EF-75] Conversation hydration unavailable', { code: 'anonymous_session_unavailable' });
     return null;
   }
 }
+

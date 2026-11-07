@@ -195,7 +195,7 @@ describe('EF-59 Runtime Fix Tests', () => {
       });
 
       // Verify: fetchConversation was called with backend conversation ID
-      expect(sessionStore.fetchConversation).toHaveBeenCalledWith(backendConvId);
+      expect(sessionStore.fetchConversation).toHaveBeenCalledWith(backendConvId, expect.any(AbortSignal));
       
       unmount();
     });
@@ -276,7 +276,7 @@ describe('EF-59 Runtime Fix Tests', () => {
 
       // Verify: fetchConversation was called with backend conversation ID
       // This proves the race condition is fixed - sync waited for sessions to load
-      expect(sessionStore.fetchConversation).toHaveBeenCalledWith(backendConvId);
+      expect(sessionStore.fetchConversation).toHaveBeenCalledWith(backendConvId, expect.any(AbortSignal));
 
       unmount();
     });
@@ -342,3 +342,4 @@ describe('EF-59 Runtime Fix Tests', () => {
     });
   });
 });
+

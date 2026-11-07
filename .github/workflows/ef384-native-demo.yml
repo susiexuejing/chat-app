@@ -1,0 +1,57 @@
+name: EF-384 Native Demo Verification
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'client/**'
+      - 'scripts/__tests__/ef384-*'
+      - '.github/workflows/ef384-native-demo.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  native-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify checkout identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Repository transactions and source isolation guards
+        run: node --test scripts/__tests__/ef384-native-*.test.cjs
+      - name: All existing and new client tests
+        run: pnpm --dir client exec jest --runInBand
+      - name: Type-check client
+        run: pnpm --dir client exec tsc --noEmit
+      - name: Lint client
+        run: pnpm --dir client exec eslint ./ --quiet
+      - name: Export native DEV web application without deployment
+        env:
+          EXPO_PUBLIC_APP_ENV: DEV
+        run: pnpm --dir client exec expo export --platform web --output-dir dist
+      - name: Check tracked runtime data
+        run: pnpm run check:runtime-data
+      - name: Upload review-only web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ef384-native-web-${{ github.event.pull_request.head.sha }}
+          path: client/dist
+          if-no-files-found: error
+          retention-days: 7

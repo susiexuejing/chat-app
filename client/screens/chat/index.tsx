@@ -14,7 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { usePathname } from 'expo-router';
+import { router, usePathname } from 'expo-router';
 import { Screen } from '@/components/Screen';
 import { useSafeRouter } from '@/hooks/useSafeRouter';
 import { getFlowTypeLabel, getFlowStageLabel } from '@/screens/chat/utils/flowTypeMapping';
@@ -35,6 +35,27 @@ import { shouldRenderChangeSystemCard } from './utils/debugMode';
 import { retryFailedTurn } from './utils/retryFailedTurn';
 
 const STATE_ENTRIES = ['我很累', '我很乱', '我很烦', '我很空', '说不清'];
+
+
+function NativeDemoEntry({ disabled }: { disabled: boolean }) {
+  if (process.env.EXPO_PUBLIC_APP_ENV !== 'DEV') return null;
+
+  return (
+    <TouchableOpacity
+      testID="native-demo-open"
+      accessibilityRole="button"
+      accessibilityLabel="合成演示（不调用模型）"
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      onPress={() => {
+        if (!disabled) router.replace('/demo');
+      }}
+      className={`mx-4 my-3 rounded-xl border border-amber-200 dark:border-amber-800 px-4 py-3 items-center ${disabled ? 'opacity-40' : 'bg-amber-50 dark:bg-amber-900/20'}`}
+    >
+      <Text className="text-sm text-amber-700 dark:text-amber-300">合成演示（不调用模型）</Text>
+    </TouchableOpacity>
+  );
+}
 
 function ChatContent() {
   const {
@@ -245,6 +266,8 @@ function ChatContent() {
             </Text>
           </TouchableOpacity>
 
+          <NativeDemoEntry disabled={!isHydrated || isLoading} />
+
           {/* 状态入口 */}
           <View className="items-center">
             <Text className="text-xs text-gray-400 dark:text-gray-500 mb-3">
@@ -292,6 +315,8 @@ function ChatContent() {
         }}
         hasHistory={sessions.length > 0}
       />
+
+      <NativeDemoEntry disabled={!isHydrated || isLoading} />
 
       {/* FlowContext 状态变化卡片 - 仅在 Debug 模式显示 */}
       {shouldRenderChangeSystemCard(Platform.OS, typeof window !== 'undefined' ? window.location.search : '', !!changeSystemData) && <ChangeSystemCard data={changeSystemData} />}
@@ -447,3 +472,4 @@ export default function ChatScreen() {
 
   return <ChatContent />;
 }
+
