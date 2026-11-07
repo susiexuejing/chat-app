@@ -1,4 +1,4 @@
-name: EF-384 Native Demo Verification
+name: Native Journey Verification
 
 on:
   pull_request:
@@ -6,6 +6,7 @@ on:
     paths:
       - 'client/**'
       - 'scripts/__tests__/ef384-*'
+      - 'scripts/__tests__/ef385-*'
       - '.github/workflows/ef384-native-demo.yml'
 
 permissions:
@@ -35,7 +36,9 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Repository transactions and source isolation guards
-        run: node --test scripts/__tests__/ef384-native-*.test.cjs
+        run: node --test scripts/__tests__/ef384-native-*.test.cjs scripts/__tests__/ef385-*.test.cjs
+      - name: Bounded DEV transport and cancellation (mocked)
+        run: node --experimental-vm-modules --test client/features/dev-journey/__tests__/*.test.mjs
       - name: All existing and new client tests
         run: pnpm --dir client exec jest --runInBand
       - name: Type-check client

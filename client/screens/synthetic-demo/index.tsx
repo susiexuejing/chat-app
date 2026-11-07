@@ -3,13 +3,15 @@ import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'r
 import { Screen } from '@/components/Screen';
 import { useRouter } from 'expo-router';
 import {
-  CANDIDATE, CHAT_INPUT, DEMO_NUMBER, PRACTICE_TEXT, createDemoRepository,
+  DEMO_NUMBER, PRACTICE_TEXT, createDemoRepository,
   type Decision, type DemoRepository, type PathEntry, type RecordPayload, type Snapshot,
 } from '@/features/synthetic-demo/repository';
 
+import { DevConversation, type DevUnderstandingDraft } from '@/features/dev-journey/DevConversation';
+
 type Page = 'chat' | 'me' | 'mode' | 'practice' | 'checkin' | 'path';
 type Draft =
-  | { kind: 'candidate'; text: string; decision: Decision; version: number }
+  | { kind: 'candidate'; text: string; input: string; requestId: string; decision: Decision; version: number }
   | { kind: 'mode'; name: string; understanding: string; version: number }
   | { kind: 'practice'; cue: string; action: string; version: number }
   | { kind: 'record'; payload: RecordPayload; version: number; operationId: string; occurredChosen: boolean }
@@ -45,7 +47,7 @@ function Choices<T extends string>({ label, options, value, onChange, testID }: 
   </View></View>;
 }
 
-/** DEV only. Deliberately never consumes ChatContext or calls the live chat API. */
+/** DEV only. Local journey state stays separate from explicit real chat transport. */
 export default function SyntheticDemoScreen() {
   const router = useRouter();
   const repository = useRef<DemoRepository | null>(null);
@@ -55,7 +57,7 @@ export default function SyntheticDemoScreen() {
   const [notice, setNotice] = useState<Notice>(null);
   const [code, setCode] = useState('');
   const [enteredCode, setEnteredCode] = useState('');
-  const [chatStarted, setChatStarted] = useState(false);
+  const [chatGeneration, setChatGeneration] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null);
   // Ref is updated synchronously: a second queued press cannot save a dismissed draft.
   const draftRef = useRef<Draft | null>(null);
@@ -89,7 +91,7 @@ export default function SyntheticDemoScreen() {
     repository.current?.cancelCode();
     changeDraft(null);
     setPage(next);
-    setChatStarted(false);
+    setChatGeneration(value => value + 1);
     setCode('');
     setEnteredCode('');
   }
@@ -113,7 +115,7 @@ export default function SyntheticDemoScreen() {
     write(repo => {
       if (current.kind === 'candidate') {
         return current.decision === 'confirmed'
-          ? repo.confirmPattern(current.text)
+          ? repo.confirmDevUnderstanding({ text: current.text, input: current.input, requestId: current.requestId }, current.version)
           : repo.updatePattern({ decision: current.decision }, current.version);
       }
       if (current.kind === 'mode') return repo.updatePattern({ name: current.name, currentUnderstanding: current.understanding }, current.version);
@@ -133,14 +135,8 @@ export default function SyntheticDemoScreen() {
     changeDraft({ kind: 'record', occurredChosen: false, version: practice.version, operationId: `record-${Date.now()}-${recordSequence.current}-${Math.random().toString(36).slice(2)}`,
       payload: { occurred: false, action: null, feeling: null, note: '' } });
   }
-  function candidate(decision: Decision) {
-    if (decision === 'rejected' || decision === 'uncertain') {
-      setChatStarted(false);
-      changeDraft(null);
-      setNotice({ kind: 'success', text: decision === 'rejected' ? '已放下这个候选，没有保存或更改模式。' : '可以暂时不确定，这个候选没有保存。' });
-      return;
-    }
-    changeDraft({ kind: 'candidate', text: CANDIDATE, decision, version: snapshot?.pattern?.version ?? 0 });
+  function candidate(result: DevUnderstandingDraft) {
+    changeDraft({ kind: 'candidate', ...result, decision: 'confirmed', version: snapshot?.pattern?.version ?? 0 });
   }
   function saveButtons(label = '保存') {
     const prefix = draft?.kind === 'mode' ? 'pattern' : draft?.kind;
@@ -158,7 +154,7 @@ export default function SyntheticDemoScreen() {
       {draft.kind === 'candidate' && <>
         <Text className="text-stone-800">你的选择：{decisionLabels[draft.decision]}</Text>
         {draft.decision === 'confirmed' && <Field testID="candidate-text" label="我的理解（可修改）" value={draft.text} multiline onChange={text => changeDraft({ ...draft, text })} />}
-        <Text className="text-sm text-stone-600">候选内容是预设示例，不是模型识别或心理判断。</Text>
+        <Text className="text-sm text-stone-600">来源：本次 DEV 服务端 Deep 回复，可编辑确认；实际供应商和模型未核验。不是诊断。</Text>
       </>}
       {draft.kind === 'mode' && <>
         <Field testID="pattern-name" label="模式名称" value={draft.name} onChange={name => changeDraft({ ...draft, name })} />
@@ -205,45 +201,33 @@ export default function SyntheticDemoScreen() {
         <Button testID="login" title="登录演示账号" onPress={() => write(repo => repo.login(enteredCode), '已进入虚构演示账号。')} />
       </>}
     </Card>;
-    if (page === 'chat') return <>
-      <Card><Text className="text-2xl font-semibold text-stone-900">和小狐狸聊聊</Text><Text className="text-stone-600">一段固定的虚构对话，帮助你试走完整流程。</Text>
-        {!chatStarted && <TextInput testID="chat-input" accessibilityLabel="固定虚构对话" editable={false} multiline value={CHAT_INPUT} className="rounded-xl border border-stone-200 p-3 text-stone-800" />}
-        {!chatStarted ? <Button testID="chat-send" title="开始示例对话" onPress={() => { changeDraft(null); setChatStarted(true); }} /> : <>
-          <View className="rounded-2xl bg-stone-100 p-4"><Text className="text-xs text-stone-500">虚构用户</Text><Text className="text-base text-stone-900">{CHAT_INPUT}</Text></View>
-          <View className="rounded-2xl bg-amber-50 p-4 gap-2"><Text className="text-sm text-amber-800">小狐狸 · 固定示例</Text><Text className="text-base text-stone-900">{CANDIDATE}</Text></View>
-          <Text className="text-sm text-stone-600">这只是候选理解。你可以确认、修改、不认同、不确定，或停止。</Text>
-          <Button testID="candidate-confirm" title="确认这个理解" onPress={() => candidate('confirmed')} />
-          <Button testID="candidate-edit" title="修改后再确认" secondary onPress={() => candidate('confirmed')} />
-          <View className="flex-row flex-wrap gap-2"><Button testID="candidate-reject" title="不符合" secondary onPress={() => candidate('rejected')} /><Button testID="candidate-unsure" title="不确定" secondary onPress={() => candidate('uncertain')} /></View>
-          <Button testID="candidate-stop" title="停止讨论 · 不保存" secondary onPress={() => { changeDraft(null); setChatStarted(false); }} />
-        </>}
-      </Card>{renderDraft()}
-    </>;
+    if (page === 'chat') return <DevConversation resetKey={chatGeneration} onConfirm={candidate}
+      onDraftDiscard={() => changeDraft(null)} footer={renderDraft()} />;
     if (page === 'me') return <>
       <Card><Text className="text-2xl font-semibold text-stone-900">我的</Text><Button testID="mode-open" title="我的模式" secondary onPress={() => navigate('mode')} /></Card>
       <Card><Text className="text-lg font-semibold text-stone-900">账号</Text><Text className="text-stone-600">虚构账号 · {DEMO_NUMBER}</Text><Text className="text-sm text-stone-600">仅保存在这个浏览器。退出后重新登录同一个演示账号可以继续查看已保存内容。</Text>
         <Button testID="logout" title="退出演示账号" secondary onPress={() => {
-          changeDraft(null); setChatStarted(false); setCode(''); setEnteredCode('');
+          changeDraft(null); setChatGeneration(value => value + 1); setCode(''); setEnteredCode('');
           write(repo => repo.logout(), '已退出，未保存草稿已丢弃。');
         }} /></Card>
     </>;
     if (page === 'mode') return <>
       <Button title="返回我的" secondary onPress={() => navigate('me')} />
       {pattern && <Card><Text className="text-2xl font-semibold text-stone-900">{pattern.name}</Text>
-        <Text className="text-sm text-amber-800">{decisionLabels[pattern.decision]} · 合成示例</Text><Text className="text-lg text-stone-800">{pattern.currentUnderstanding}</Text>
+        <Text className="text-sm text-amber-800">{decisionLabels[pattern.decision]} · {pattern.demoSource === 'dev-api-test' ? 'DEV 回复 · 用户确认' : '历史合成示例'}</Text><Text className="text-lg text-stone-800">{pattern.currentUnderstanding}</Text>
         <Button testID="pattern-edit" title="编辑名称与当前理解" onPress={() => changeDraft({ kind: 'mode', name: pattern.name, understanding: pattern.currentUnderstanding, version: pattern.version })} />
         <Button testID="practice-open" title="我的小练习" secondary onPress={() => navigate('practice')} /><Button testID="path-open" title="查看我的路径" secondary onPress={() => navigate('path')} />
         <Text className="text-sm text-stone-500">这里只演示一个模式。不推断人格，不自动生成例外或成长结论。</Text>
       </Card>}
-      {!pattern && <Card><Text className="text-stone-700">还没有已确认的模式。先在聊天中确认并保存一个理解。</Text><Button title="去示例聊天" onPress={() => navigate('chat')} /></Card>}
+      {!pattern && <Card><Text className="text-stone-700">还没有已确认的模式。先在聊天中确认并保存一个理解。</Text><Button title="去聊天" onPress={() => navigate('chat')} /></Card>}
       {renderDraft()}
     </>;
     if (page === 'practice') return <>
       <Button title="返回我的模式" secondary onPress={() => navigate('mode')} />
       <Card><Text className="text-2xl font-semibold text-stone-900">一个小练习</Text>
-        <Text className="text-stone-800">如果：{practice?.ifCue ?? '听到自责时'}</Text><Text className="text-stone-800">那么：{practice?.thenAction ?? PRACTICE_TEXT}</Text>
-        <Text className="text-sm text-stone-600">{!practice ? '建议草稿 · 尚未保存' : practice.paused ? '已暂停' : '已确认 · 进行中'}</Text>
-        <Button testID="practice-edit" title={practice ? '编辑练习' : '确认或修改这个练习'} onPress={() => changeDraft({ kind: 'practice', cue: practice?.ifCue ?? '听到自责时', action: practice?.thenAction ?? PRACTICE_TEXT, version: practice?.version ?? 0 })} />
+        <Text className="text-stone-800">如果：{practice?.ifCue ?? (pattern?.demoSource === 'dev-api-test' ? '' : '听到自责时')}</Text><Text className="text-stone-800">那么：{practice?.thenAction ?? (pattern?.demoSource === 'dev-api-test' ? '' : PRACTICE_TEXT)}</Text>
+        <Text className="text-sm text-stone-600">{!practice ? '请自行填写一个触发线索与动作 · 尚未保存' : practice.paused ? '已暂停' : '已确认 · 进行中'}</Text>
+        <Button testID="practice-edit" title={practice ? '编辑练习' : '确认或修改这个练习'} onPress={() => changeDraft({ kind: 'practice', cue: practice?.ifCue ?? (pattern?.demoSource === 'dev-api-test' ? '' : '听到自责时'), action: practice?.thenAction ?? (pattern?.demoSource === 'dev-api-test' ? '' : PRACTICE_TEXT), version: practice?.version ?? 0 })} />
         {practice && <><Button testID="record-open" title="记录这一次" disabled={practice.paused} onPress={startRecord} />
           {!practice.paused && <Button testID="practice-pause" title="暂停练习" secondary onPress={() => { changeDraft(null); write(repo => repo.pausePractice(practice.version), '练习已暂停。'); }} />}
           {practice.paused && <Text className="text-sm text-stone-600">此演示中的暂停不会自动恢复；已保存的记录仍保留。</Text>}
@@ -263,7 +247,7 @@ export default function SyntheticDemoScreen() {
           <Text className="font-semibold text-stone-900">{typeLabels[entry.type]} · {entry.linked ? '已关联' : '已解除关联'}</Text>
           <Text className="text-xs text-stone-500">保存时间：{new Date(entry.createdAt).toLocaleString('zh-CN')}</Text>
           <Text className="text-stone-800">事实（不可改）：{entry.fact}</Text><Text className="text-sm text-stone-600">来源（不可改）：{entry.source}</Text>
-          <Text className="text-sm text-stone-600">类型（不可改）：{typeLabels[entry.type]} · 合成示例 · 用户确认</Text>
+          <Text className="text-sm text-stone-600">类型（不可改）：{typeLabels[entry.type]} · {entry.demoSource === 'dev-api-test' ? 'DEV 测试流程' : '历史合成示例'} · 用户确认</Text>
           {entry.oldUnderstanding !== undefined && <Text className="text-stone-700">原理解：{entry.oldUnderstanding}</Text>}
           {entry.currentUnderstanding !== undefined && <Text className="text-stone-700">新理解：{entry.currentUnderstanding}</Text>}
           {record && <View className="gap-1"><Text className="text-stone-700">情境发生：{record.occurred ? '是' : '否'}</Text>
@@ -281,17 +265,17 @@ export default function SyntheticDemoScreen() {
 
   return <Screen backgroundColor="#fafaf9" statusBarStyle="dark">
     <View className="flex-1 bg-stone-50">
-      <View className="border-b border-amber-200 bg-amber-50 px-5 py-3"><Text className="font-semibold text-amber-900">DEV · 合成数据演示</Text>
-        <Text className="text-xs text-amber-900">无真实短信、模型分析或真实聊天数据。仅限同一浏览器、一个活动标签页。</Text>
-        <Button testID="return-live-chat" title="离开演示 · 返回原聊天与历史" secondary onPress={() => {
+      <View className="border-b border-amber-200 bg-amber-50 px-5 py-3"><Text className="font-semibold text-amber-900">DEV · 真实聊天与本地体验流程</Text>
+        <Text className="text-xs text-amber-900">虚构账号，无短信；聊天仅在点击发送后调用现有 DEV API。模式、练习和路径只保存在本浏览器。</Text>
+        <Button testID="return-live-chat" title="返回原聊天与历史" secondary onPress={() => {
           navigate('chat');
           router.replace('/');
         }} />
       </View>
-      <ScrollView className="flex-1" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16, maxWidth: 720, width: '100%', alignSelf: 'center', paddingBottom: 32 }}>
-        {notice && <View accessibilityLiveRegion="polite" className={`rounded-xl p-4 ${notice.kind === 'error' ? 'bg-red-50' : 'bg-green-50'}`}><Text className={notice.kind === 'error' ? 'text-red-800' : 'text-green-800'}>{notice.text}</Text></View>}
+      {notice && <View accessibilityLiveRegion="polite" className={`rounded-xl p-4 ${notice.kind === 'error' ? 'bg-red-50' : 'bg-green-50'}`}><Text className={notice.kind === 'error' ? 'text-red-800' : 'text-green-800'}>{notice.text}</Text></View>}
+      {signedIn && page === 'chat' && !initialError ? renderBody() : <ScrollView className="flex-1" keyboardShouldPersistTaps="handled" contentContainerStyle={{ padding: 20, gap: 16, maxWidth: 720, width: '100%', alignSelf: 'center', paddingBottom: 32 }}>
         {renderBody()}
-      </ScrollView>
+      </ScrollView>}
       <View className="flex-row border-t border-stone-200 bg-white px-5 py-3 gap-4">
         <View className="flex-1"><Button testID="nav-chat" title="聊天" secondary={page !== 'chat'} onPress={() => navigate('chat')} /></View>
         <View className="flex-1"><Button testID="nav-me" title="我的" secondary={page === 'chat'} onPress={() => navigate('me')} /></View>

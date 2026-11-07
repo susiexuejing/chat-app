@@ -478,15 +478,19 @@ export async function chatStart(
   requestId?: string,
   diagnostics?: RetryTransportDiagnostics,
   oneShotDiagnosticMarker?: string,
+  signal?: AbortSignal,
 ): Promise<ChatStartResponse> {
+  throwIfChatAborted(signal);
   const BASE = getBackendUrl();
   const startedAt = Date.now();
   emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
   let httpStatus: number | null = null;
   try {
     const auth = await getAnonymousRequestOptions(BASE, 'POST');
+    throwIfChatAborted(signal);
     const response = await fetch(`${BASE}/api/v1/chat/start`, {
       method: 'POST',
+      signal,
       credentials: auth.credentials,
       headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) },
       // An empty value marks a local-only turn while canonical persistence is
@@ -494,6 +498,7 @@ export async function chatStart(
       // attempt durable-conversation ownership validation.
       body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId }),
     });
+    throwIfChatAborted(signal);
     httpStatus = response.status;
     if (!response.ok) {
       // Never read or propagate an HTTP error body into the client error path.
@@ -505,6 +510,7 @@ export async function chatStart(
         : `chat_start_${boundary}_${httpStatus}`);
     }
     const result: ChatStartResponse = await response.json();
+    throwIfChatAborted(signal);
     emitEf77Trace('chat_start_completed', {
       timestamp: Date.now(),
       durationMs: Date.now() - startedAt,
@@ -523,6 +529,13 @@ export async function chatStart(
     });
     throw error;
   }
+}
+
+function throwIfChatAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  const error = new Error('chat_request_aborted');
+  error.name = 'AbortError';
+  throw error;
 }
 
 /**
@@ -544,8 +557,10 @@ export async function chatStream(
   signal?: AbortSignal,
   oneShotDiagnosticMarker?: string,
 ): Promise<void> {
+  throwIfChatAborted(signal);
   const BASE = getBackendUrl();
   const auth = await getAnonymousRequestOptions(BASE, 'GET');
+  throwIfChatAborted(signal);
   return new Promise((resolve, reject) => {
     const url = `${BASE}/api/v1/chat/stream?sessionId=${encodeURIComponent(sessionId)}`;
     const identityHeaders = { ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) };
@@ -687,6 +702,8 @@ export async function chatStream(
     } else {
       // RN 端使用 react-native-sse
       import('react-native-sse').then((mod) => {
+        // Import/auth may finish after the owning view has stopped or unmounted.
+        throwIfChatAborted(signal);
         const RNSSE = mod.default;
         const sse = new RNSSE(url, {
           headers: {
@@ -758,7 +775,7 @@ export async function chatStream(
         sse.addEventListener('close', () => {
           settleResolved(!versionedTerminalObserved);
         });
-      });
+      }).catch(reject);
     }
   });
 }
@@ -1124,3 +1141,4 @@ async function chatCombinedNative(
     });
   });
 }
+

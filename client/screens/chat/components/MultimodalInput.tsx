@@ -4,19 +4,8 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import {
-  View,
-  TextInput,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-} from 'react-native';
 import { Audio } from 'expo-av';
-import { FontAwesome6 } from '@expo/vector-icons';
-import { Ionicons } from '@expo/vector-icons';
+import { MultimodalInputView } from '@/screens/chat/components/MultimodalInputView';
 import { useChat } from '../contexts/ChatContext';
 
 // 情绪标签选项
@@ -189,67 +178,12 @@ export function MultimodalInput({ onSendMessage, disabled: propDisabled, isThink
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      <View className="px-4 py-3 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        
-        {/* 输入框和按钮 */}
-        <View className="flex-row items-end">
-          {/* 输入框 */}
-          <View className={`flex-1 rounded-2xl px-4 py-2 mr-2 ${
-            propDisabled ? 'bg-gray-200 dark:bg-gray-700' : 'bg-gray-100 dark:bg-gray-800'
-          }`}>
-            <TextInput
-              value={inputText}
-              onChangeText={setInputText}
-              placeholder={chatPhase === 'responding' ? '' : "把此刻最真实的一句话放在这里"}
-              placeholderTextColor="#9CA3AF"
-              multiline
-              maxLength={1000}
-              style={styles.input}
-              editable={true}
-            />
-          </View>
-
-          {/* 发送按钮 */}
-          <TouchableOpacity
-            onPress={handleSend}
-            disabled={isSendDisabled}
-            className={`w-10 h-10 items-center justify-center rounded-full ${
-              !isSendDisabled
-                ? 'bg-emerald-500'
-                : 'bg-gray-300 dark:bg-gray-700'
-            }`}
-          >
-            <FontAwesome6
-              name="paper-plane"
-              size={18}
-              color="white"
-            />
-          </TouchableOpacity>
-        </View>
-
-        {/* 底部提示 — chatPhase 活跃时状态条已显示，输入框只保持干净 */}
-        <Text className="text-xs text-gray-400 dark:text-gray-500 mt-2 text-center">
-          {chatPhase === 'done'
-            ? '◎ 轮到你了'
-            : chatPhase !== 'idle'
-              ? '　'
-              : '直接说，不用整理语言'
-          }
-        </Text>
-      </View>
-    </KeyboardAvoidingView>
+    <MultimodalInputView
+      value={inputText}
+      onChangeText={setInputText}
+      onSend={handleSend}
+      disabled={propDisabled}
+      phase={chatPhase}
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  input: {
-    fontSize: 16,
-    maxHeight: 100,
-    minHeight: 24,
-    color: '#374151',
-  },
-});
