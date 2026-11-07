@@ -11,7 +11,7 @@ import { DevConversation, type DevUnderstandingDraft } from '@/features/dev-jour
 
 type Page = 'chat' | 'me' | 'mode' | 'practice' | 'checkin' | 'path';
 type Draft =
-  | { kind: 'candidate'; text: string; input: string; requestId: string; decision: Decision; version: number }
+  | { kind: 'candidate'; text: string; input: string; requestId: string; decision: Decision; version: number; correctCurrent: boolean }
   | { kind: 'mode'; name: string; understanding: string; version: number }
   | { kind: 'practice'; cue: string; action: string; version: number }
   | { kind: 'record'; payload: RecordPayload; version: number; operationId: string; occurredChosen: boolean }
@@ -115,7 +115,7 @@ export default function SyntheticDemoScreen() {
     write(repo => {
       if (current.kind === 'candidate') {
         return current.decision === 'confirmed'
-          ? repo.confirmDevUnderstanding({ text: current.text, input: current.input, requestId: current.requestId }, current.version)
+          ? repo.confirmDevUnderstanding({ text: current.text, input: current.input, requestId: current.requestId, ...(current.correctCurrent ? { relation: 'correct-current' as const } : {}) }, current.version)
           : repo.updatePattern({ decision: current.decision }, current.version);
       }
       if (current.kind === 'mode') return repo.updatePattern({ name: current.name, currentUnderstanding: current.understanding }, current.version);
@@ -136,11 +136,11 @@ export default function SyntheticDemoScreen() {
       payload: { occurred: false, action: null, feeling: null, note: '' } });
   }
   function candidate(result: DevUnderstandingDraft) {
-    changeDraft({ kind: 'candidate', ...result, decision: 'confirmed', version: snapshot?.pattern?.version ?? 0 });
+    changeDraft({ kind: 'candidate', ...result, decision: 'confirmed', correctCurrent: false, version: snapshot?.pattern?.version ?? 0 });
   }
   function saveButtons(label = '保存') {
     const prefix = draft?.kind === 'mode' ? 'pattern' : draft?.kind;
-    const incomplete = draft?.kind === 'record' && (!draft.occurredChosen || (draft.payload.occurred && (!draft.payload.action || (draft.payload.action !== 'none' && !draft.payload.feeling))));
+    const incomplete = (draft?.kind === 'candidate' && draft.version > 0 && !draft.correctCurrent) || draft?.kind === 'record' && (!draft.occurredChosen || (draft.payload.occurred && (!draft.payload.action || (draft.payload.action !== 'none' && !draft.payload.feeling))));
     return <View className="gap-2"><Button testID={`${prefix}-save`} disabled={incomplete} title={label} onPress={saveDraft} /><Button testID={`${prefix}-cancel`} title="取消 · 丢弃草稿" secondary onPress={() => changeDraft(null)} /></View>;
   }
   const pattern = snapshot?.pattern;
@@ -155,6 +155,13 @@ export default function SyntheticDemoScreen() {
         <Text className="text-stone-800">你的选择：{decisionLabels[draft.decision]}</Text>
         {draft.decision === 'confirmed' && <Field testID="candidate-text" label="我的理解（可修改）" value={draft.text} multiline onChange={text => changeDraft({ ...draft, text })} />}
         <Text className="text-sm text-stone-600">来源：本次 DEV 服务端 Deep 回复，可编辑确认；实际供应商和模型未核验。不是诊断。</Text>
+        {draft.version > 0 && <View className="gap-2">
+          <Text className="text-stone-800">已有模式：{pattern?.name}。当前理解：{pattern?.currentUnderstanding}</Text>
+          <Text className="text-sm text-stone-600">不同话题请取消，不会自动放入旧模式。本版只保留一个模式；明确选择修正后，将保留当前练习和历史。</Text>
+          <Pressable testID="candidate-correction-choice" accessibilityRole="checkbox" accessibilityLabel="这是对当前模式的修正，保留当前练习"
+            accessibilityState={{ checked: draft.correctCurrent }} onPress={() => changeDraft({ ...draft, correctCurrent: !draft.correctCurrent })}
+            className="rounded-xl border border-stone-300 p-3"><Text className="text-stone-800">{draft.correctCurrent ? '已选择：' : '未选择：'} 这是对当前模式的修正，保留当前练习</Text></Pressable>
+        </View>}
       </>}
       {draft.kind === 'mode' && <>
         <Field testID="pattern-name" label="模式名称" value={draft.name} onChange={name => changeDraft({ ...draft, name })} />

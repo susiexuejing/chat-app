@@ -28,7 +28,7 @@ test('duplicate confirmation is a no-op; request identity cannot attach differen
 });
 test('new completion stores input and old/new correction atomically with version checks', () => {
   const f = fixture(), before = f.repo.confirmDevUnderstanding(reply, 0);
-  const next = { ...reply, text: '我决定暂停修改。', requestId: 'dev-request-2' };
+  const next = { ...reply, text: '我决定暂停修改。', requestId: 'dev-request-2', relation: 'correct-current' };
   assert.throws(() => f.repo.confirmDevUnderstanding(next, 0), /版本/);
   f.fail(true); assert.throws(() => f.repo.confirmDevUnderstanding(next, 1), /未保存/);
   assert.deepEqual(f.repo.snapshot(), before); f.fail(false); const count = f.writes();
@@ -43,7 +43,7 @@ test('legacy snapshots remain readable without migration and old events/records 
   f.repo.savePractice({ ifCue: '旧触发', thenAction: '旧动作' }, 0);
   const before = f.repo.saveRecord({ occurred: false, action: null, feeling: null }, 1, 'legacy-record');
   const raw = f.map.get(STORAGE_KEY); assert.deepEqual(createDemoRepository(f.storage).snapshot(), before); assert.equal(f.map.get(STORAGE_KEY), raw);
-  const next = f.repo.confirmDevUnderstanding(reply, 1);
+  const next = f.repo.confirmDevUnderstanding({ ...reply, relation: 'correct-current' }, 1);
   assert.deepEqual(next.path.slice(0, 2), before.path); assert.deepEqual(next.records, before.records);
   assert.deepEqual(next.practice, before.practice); assert.equal(next.path[0].demoSource, 'synthetic');
 });
@@ -79,4 +79,28 @@ test('logout hides local API-derived understanding; re-login restores only expli
   assert.equal(f.repo.logout().pattern, null); assert.throws(() => f.repo.confirmDevUnderstanding({ ...reply, requestId: 'other' }, 1), /登录/);
   f.repo.login(f.repo.requestCode(DEMO_NUMBER)); assert.deepEqual(f.repo.snapshot().pattern, before.pattern);
   assert.deepEqual([...f.map.keys()].sort(), ['old-live-chat', STORAGE_KEY].sort());
+});
+
+test('an unrelated completion cannot automatically correct existing mode or inherit its practice', () => {
+  const f = fixture(); f.repo.confirmPattern(CANDIDATE);
+  f.repo.savePractice({ ifCue: '旧触发', thenAction: '旧练习' }, 0);
+  const before = f.repo.saveRecord({ occurred: false, action: null, feeling: null }, 1, 'before');
+  assert.throws(() => f.repo.confirmDevUnderstanding(reply, 1), /明确选择/);
+  assert.deepEqual(f.repo.snapshot(), before);
+  const next = f.repo.confirmDevUnderstanding({ ...reply, relation: 'correct-current' }, 1);
+  assert.equal(next.pattern.name, before.pattern.name);
+  assert.deepEqual(next.practice, before.practice); assert.deepEqual(next.records, before.records);
+  const recorded = f.repo.saveRecord({ occurred: false, action: null, feeling: null }, 1, 'after');
+  assert.equal(recorded.records[1].demoSource, 'synthetic');
+  assert.equal(recorded.path.at(-1).demoSource, 'synthetic');
+  assert.equal(recorded.path.at(-1).origin, undefined);
+});
+test('practice provenance remains tied to the understanding it was explicitly created with', () => {
+  const f = fixture(); f.repo.confirmDevUnderstanding(reply, 0);
+  f.repo.savePractice({ ifCue: '原触发', thenAction: '原练习' }, 0);
+  const oldPractice = f.repo.snapshot().practice;
+  f.repo.confirmDevUnderstanding({ ...reply, text: '新理解', input: '不同虚构话题', requestId: 'next', relation: 'correct-current' }, 1);
+  const s = f.repo.saveRecord({ occurred: true, action: 'other', feeling: 'not_recorded' }, 1, 'after');
+  assert.deepEqual(s.practice, oldPractice); assert.deepEqual(s.path.at(-1).origin, oldPractice.origin);
+  assert.notEqual(s.path.at(-1).origin.requestId, s.pattern.origin.requestId);
 });

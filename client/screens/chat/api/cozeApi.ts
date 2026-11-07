@@ -419,6 +419,7 @@ export interface FlowContext {
 }
 
 export interface ChatStartResponse {
+  requestMode?: 'dev-ephemeral-v1';
   sessionId: string;
   emotionTag: string;
   eventKeyword: string;
@@ -479,16 +480,21 @@ export async function chatStart(
   diagnostics?: RetryTransportDiagnostics,
   oneShotDiagnosticMarker?: string,
   signal?: AbortSignal,
+  requestMode?: 'dev-ephemeral-v1',
 ): Promise<ChatStartResponse> {
   throwIfChatAborted(signal);
+  if (requestMode !== undefined && (requestMode !== 'dev-ephemeral-v1' || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || conversationId !== undefined)) {
+    throw new Error('dev_request_disabled');
+  }
   const BASE = getBackendUrl();
+  const startPath = requestMode === 'dev-ephemeral-v1' ? '/api/v1/chat/dev-journey/start' : '/api/v1/chat/start';
   const startedAt = Date.now();
   emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
   let httpStatus: number | null = null;
   try {
     const auth = await getAnonymousRequestOptions(BASE, 'POST');
     throwIfChatAborted(signal);
-    const response = await fetch(`${BASE}/api/v1/chat/start`, {
+    const response = await fetch(`${BASE}${startPath}`, {
       method: 'POST',
       signal,
       credentials: auth.credentials,
@@ -496,7 +502,7 @@ export async function chatStart(
       // An empty value marks a local-only turn while canonical persistence is
       // unavailable. Omit it so the authenticated runtime path does not
       // attempt durable-conversation ownership validation.
-      body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId }),
+      body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId, ...(requestMode ? { requestMode } : {}) }),
     });
     throwIfChatAborted(signal);
     httpStatus = response.status;

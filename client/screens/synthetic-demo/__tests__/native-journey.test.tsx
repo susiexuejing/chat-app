@@ -141,6 +141,13 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await press('record-open'); await press('record-occurred-yes'); await press('record-action-other');
     await press('record-feeling-not_recorded'); await type('record-note', '虚构记录');
   }
+  function seedLegacyJourney() {
+    const legacy = createDemoRepository(storage);
+    legacy.login(legacy.requestCode(DEMO_NUMBER));
+    legacy.confirmPattern('原有的合成理解');
+    const practice = legacy.savePractice({ ifCue: '旧线索', thenAction: '旧动作' }, 0).practice!;
+    return legacy.saveRecord({ occurred: true, action: 'agreed', feeling: 'helped', note: '旧记录' }, practice.version, 'legacy-record');
+  }
 
   it('mount, login, navigation, new chat, logout and refresh never start a request', async () => {
     await mount();
@@ -175,6 +182,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(saved().path).toEqual([]);
     await press('candidate-edit');
     expect(node('candidate-text').props.value).toBe(DEEP_REPLY);
+    expect(nodes('candidate-correction-choice')).toHaveLength(0);
+    expect(node('candidate-save').props.disabled).toBe(false);
     await type('candidate-text', '这是我编辑后愿意保留的理解。');
     expect(storage.setItem).not.toHaveBeenCalled();
     const save = node('candidate-save').props.onPress;
@@ -238,12 +247,8 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
-  it('restores legacy synthetic records and preserves their facts when a new DEV reply is confirmed', async () => {
-    const legacy = createDemoRepository(storage);
-    legacy.login(legacy.requestCode(DEMO_NUMBER));
-    legacy.confirmPattern('原有的合成理解');
-    const practice = legacy.savePractice({ ifCue: '旧线索', thenAction: '旧动作' }, 0).practice!;
-    const before = legacy.saveRecord({ occurred: true, action: 'agreed', feeling: 'helped', note: '旧记录' }, practice.version, 'legacy-record');
+  it('restores legacy records and preserves their facts when the user explicitly chooses a same-pattern correction', async () => {
+    const before = seedLegacyJourney();
     storage.setItem.mockClear();
     await mount();
     expect(mockStart).not.toHaveBeenCalled();
@@ -251,7 +256,15 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await mode(); await press('path-open');
     expect(output()).toContain('旧记录');
     expect(output()).toContain('历史合成示例');
-    await confirm();
+    await press('nav-chat'); await send(); await press('candidate-confirm');
+    expect(node('candidate-correction-choice').props.accessibilityRole).toBe('checkbox');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    expect(output()).toContain('保留当前练习');
+    await press('candidate-correction-choice');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(true);
+    expect(node('candidate-save').props.disabled).toBe(false);
+    await press('candidate-save');
     const after = saved();
     expect(after.records).toEqual(before.records);
     expect(after.practice).toEqual(before.practice);
@@ -259,9 +272,72 @@ describe('EF-385 native journey with the real controller, views and local reposi
       expect(after.path.find(item => item.entryId === entry.entryId)).toEqual(entry);
     }
     expect(after.pattern?.demoSource).toBe('dev-api-test');
+    expect(after.pattern?.currentUnderstanding).toBe(DEEP_REPLY);
+    expect(after.pattern?.patternId).toBe(before.pattern?.patternId);
+    expect(after.pattern?.name).toBe(before.pattern?.name);
     expect(after.path.some(entry => entry.demoSource === 'dev-api-test')).toBe(true);
     expect(after.path.some(entry => entry.type === 'exception')).toBe(false);
     expect([...values.keys()]).toEqual([STORAGE_KEY]);
+  });
+
+  it('an unrelated Deep reply cannot overwrite an existing mode, practice or records without correction consent', async () => {
+    const before = seedLegacyJourney();
+    const persisted = values.get(STORAGE_KEY);
+    mockStream.mockImplementation(async (_session, callbacks) => {
+      callbacks.onDeepChunk('虚构旅行建议：比较两个目的地的交通时间。'); callbacks.onDone();
+    });
+    storage.setItem.mockClear();
+    await mount(); await send('虚构场景：我想比较两个旅行目的地。');
+    await press('candidate-confirm');
+    expect(node('candidate-text').props.value).toBe('虚构旅行建议：比较两个目的地的交通时间。');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    expect(output()).toContain('不同话题请取消');
+    expect(output()).toContain('本版只保留一个模式');
+    const directSave = node('candidate-save').props.onPress;
+    // UI disabling alone is insufficient: the repository must reject this too.
+    await act(async () => { directSave(); });
+    expect(output()).toContain('不会自动关联新话题');
+    expect(saved()).toEqual(before);
+    expect(values.get(STORAGE_KEY)).toBe(persisted);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    await press('candidate-cancel');
+    await act(async () => { directSave(); });
+    expect(nodes('candidate-save')).toHaveLength(0);
+    expect(saved()).toEqual(before);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    await mode();
+    expect(output()).toContain('原有的合成理解');
+    expect(output()).not.toContain('虚构旅行建议');
+    await press('path-open');
+    expect(output()).toContain('旧记录');
+    expect(output()).toContain('历史合成示例');
+    expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('correction consent can be withdrawn and never carries into a reopened draft or new request', async () => {
+    const before = seedLegacyJourney(); storage.setItem.mockClear();
+    await mount(); await send(); await press('candidate-edit');
+    await press('candidate-correction-choice');
+    expect(node('candidate-save').props.disabled).toBe(false);
+    const previouslyEnabledSave = node('candidate-save').props.onPress;
+    await press('candidate-correction-choice');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await act(async () => { previouslyEnabledSave(); });
+    expect(saved()).toEqual(before);
+    await press('candidate-correction-choice'); await press('candidate-cancel');
+    await press('candidate-confirm');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await press('candidate-cancel'); await press('dev-new-chat');
+    await send('虚构场景：新的一轮仍需要单独确认。'); await press('candidate-confirm');
+    expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await act(async () => { previouslyEnabledSave(); });
+    expect(saved()).toEqual(before);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledTimes(2);
   });
 
   it('completes authentication → candidate → mode → practice → record → path, then restores through logout/login and a fresh runtime', async () => {

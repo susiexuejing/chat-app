@@ -6,7 +6,7 @@ const source = new URL('../../../screens/chat/api/cozeApi.ts', import.meta.url);
 const flush = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };
 async function setup({ auth = async () => ({ credentials: 'include', headers: { 'X-Test-Auth': 'mock-only' } }),
   fetch = async () => ({ ok: true, status: 200, json: async () => ({ sessionId: 's' }) }),
-  platform = 'web', dynamicImport, NativeSSE = class {} } = {}) {
+  env = 'DEV', platform = 'web', dynamicImport, NativeSSE = class {} } = {}) {
   const calls = { auth: [], fetch: [] };
   const api = await loadTsModule(source, {
     'expo-constants': { default: { expoConfig: { extra: { EXPO_PUBLIC_BACKEND_BASE_URL: 'https://mock.invalid' } } } },
@@ -15,7 +15,7 @@ async function setup({ auth = async () => ({ credentials: 'include', headers: { 
     '../utils/ef77Diagnostics': { emitEf77Trace() { return undefined; }, getEf77ErrorType: () => 'mock-error', isEf77DiagnosticEnabled: () => false },
     '../stores/anonymousSession': { getAnonymousRequestOptions: (...args) => { calls.auth.push(args); return auth(...args); } },
     'react-native-sse': { default: NativeSSE },
-  }, { fetch: (...args) => { calls.fetch.push(args); return fetch(...args); } }, dynamicImport);
+  }, { process: { env: { EXPO_PUBLIC_APP_ENV: env } }, fetch: (...args) => { calls.fetch.push(args); return fetch(...args); } }, dynamicImport);
   return { api, calls };
 }
 
@@ -105,4 +105,28 @@ test('live native stream without signal still constructs and completes', async (
   for (let i = 0; i < 10 && instances.length === 0; i++) await flush();
   assert.equal(instances.length, 1); instances[0].listeners.get('message')({ data: '[DONE]' }); await result;
   assert.equal(done, 1);
+});
+
+test('ephemeral DEV uses dedicated route and mode with same authenticated owner, never normal start', async () => {
+  const { api, calls } = await setup();
+  await api.chatStart('clever-fox', 'fictional', undefined, 'id', undefined, undefined, new AbortController().signal, 'dev-ephemeral-v1');
+  assert.equal(calls.fetch[0][0], 'https://mock.invalid/api/v1/chat/dev-journey/start');
+  assert.deepEqual(JSON.parse(calls.fetch[0][1].body), { roleId: 'clever-fox', message: 'fictional', requestId: 'id', requestMode: 'dev-ephemeral-v1' });
+  assert.equal(calls.fetch[0][1].credentials, 'include');
+});
+test('old backend 404 is a closed failure with no ordinary endpoint retry', async () => {
+  const { api, calls } = await setup({ fetch: async () => ({ ok: false, status: 404 }) });
+  await assert.rejects(api.chatStart('clever-fox', 'fictional', undefined, 'id', undefined, undefined, undefined, 'dev-ephemeral-v1'));
+  assert.equal(calls.fetch.length, 1);
+  assert.equal(calls.fetch[0][0], 'https://mock.invalid/api/v1/chat/dev-journey/start');
+});
+test('ephemeral helper refuses nonDEV and conversation identifiers before authentication', async () => {
+  for (const env of ['production', 'test', '']) {
+    const { api, calls } = await setup({ env });
+    await assert.rejects(api.chatStart('clever-fox', 'fictional', undefined, 'id', undefined, undefined, undefined, 'dev-ephemeral-v1'));
+    assert.deepEqual(calls, { auth: [], fetch: [] });
+  }
+  const { api, calls } = await setup();
+  await assert.rejects(api.chatStart('clever-fox', 'fictional', 'existing', 'id', undefined, undefined, undefined, 'dev-ephemeral-v1'));
+  assert.deepEqual(calls, { auth: [], fetch: [] });
 });

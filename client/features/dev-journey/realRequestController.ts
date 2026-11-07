@@ -49,7 +49,7 @@ export interface DevRealRequestController {
   dispose: () => void;
 }
 
-export const DEV_REAL_REQUEST_NOTICE = '真实请求会产生 API 费用；仅发送当前输入。服务端可能保存分析或匿名会话数据。';
+export const DEV_REAL_REQUEST_NOTICE = '真实请求会产生 API 费用；仅发送当前输入。使用现有匿名认证；体验内容不写入原聊天画像。';
 export const DEV_REAL_REQUEST_STOP_NOTICE = '停止会中止本地等待与连接，但不能保证已被服务端接受的工作或计费停止。';
 export const DEV_REAL_REQUEST_SOURCE_NOTICE = '仅确认收到后端 Deep 内容；实际供应商、模型与费用未验证。';
 export const DEV_REAL_REQUEST_MAX_INPUT = 1000;

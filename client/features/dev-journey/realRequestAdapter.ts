@@ -38,9 +38,10 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       // Explicit allowlist: no account ID, demo history/state, conversation ID,
       // provider settings, diagnostic marker or long-term context is accepted.
       const result = await chatStart(
-        'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal,
+        'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal, 'dev-ephemeral-v1',
       );
       assertAllowed(signal);
+      if (result.requestMode !== 'dev-ephemeral-v1') throw new Error('dev_isolation_not_confirmed');
       return {
         sessionId: result.sessionId,
         reactionText: frontText(result.reactionTimeline, result.reactionLayer || result.frontFlowText),

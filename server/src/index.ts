@@ -12,6 +12,12 @@ import { extractSignal } from './flows/signalExtractor';
 import { neuralManager } from './flows/neuralProfileManager';
 import type { NeuralProfile } from './flows/neuralProfileManager';
 import {
+  createDevEphemeralProfile,
+  DEV_EPHEMERAL_REQUEST_MODE,
+  DEV_EPHEMERAL_START_PATH,
+  isValidDevEphemeralRequest,
+} from './devEphemeralChat';
+import {
   generateReactionTimeline,
   generateCompanionTimeline,
 } from './flows/localReactionEngine';
@@ -149,6 +155,7 @@ writeEf118RuntimeAudit({ dbSessionCategory: 'runtime_started' });
 export interface ChatSession {
   sessionId: string;
   ownerSessionId: string;        // EF-75: verified server-issued anonymous owner
+  readonly requestMode?: typeof DEV_EPHEMERAL_REQUEST_MODE;
   roleId: string;
   roleName: string;
   userMessage: string;
@@ -257,6 +264,9 @@ async function callDashScope(
 // 后端异步调用百炼（实时流式推送chunk到session）
 // ============================================================
 export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
+  const isDevEphemeral = session.requestMode === DEV_EPHEMERAL_REQUEST_MODE;
+  // This mode has no previous turns, regardless of the caller's turn argument.
+  if (isDevEphemeral) userTurn = 1;
   const apiKey = API_KEY_LIGHT;
   const ef45ProbeMarker = session.ef45ProbeMarker;
   const ef45OneShotMarker = markerForEf45OneShotDiagnosticSession(session);
@@ -526,7 +536,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     // The fixed EF-45 probe observes transport only. It must never create
     // long-term history or a personality/evolution write.
-    if (!ef45ProbeMarker) {
+    if (!ef45ProbeMarker && !isDevEphemeral) {
       // ── Step 3: 更新 Long-Term Understanding ──
       try {
         updateProfile(session.userId, session.roleId, {
@@ -549,7 +559,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
     // ── [Dev-Only] Step 4: Personality Evolution 实验 ──
-    if (process.env.NODE_ENV === 'development' && !ef45ProbeMarker) {
+    if (process.env.NODE_ENV === 'development' && !ef45ProbeMarker && !isDevEphemeral) {
       try {
         const trendData = getChangeTrends(session.userId, session.roleId);
 
@@ -887,7 +897,7 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // 接口 1：POST /api/v1/chat/start
 // 即时返回前端流 + 触发后台百炼调用
 // ============================================================
-app.post('/api/v1/chat/start', async (req, res) => {
+async function handleChatStart(req: express.Request, res: express.Response, isDevEphemeral = false) {
   let ef235StartBoundary: 'anonymous_auth' | 'request_validation' | 'conversation_ownership' | 'runtime_profile' | 'flow_preparation' | 'session_create' = 'anonymous_auth';
   const ef45ProbeMarker = isFixedEf45SyntheticProbe(
     req.get('x-ef45-diagnostic-marker'),
@@ -908,10 +918,23 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
       return sendAnonymousFailure(res, authenticated.kind);
     }
-    const { roleId, message, conversationId } = req.body;
-    const userId = authenticated.session.id;
-
     ef235StartBoundary = 'request_validation';
+    // A distinct endpoint fails closed on older servers, which otherwise ignore
+    // unknown body fields. The ordinary endpoint must not accept this marker.
+    if (isDevEphemeral) {
+      if (process.env.NODE_ENV !== 'development') {
+        return res.status(404).json({ error: 'resource_not_found' });
+      }
+      if (!isValidDevEphemeralRequest(req.body)) {
+        return res.status(400).json({ error: 'invalid_dev_request' });
+      }
+    } else if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'requestMode')) {
+      return res.status(400).json({ error: 'invalid_request_mode' });
+    }
+    const { roleId, message, conversationId } = req.body;
+    // The authenticated identity is used only for SSE ownership in DEV mode.
+    const userId = isDevEphemeral ? '' : authenticated.session.id;
+
     if (!roleId || !message) {
       writeEf118RuntimeAudit({
         dbSessionCategory: 'request_invalid',
@@ -956,7 +979,9 @@ app.post('/api/v1/chat/start', async (req, res) => {
 
     ef235StartBoundary = 'runtime_profile';
     const roleName = ROLE_NAMES[roleId] || roleId;
-    const neuralProfile = neuralManager.getOrCreateProfile(userId, roleId);
+    const neuralProfile = isDevEphemeral
+      ? createDevEphemeralProfile()
+      : neuralManager.getOrCreateProfile(userId, roleId);
 
     ef235StartBoundary = 'flow_preparation';
     // 0. 检测 normal_chat（纯问候/问身份，不走情感支持）
@@ -1047,6 +1072,13 @@ app.post('/api/v1/chat/start', async (req, res) => {
       eventSequencer: new TurnEventSequencer(),
       ef45ProbeMarker,
     };
+    if (isDevEphemeral) {
+      // Server-created, immutable mode survives SSE disconnects and late work.
+      Object.defineProperty(session, 'requestMode', {
+        value: DEV_EPHEMERAL_REQUEST_MODE,
+        enumerable: true,
+      });
+    }
     bindEf45OneShotDiagnosticMarker(session, ef45OneShotMarker);
     sessions.set(sessionId, session);
     writeEf118RuntimeAudit({
@@ -1059,6 +1091,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
     // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
     res.json({
       sessionId,
+      ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE } : {}),
       userTurn,
       state,
       keywords,
@@ -1090,7 +1123,7 @@ app.post('/api/v1/chat/start', async (req, res) => {
       });
 
       // 7a. Flow System 心理流向分析
-      if (!ef45ProbeMarker) {
+      if (!ef45ProbeMarker && !isDevEphemeral) {
         try {
           session.flowResult = analyzeFlow(userId, roleId, message);
           console.log('[Flow] Analysis completed', {
@@ -1147,7 +1180,12 @@ app.post('/api/v1/chat/start', async (req, res) => {
       error: 'internal_server_error',
     });
   }
-});
+}
+
+app.post('/api/v1/chat/start', (req, res) => handleChatStart(req, res));
+if (process.env.NODE_ENV === 'development') {
+  app.post(DEV_EPHEMERAL_START_PATH, (req, res) => handleChatStart(req, res, true));
+}
 
 // ============================================================
 // 接口 2：GET /api/v1/chat/stream?sessionId=xxx
@@ -1310,7 +1348,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     }
     // 保存用户神经档案
     try {
-      if (!ef45ProbeMarker && session.userId && session.neuralProfile) {
+      if (!ef45ProbeMarker && session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE && session.userId && session.neuralProfile) {
         neuralManager.updateAfterSession(session.userId, session.roleId, session.userMessage, session.deepChunks.join(''));
         neuralManager.saveProfiles();
       }
@@ -1331,3 +1369,4 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`DASHSCOPE_API_KEY_DEEP: ${API_KEY_DEEP ? 'SET' : 'NOT SET'}`);
   });
 }
+

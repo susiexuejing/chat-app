@@ -35,8 +35,11 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey }:
   useEffect(() => {
     const instance = createDevRealRequestControllerForRuntime();
     controller.current = instance;
-    setState(instance.getSnapshot());
-    setInput('');
+    void Promise.resolve().then(() => {
+      if (controller.current !== instance) return;
+      setState(instance.getSnapshot());
+      setInput('');
+    });
     const unsubscribe = instance.subscribe(() => setState(instance.getSnapshot()));
     return () => { unsubscribe(); instance.dispose(); controller.current = null; };
   }, [resetKey]);

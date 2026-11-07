@@ -4,7 +4,7 @@ import { loadTsModule } from './moduleHarness.mjs';
 
 const source = new URL('../realRequestAdapter.ts', import.meta.url);
 const controllerModule = await loadTsModule(new URL('../realRequestController.ts', import.meta.url), {});
-async function setup(env = 'DEV', streamEvents = []) {
+async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1') {
   const calls = { start: [], stream: [], uuid: 0 };
   const module = await loadTsModule(source, {
     'expo-crypto': { randomUUID: () => `uuid-${++calls.uuid}` },
@@ -12,7 +12,7 @@ async function setup(env = 'DEV', streamEvents = []) {
     '@/screens/chat/api/cozeApi': {
       chatStart: async (...args) => {
         calls.start.push(args);
-        return { sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
+        return { requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
       },
       chatStream: async (...args) => {
         calls.stream.push(args);
@@ -51,7 +51,7 @@ test('adapter allowlists fields and uses only existing helpers with the same sig
   const result = await transport.start({ roleId: 'unexpected', message: 'current text', requestId: 'id',
     accountId: 'synthetic-account', conversationId: 'old-conversation', history: ['private history'],
     patterns: ['pattern'], practice: 'practice', path: 'path', }, signal);
-  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal]);
+  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1']);
   assert.equal(result.reactionText, 'fixed front');
   const deep = []; let done = 0, failed = 0;
   await transport.stream(result.sessionId, { onDeepChunk: value => deep.push(value),
@@ -100,4 +100,14 @@ test('adapter also rejects invalid direct input without calling helpers', async 
     { message: 'valid', requestId: 'invalid id' },
   ]) await assert.rejects(transport.start(input, new AbortController().signal));
   assert.equal(calls.start.length, 0);
+});
+
+test('missing or wrong isolation receipt cannot start SSE or report success', async () => {
+  for (const receipt of [null, '', 'other']) {
+    const { module, calls } = await setup('DEV', [], receipt);
+    const controller = module.createDevRealRequestControllerForRuntime();
+    assert.equal(await controller.send('fictional'), false);
+    assert.equal(controller.getSnapshot().status, 'failed');
+    assert.equal(calls.start.length, 1); assert.equal(calls.stream.length, 0);
+  }
 });

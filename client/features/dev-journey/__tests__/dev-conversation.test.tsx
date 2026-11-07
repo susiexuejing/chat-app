@@ -119,6 +119,30 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(mockConfirm).not.toHaveBeenCalled();
   }
 
+  it('StrictMode cleanup retires deferred initialization and only the current controller accepts an explicit send', async () => {
+    await act(async () => { tree = renderer.create(<React.StrictMode>{element()}</React.StrictMode>); });
+    mounted = true;
+    expect(mockControllers.length).toBeGreaterThan(1);
+    const retired = mockControllers.slice(0, -1);
+    const current = mockControllers[mockControllers.length - 1];
+    for (const controller of retired) expect(controller.getSnapshot().canSend).toBe(false);
+    expect(current.getSnapshot().canSend).toBe(true);
+    expect(node('chat-input').props.value).toBe('');
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockStream).not.toHaveBeenCalled();
+    await send();
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(current.getSnapshot().status).toBe('success');
+    for (const controller of retired) {
+      expect(controller.getSnapshot().inputText).toBe('');
+      expect(controller.getSnapshot().canSend).toBe(false);
+    }
+    await press('candidate-confirm');
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(mockConfirm).toHaveBeenCalledWith({ text: DEEP_REPLY, input: INPUT, requestId: 'stub-request-1' });
+  });
+
   it('mount, suggestions, intro, new chat and resetKey changes never initiate a request or external avatar', async () => {
     await mount();
     expect(tree.root.findByType(MessageListView)).toBeDefined();
