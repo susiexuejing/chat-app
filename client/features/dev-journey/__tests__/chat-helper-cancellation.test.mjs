@@ -130,3 +130,22 @@ test('ephemeral helper refuses nonDEV and conversation identifiers before authen
   await assert.rejects(api.chatStart('clever-fox', 'fictional', 'existing', 'id', undefined, undefined, undefined, 'dev-ephemeral-v1'));
   assert.deepEqual(calls, { auth: [], fetch: [] });
 });
+
+test('DEV continuation sends only opaque allowlisted anchor fields', async () => {
+  const { api, calls } = await setup();
+  await api.chatStart('clever-fox', 'current', undefined, '100000_id', undefined, undefined, undefined,
+    'dev-ephemeral-v1', { devConversationId: 'server-owned', afterRequestId: '100000_prior', history: ['never sent'] });
+  assert.deepEqual(JSON.parse(calls.fetch[0][1].body), { roleId: 'clever-fox', message: 'current', requestId: '100000_id',
+    requestMode: 'dev-ephemeral-v1', devConversationId: 'server-owned', afterRequestId: '100000_prior' });
+});
+
+test('DEV end preserves existing authenticated CSRF options and never falls back to an unauthenticated beacon', async () => {
+  const { api, calls } = await setup({ auth: async () => ({ credentials: 'include', headers: { 'X-EF-CSRF': 'mock-only' } }) });
+  await api.endDevConversation('100000_id');
+  assert.equal(calls.auth.length, 1); assert.equal(calls.fetch.length, 1);
+  const [url, options] = calls.fetch[0];
+  assert.equal(url, 'https://mock.invalid/api/v1/chat/dev-journey/end');
+  assert.equal(options.headers['X-EF-CSRF'], 'mock-only'); assert.equal(options.credentials, 'include');
+  assert.equal(options.keepalive, true);
+  assert.deepEqual(JSON.parse(options.body), { requestMode: 'dev-ephemeral-v1', requestId: '100000_id' });
+});

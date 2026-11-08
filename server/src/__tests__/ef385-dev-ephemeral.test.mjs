@@ -67,6 +67,11 @@ test('unmarked ordinary chat on the same cookie retains neural, flow, LTU, evolu
   assert.equal(res.statusCode, 200);
   assert.equal(Object.hasOwn(res.body, 'requestMode'), false);
   assert.equal(res.body.userTurn, 3);
+  for (const name of ['local.reaction', 'local.companion']) {
+    const calls = h.calls.filter(call => call.name === name);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(plain(calls[0].args), ['clever-fox', MESSAGE, {}, 3], 'ordinary generators receive raw input and actual turn');
+  }
   const session = h.sessions[0];
   assert.equal(session.userId, OWNER);
   assert.equal(session.neuralProfile, h.profile);
@@ -93,6 +98,11 @@ test('ordinary unmarked first turn still uses real profile and still updates it 
   const stream = await open(h, res.body.sessionId);
   h.tick(3100);
   assert.equal(res.body.userTurn, 1);
+  for (const name of ['local.reaction', 'local.companion']) {
+    const calls = h.calls.filter(call => call.name === name);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(plain(calls[0].args), ['clever-fox', MESSAGE, {}, 1], 'ordinary first-turn arguments remain unchanged');
+  }
   assert.equal(stream.res.ended, true);
   const names = h.identityCalls().map(x => x.name);
   assert.ok(names.includes('neural.getOrCreateProfile'));
@@ -124,7 +134,9 @@ test('stop/close during in-flight provider does not write identity state when pr
   result.resolve(providerResponse());
   await settle();
   h.tick(3100);
-  assert.equal(h.sessions[0].deepDone, true);
+  assert.equal(h.sessions[0].deepDone, false, 'closed DEV work cannot publish late completion');
+  assert.equal(h.sessions[0].userMessage, '');
+  assert.deepEqual(plain(h.sessions[0].deepChunks), []);
   assert.equal(stream.res.writes.length, initialWrites, 'stopped SSE is not resumed');
   assertIsolated(h);
 });
@@ -236,7 +248,7 @@ for (const [name, input] of [
 
 test('boundary lengths and safe request ID are accepted', async () => {
   const h = await harness();
-  const { res } = await start(h, body({ message: 'a'.repeat(1000), requestId: 'A_z-0'.padEnd(100, 'x') }));
+  const { res } = await start(h, body({ message: 'a'.repeat(1000), requestId: '100000_A_z-0'.padEnd(100, 'x') }));
   assert.equal(res.statusCode, 200);
   assert.equal(h.providerRequests.length, 1);
   assertIsolated(h);
@@ -259,7 +271,7 @@ test('separate ephemeral starts cannot acquire history or share mutable neutral 
   const first = h.sessions[0];
   first.neuralProfile.influenceLog.push('PRIOR-PRIVATE-MUTATION');
   first.neuralProfile.subconscious.recentTopics.push('PRIOR-PRIVATE-TOPIC');
-  await start(h, body({ requestId: 'request_2', message: '现在我只想谈另一件当前的事情。' }));
+  await start(h, body({ requestId: '100000_request_2', message: '现在我只想谈另一件当前的事情。' }));
   const second = h.sessions[1];
   assert.notEqual(first.sessionId, second.sessionId);
   assert.notEqual(first.neuralProfile, second.neuralProfile);
@@ -321,8 +333,13 @@ function assertFailed({ h, stream, session }, ordinary = false) {
   assert.deepEqual(plain(session.deepChunks), []);
   assert.equal(stream.res.ended, true);
   const events = stream.events();
-  assert.deepEqual(events.filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
-  assert.equal(events.find(x => x.eventType === 'error').code, 'deep_response_failed');
+  if (!ordinary && stream.res.statusCode === 404) {
+    assert.deepEqual(events, [], 'failed DEV session already revoked before SSE attachment');
+    assert.equal(session.userMessage, '');
+  } else {
+    assert.deepEqual(events.filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
+    assert.equal(events.find(x => x.eventType === 'error').code, 'deep_response_failed');
+  }
   assert.ok(!h.calls.some(x => x.name === 'validator'));
   assert.ok(!h.calls.some(x => ['ltu.updateProfile', 'evolution.adjustWeights', 'evolution.logWeightChange', 'neural.updateAfterSession', 'neural.saveProfiles'].includes(x.name)));
   assert.ok(!h.calls.some(x => x.name === 'audit' && x.args[0].providerCategory === 'stream_completed'));
@@ -371,7 +388,8 @@ test('clean completion retains success and clears its timeout', async () => {
   assert.equal(session.deepError, null);
   assert.equal(p.cancels, 0);
   assert.deepEqual(stream.events().slice(-3).map(x => x.eventType), ['deep.delta', 'deep.completed', 'turn.completed']);
-  assert.deepEqual(plain(session.deepChunks), [REPLY]);
+  assert.deepEqual(plain(session.deepChunks), [], 'successful raw pair is retained only in bounded conversation context');
+  assert.equal(session.userMessage, '');
   const before = JSON.stringify([h.calls, stream.res.writes]);
   h.tick(60000); await settle();
   assert.equal(JSON.stringify([h.calls, stream.res.writes]), before);
@@ -415,8 +433,14 @@ for (const ordinary of [false, true]) for (const [status, category] of cases) {
     const stream = await open(h, initial.res.body.sessionId);
     h.tick(3100); await settle();
     assert.equal(stream.res.ended, true);
-    assert.deepEqual(stream.events().filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
-    assert.equal(stream.events().at(-1).code, 'deep_response_failed');
+    if (ordinary) {
+      assert.deepEqual(stream.events().filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
+      assert.equal(stream.events().at(-1).code, 'deep_response_failed');
+    } else {
+      assert.equal(stream.res.statusCode, 404, 'DEV failure revokes before stream attachment');
+      assert.deepEqual(stream.events(), []);
+      assert.equal(h.sessions[0].userMessage, '');
+    }
     assert.deepEqual(details(h), [category]);
     assert.equal(providerCategories(h).filter(x => x === 'response_client_error').length, 1);
     assert.equal(h.calls.filter(x => x.name === 'diagnostic' && x.args[1] === 'provider_failed').length, 1);
@@ -477,3 +501,9 @@ test('provider rejection before an HTTP response adds no status detail', async (
   assert.doesNotMatch(JSON.stringify(h.logs), /PRIVATE-FETCH/);
 });
 }
+
+// Same-session lifecycle and bounded context are part of this existing CI suite.
+import './devSessionContext.test.mjs';
+
+// Cross-layer pending-admission cancellation regression, on the same CI entrypoint.
+import './devPendingCancellation.test.mjs';

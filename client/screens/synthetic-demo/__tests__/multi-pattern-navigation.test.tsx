@@ -10,7 +10,7 @@ import type { DevUnderstandingDraft } from '@/features/dev-journey/DevConversati
 // These are explicitly fictional test inputs, not application defaults or a live API reply.
 let mockReply: DevUnderstandingDraft;
 const mockReplace = jest.fn();
-jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace }), useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }));
 jest.mock('@/features/dev-journey/DevConversation', () => ({
   DevConversation: ({ onConfirm, onDraftDiscard, footer }: any) => {
     const React = require('react');

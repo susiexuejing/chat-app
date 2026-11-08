@@ -10,9 +10,10 @@ async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1
     'expo-crypto': { randomUUID: () => `uuid-${++calls.uuid}` },
     '@/features/dev-journey/realRequestController': controllerModule,
     '@/screens/chat/api/cozeApi': {
+      endDevConversation: async () => undefined,
       chatStart: async (...args) => {
         calls.start.push(args);
-        return { requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
+        return { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
       },
       chatStream: async (...args) => {
         calls.stream.push(args);
@@ -51,7 +52,7 @@ test('adapter allowlists fields and uses only existing helpers with the same sig
   const result = await transport.start({ roleId: 'unexpected', message: 'current text', requestId: 'id',
     accountId: 'synthetic-account', conversationId: 'old-conversation', history: ['private history'],
     patterns: ['pattern'], practice: 'practice', path: 'path', }, signal);
-  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1']);
+  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined]);
   assert.equal(result.reactionText, 'fixed front');
   const deep = []; let done = 0, failed = 0;
   await transport.stream(result.sessionId, { onDeepChunk: value => deep.push(value),

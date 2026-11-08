@@ -1,96 +1,98 @@
-/** A single explicit DEV turn. This module has no network, storage or React imports. */
+/** Explicit same-session DEV turns. No network, storage or React imports. */
 export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'stopped';
-
+export interface DevCompletedTurn {
+  readonly inputText: string; readonly requestId: string; readonly sentAt: number;
+  readonly reactionText: string; readonly companionText: string; readonly deepText: string;
+}
 export interface DevRealRequestSnapshot {
   readonly status: DevRealRequestStatus;
   readonly inputText: string;
   readonly requestId: string | null;
+  readonly sentAt: number;
   readonly reactionText: string;
   readonly companionText: string;
   readonly deepText: string;
+  readonly completedTurns: readonly DevCompletedTurn[];
   readonly error: string | null;
   readonly canSend: boolean;
-  /** Only records observed backend Deep output, not a proven provider/model. */
+  /** Observed backend output, not proof of a provider/model or semantic grounding. */
   readonly source: 'backend-deep' | null;
 }
-
 export interface DevRealRequestInput {
-  roleId: 'clever-fox';
-  message: string;
-  requestId: string;
+  roleId: 'clever-fox'; message: string; requestId: string;
+  devConversationId?: string; afterRequestId?: string;
 }
-
 export interface DevRealRequestStart {
-  sessionId: string;
-  reactionText: string;
-  companionText: string;
+  sessionId: string; devConversationId: string; expiresAt: number; remainingLifetimeMs: number;
+  reactionText: string; companionText: string;
 }
-
 export interface DevRealRequestCallbacks {
   onDeepChunk: (text: string) => void;
-  /** Must mean a successful terminal event, not merely a closed connection. */
   onDone: () => void;
   onError: () => void;
 }
-
 export interface DevRealRequestTransport {
   start: (input: DevRealRequestInput, signal: AbortSignal) => Promise<DevRealRequestStart>;
   stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal) => Promise<void>;
+  /** Best effort authenticated cleanup, never a model send or automatic retry. */
+  end: (requestId: string) => Promise<void>;
 }
-
 export interface DevRealRequestController {
   getSnapshot: () => DevRealRequestSnapshot;
   subscribe: (listener: () => void) => () => void;
-  /** True only for a completed, nonempty Deep reply. Refused/stopped/failed sends return false. */
   send: (text: string) => Promise<boolean>;
   stop: () => void;
-  /** Only an explicit new-chat action should call reset. It never sends a request. */
+  /** Explicit New Chat only. Never sends a model request. */
   reset: () => void;
   dispose: () => void;
 }
-
-export const DEV_REAL_REQUEST_NOTICE = '真实请求会产生 API 费用；仅发送当前输入。使用现有匿名认证；体验内容不写入原聊天画像。';
-export const DEV_REAL_REQUEST_STOP_NOTICE = '停止会中止本地等待与连接，但不能保证已被服务端接受的工作或计费停止。';
+export const DEV_REAL_REQUEST_NOTICE = '真实请求会产生 API 费用；同一对话可使用最近 3 轮已完成的用户原话与 Deep 回复，前文合计最多 6000 字符，当前输入最多 1000 字符。会话从首次发送起最多 10 分钟；不写入原聊天画像。';
+export const DEV_REAL_REQUEST_STOP_NOTICE = '结束、停止、新对话或离开后清除本地上下文，并尝试认证结束服务端会话；断网或突然关闭时无法保证立即送达，服务端到期清除。这不保证上游删除、停止工作或停止计费。';
 export const DEV_REAL_REQUEST_SOURCE_NOTICE = '仅确认收到后端 Deep 内容；实际供应商、模型与费用未验证。';
 export const DEV_REAL_REQUEST_MAX_INPUT = 1000;
 export const DEV_REAL_REQUEST_ID_PATTERN = /^[\w-]{1,100}$/;
-
-const FAILED_MESSAGE = '本次真实请求未完成，请新开对话后再显式发送。';
-const EMPTY_MESSAGE = '未收到完整的 Deep 回复，前层内容不代表真实 API 成功。';
-// Includes identity/start time. Matches the live stream guard without adding retries.
+const FAILED_MESSAGE = '本次真实请求未完成，会话已结束。请新开对话后再显式发送。';
+const EXPIRED_MESSAGE = '会话或请求已过期，也可能是设备时钟不准确。请检查时间并新开对话，再自行发送。';
+const EMPTY_MESSAGE = '未收到完整的 Deep 回复，会话已结束；前层内容不代表真实 API 成功。';
 const REQUEST_TIMEOUT_MS = 165_000;
+const MAX_SESSION_MS = 600_000;
 
 export function createDevRealRequestController(options: {
-  enabled: boolean;
-  transport: DevRealRequestTransport;
-  createRequestId: () => string;
+  enabled: boolean; transport: DevRealRequestTransport; createRequestId: () => string;
 }): DevRealRequestController {
   const { enabled, transport, createRequestId } = options;
   const listeners = new Set<() => void>();
-  let disposed = false;
-  let generation = 0;
+  let disposed = false, generation = 0;
   let active: { abort: AbortController; cancel: () => void } | null = null;
+  let context: { id: string; afterRequestId: string; expiresAt: number; localExpiresAt: number } | null = null;
+  let latestRequestId: string | null = null;
+  let expiry: ReturnType<typeof setTimeout> | undefined;
   const initial = (): DevRealRequestSnapshot => Object.freeze({
-    status: 'idle', inputText: '', requestId: null,
-    reactionText: '', companionText: '', deepText: '', error: null,
-    canSend: enabled && !disposed, source: null,
+    status: 'idle', inputText: '', requestId: null, sentAt: 0, reactionText: '', companionText: '', deepText: '',
+    completedTurns: Object.freeze([]), error: null, canSend: enabled && !disposed, source: null,
   });
   let snapshot = initial();
-
   function publish(next: DevRealRequestSnapshot) {
     snapshot = Object.freeze(next);
     listeners.forEach(listener => listener());
   }
-
   function invalidate() {
     generation += 1;
-    const run = active;
-    active = null;
-    // Revoke authority before abort: abort listeners may fire synchronously.
-    run?.cancel();
-    run?.abort.abort();
+    const run = active; active = null;
+    const requestIds = new Set([context?.afterRequestId, latestRequestId]);
+    latestRequestId = null; context = null;
+    clearTimeout(expiry); expiry = undefined;
+    // Revoke callbacks before abort because listeners can fire synchronously.
+    run?.cancel(); run?.abort.abort();
+    for (const requestId of requestIds) {
+      if (!requestId) continue;
+      try { void transport.end(requestId).catch(() => undefined); } catch { /* expiry remains the backstop */ }
+    }
   }
-
+  function end(status: 'failed' | 'stopped', error: string | null) {
+    invalidate();
+    publish({ ...initial(), status, error, canSend: false });
+  }
   const controller: DevRealRequestController = {
     getSnapshot: () => snapshot,
     subscribe: listener => {
@@ -99,45 +101,53 @@ export function createDevRealRequestController(options: {
       return () => { listeners.delete(listener); };
     },
     send: async text => {
-      if (disposed || !enabled || !snapshot.canSend || typeof text !== 'string' || !text.trim()) return false;
+      if (disposed || !enabled || active || !snapshot.canSend || typeof text !== 'string' || !text.trim()) return false;
+      if (context && Date.now() >= context.localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
       const message = text.trim();
       if (message.length > DEV_REAL_REQUEST_MAX_INPUT) {
-        publish({ ...snapshot, error: '当前输入最多 1000 字，请缩短后再发送。' });
-        return false;
+        publish({ ...snapshot, error: '当前输入最多 1000 字符，请缩短后再发送。' }); return false;
       }
       let requestId: string;
       try {
         requestId = createRequestId();
         if (typeof requestId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(requestId)) throw new Error('invalid_request_id');
       } catch {
-        publish({ ...snapshot, error: '无法生成有效请求标识，请重新点击发送。' });
-        return false;
+        publish({ ...snapshot, error: '无法生成有效请求标识，请重新点击发送。' }); return false;
       }
+      const previous = snapshot.status === 'success' && snapshot.requestId
+        ? [...snapshot.completedTurns, Object.freeze({ inputText: snapshot.inputText, requestId: snapshot.requestId, sentAt: snapshot.sentAt,
+          reactionText: snapshot.reactionText, companionText: snapshot.companionText, deepText: snapshot.deepText })].slice(-3)
+        : snapshot.completedTurns;
+      const continuation = context ? { devConversationId: context.id, afterRequestId: context.afterRequestId } : {};
+      const priorExpiresAt = context?.expiresAt;
+      const priorLocalExpiresAt = context?.localExpiresAt;
       const runGeneration = ++generation;
       const abort = new AbortController();
       let cancel!: () => void;
       const cancelled = new Promise<boolean>(resolve => { cancel = () => resolve(false); });
-      active = { abort, cancel };
+      active = { abort, cancel }; latestRequestId = requestId;
       const isCurrent = () => !disposed && generation === runGeneration && !abort.signal.aborted;
-      // Consume a valid turn synchronously, before auth/transport can yield.
-      publish({ ...initial(), inputText: message, requestId, status: 'starting', canSend: false });
+      publish({ ...initial(), inputText: message, requestId, sentAt: Date.now(), completedTurns: Object.freeze(previous), status: 'starting', canSend: false });
       let timeout: ReturnType<typeof setTimeout> | undefined;
-
       const run = async (): Promise<boolean> => {
         try {
           if (!isCurrent()) return false;
-          const start = await transport.start({ roleId: 'clever-fox', message, requestId }, abort.signal);
+          const start = await transport.start({ roleId: 'clever-fox', message, requestId, ...continuation }, abort.signal);
           if (!isCurrent()) return false;
-          if (!start || typeof start.sessionId !== 'string' || !start.sessionId.trim()) throw new Error('invalid_session');
-          publish({
-            ...snapshot, status: 'streaming',
-            reactionText: typeof start.reactionText === 'string' ? start.reactionText : '',
-            companionText: typeof start.companionText === 'string' ? start.companionText : '',
-          });
-          // A subscriber may stop/reset while observing the transition.
+          if (!start || typeof start.sessionId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(start.sessionId)
+            || typeof start.devConversationId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(start.devConversationId)
+            || !Number.isFinite(start.expiresAt) || !Number.isFinite(start.remainingLifetimeMs)
+            || start.remainingLifetimeMs <= 0 || start.remainingLifetimeMs > MAX_SESSION_MS
+            || (continuation.devConversationId && start.devConversationId !== continuation.devConversationId)
+            || (priorExpiresAt !== undefined && start.expiresAt !== priorExpiresAt)) throw new Error('dev_request_expired_or_clock_skew');
+          const localExpiresAt = Math.min(priorLocalExpiresAt ?? Infinity, Date.now() + start.remainingLifetimeMs);
+          context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
+          clearTimeout(expiry);
+          expiry = setTimeout(() => { if (!disposed && context?.id === start.devConversationId) end('failed', EXPIRED_MESSAGE); }, Math.max(0, localExpiresAt - Date.now()));
+          publish({ ...snapshot, status: 'streaming', reactionText: typeof start.reactionText === 'string' ? start.reactionText : '',
+            companionText: typeof start.companionText === 'string' ? start.companionText : '' });
           if (!isCurrent()) return false;
-          let terminal = false;
-          let failed = false;
+          let terminal = false, failed = false;
           await transport.stream(start.sessionId, {
             onDeepChunk: content => {
               if (!isCurrent() || terminal || typeof content !== 'string') return;
@@ -149,51 +159,34 @@ export function createDevRealRequestController(options: {
           }, abort.signal);
           if (!isCurrent()) return false;
           const success = terminal && !failed && !!snapshot.deepText.trim();
-          publish({ ...snapshot, status: success ? 'success' : 'failed',
-            error: success ? null : failed ? FAILED_MESSAGE : EMPTY_MESSAGE });
-          return success;
-        } catch {
-          if (isCurrent()) publish({ ...snapshot, status: 'failed', error: FAILED_MESSAGE });
+          if (!success) { end('failed', failed ? FAILED_MESSAGE : EMPTY_MESSAGE); return false; }
+          active = null;
+          publish({ ...snapshot, status: 'success', error: null, canSend: true });
+          return true;
+        } catch (error) {
+          const expired = !!error && typeof error === 'object' && 'message' in error && error.message === 'dev_request_expired_or_clock_skew';
+          if (isCurrent()) end('failed', expired ? EXPIRED_MESSAGE : FAILED_MESSAGE);
           return false;
         }
       };
-
       const deadline = new Promise<boolean>(resolve => {
         timeout = setTimeout(() => {
-          if (isCurrent()) {
-            invalidate();
-            publish({ ...snapshot, status: 'failed', error: FAILED_MESSAGE });
-          }
+          if (isCurrent()) end('failed', FAILED_MESSAGE);
           resolve(false);
         }, REQUEST_TIMEOUT_MS);
       });
-      try {
-        return await Promise.race([run(), cancelled, deadline]);
-      } finally {
+      try { return await Promise.race([run(), cancelled, deadline]); }
+      finally {
         clearTimeout(timeout);
-        if (generation === runGeneration) {
-          active = null;
-          // Discard callbacks after terminal completion, even from a faulty transport.
-          generation += 1;
-        }
+        if (generation === runGeneration) { active = null; generation += 1; }
       }
     },
-    stop: () => {
-      if (disposed || !active) return;
-      invalidate();
-      publish({ ...snapshot, status: 'stopped', canSend: false, error: null });
-    },
-    reset: () => {
-      if (disposed) return;
-      invalidate();
-      publish(initial());
-    },
+    stop: () => { if (!disposed && latestRequestId) end('stopped', null); },
+    reset: () => { if (!disposed) { invalidate(); publish(initial()); } },
     dispose: () => {
       if (disposed) return;
-      disposed = true;
-      invalidate();
-      snapshot = Object.freeze({ ...snapshot, canSend: false,
-        status: snapshot.status === 'starting' || snapshot.status === 'streaming' ? 'stopped' : snapshot.status });
+      disposed = true; invalidate();
+      snapshot = Object.freeze({ ...initial(), status: 'stopped', canSend: false });
       listeners.clear();
     },
   };

@@ -3,7 +3,7 @@ import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'r
 import { Screen } from '@/components/Screen';
 import { useRouter } from 'expo-router';
 import {
-  DEMO_NUMBER, createDemoRepository,
+  DEMO_NUMBER, STORAGE_KEY, LEGACY_STORAGE_KEY, createDemoRepository,
   type Decision, type DemoRepository, type Pattern, type PatternState, type PathEntry, type RecordPayload, type Snapshot,
 } from '@/features/synthetic-demo/repository';
 import { DevConversation, type DevUnderstandingDraft } from '@/features/dev-journey/DevConversation';
@@ -19,6 +19,7 @@ type Draft =
   | (Scope & { kind: 'path'; entry: PathEntry; explanation: string; feeling: string })
   | (Scope & { kind: 'unlink'; entry: PathEntry });
 type Notice = { kind: 'success' | 'error'; text: string } | null;
+const CHAT_STORAGE_RESET_NOTICE = '检测到本地演示数据或登录状态变化，当前对话已重置。此 Demo 请只保留一个聊天标签页；需要继续时，请重新输入并明确发送。重置不会自动改写已保存的模式和历史。';
 type ReadState<T> = { status: 'idle' | 'loading'; data: null } | { status: 'error'; data: null; error: string } | { status: 'ready'; data: T };
 const feelings = [ ['helped', '有帮助'], ['unchanged', '没有变化'], ['worse', '更难受'], ['not_recorded', '暂不记录'] ] as const;
 const actions = [ ['agreed', '做了约定动作'], ['other', '做了其他动作'], ['none', '没有行动'] ] as const;
@@ -120,7 +121,42 @@ export default function SyntheticDemoScreen() {
     };
   }, [initialize]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function' || typeof window.removeEventListener !== 'function') return;
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== STORAGE_KEY && event.key !== LEGACY_STORAGE_KEY) return;
+      const identity = (raw: string | null) => {
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as { accountId?: unknown; session?: unknown };
+        return JSON.stringify([parsed.accountId, parsed.session]);
+      };
+      try {
+        if (event.key !== null && identity(event.oldValue) === identity(event.newValue)) return;
+      } catch { /* Corrupt/replaced account data fails closed. */ }
+      if (!mounted.current) return;
+      repository.current?.cancelCode();
+      draftRef.current = null; setDraft(null); setNotice(null);
+      navigation.current += 1; setViewToken(navigation.current); setChatGeneration(value => value + 1);
+      setCode(''); setEnteredCode(''); setPage('chat');
+      setSelectedPatternId(null); setList({ status: 'idle', data: null }); setDetail({ status: 'idle', data: null });
+      initialize();
+      setNotice({ kind: 'error', text: CHAT_STORAGE_RESET_NOTICE });
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [initialize]);
+
   function currentView() { return mounted.current && navigation.current === viewToken; }
+  function beforeChatSend() {
+    if (!currentView() || !repository.current || !snapshot?.session) return false;
+    try {
+      const current = repository.current.snapshot();
+      if (current.session === snapshot.session && current.revision === snapshot.revision) return true;
+    } catch { /* Do not send under an unreadable/stale account. */ }
+    changeDraft(null); invalidateView(); setChatGeneration(value => value + 1); initialize();
+    setNotice({ kind: 'error', text: CHAT_STORAGE_RESET_NOTICE });
+    return false;
+  }
   function invalidateView() { navigation.current += 1; setViewToken(navigation.current); }
   function changeDraft(next: Draft | null) {
     setNotice(null);
@@ -367,7 +403,7 @@ export default function SyntheticDemoScreen() {
         <Button testID="login" title="登录演示账号" onPress={() => write(repo => repo.login(enteredCode), '已进入虚构演示账号。')} />
       </>}
     </Card>;
-    if (page === 'chat') return <DevConversation resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} footer={renderDraft()} />;
+    if (page === 'chat') return <DevConversation beforeSend={beforeChatSend} resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} footer={renderDraft()} />;
     if (page === 'me') return <>
       <Text className="text-2xl font-semibold text-stone-900">我的</Text>
       <Card><Text className="text-lg font-semibold text-stone-900">我的模式</Text><Text className="text-stone-600">查看自己确认的理解、各自的练习和路径。</Text>

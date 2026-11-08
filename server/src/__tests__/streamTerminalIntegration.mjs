@@ -52,6 +52,7 @@ for (const [name, provider, expected, timeout = false] of [
     '../utils/ef77Diagnostics': { emitEf77Trace() {}, getEf77ErrorType: () => '', isEf77DiagnosticEnabled: () => false },
     '../stores/anonymousSession': { getAnonymousRequestOptions: async () => ({ credentials: 'include', headers: {} }) },
   }, { process: { env: { EXPO_PUBLIC_APP_ENV: 'DEV' } }, fetch: async (url, options) => {
+    if (url.endsWith('/end')) { const { res } = await h.request('POST', '/api/v1/chat/dev-journey/end', { input: JSON.parse(options.body) }); return { ok: res.statusCode === 200, status: res.statusCode }; }
     if (options.method === 'POST') {
       const { res } = await h.request('POST', START, { input: JSON.parse(options.body) });
       await settle();
@@ -76,7 +77,7 @@ for (const [name, provider, expected, timeout = false] of [
     'expo-crypto': { randomUUID: () => 'synthetic-request' },
     '@/screens/chat/api/cozeApi': api,
     '@/features/dev-journey/realRequestController': controller,
-  }, { process: { env: { EXPO_PUBLIC_APP_ENV: 'DEV' } } });
+  }, { process: { env: { EXPO_PUBLIC_APP_ENV: 'DEV' } }, Date: class extends Date { static now() { return h.now(); } } });
   const c = adapter.createDevRealRequestControllerForRuntime();
   const success = await c.send('虚构测试：仅用于离线验证。');
   const snapshot = c.getSnapshot();
@@ -93,5 +94,6 @@ for (const [name, provider, expected, timeout = false] of [
   }
   assert.deepEqual(h.identityCalls(), []);
   assert.equal(h.providerRequests.length, 1);
+  c.dispose();
   });
 }
