@@ -1,5 +1,16 @@
 import { isConfusedOverload } from './firstTwoRoundsReaction';
 
+export type Ef41DeepValidationCategory =
+  | 'passthrough_later_turn'
+  | 'accepted_plain'
+  | 'accepted_ef41_sentence'
+  | 'accepted_ef41_default'
+  | 'raw_fact_fallback'
+  | 'empty_candidate_fallback'
+  | 'budget_fallback'
+  | 'post_selection_fact_fallback'
+  | 'question_fallback';
+
 export type Ef41DeepOutputSource = 'cleaned' | 'last-resort' | 'reasoning';
 
 export interface Ef41DeepCompositionInput {
@@ -82,17 +93,20 @@ function hasFirstTwoRoundsFactViolation(text: string, userMessage: string): bool
     || hasUnsupportedInferredFact(text, userMessage);
 }
 
-function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = ''): boolean {
+function firstTwoRoundsOutputFailure(
+  text: string, userMessage: string, visiblePrefix = '',
+): Ef41DeepValidationCategory | undefined {
   const trimmed = text.trim();
   const remainingVisibleBudget = FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(visiblePrefix).length;
-  if (!trimmed || Array.from(trimmed).length > remainingVisibleBudget) return false;
+  if (!trimmed) return 'empty_candidate_fallback';
+  if (Array.from(trimmed).length > remainingVisibleBudget) return 'budget_fallback';
   // Sentence cleanup may join text that did not match the raw factual gate.
-  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage)) return false;
+  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage)) return 'post_selection_fact_fallback';
 
   const questionCount = (trimmed.match(/[？?]/g) || []).length;
-  if (questionCount > 1) return false;
-  if (questionCount === 1 && !OPTIONAL_INVITATION_PATTERN.test(trimmed)) return false;
-  return true;
+  if (questionCount > 1) return 'question_fallback';
+  if (questionCount === 1 && !OPTIONAL_INVITATION_PATTERN.test(trimmed)) return 'question_fallback';
+  return undefined;
 }
 
 function firstTwoRoundsFallback(visiblePrefix = ''): string {
@@ -108,23 +122,37 @@ function firstTwoRoundsFallback(visiblePrefix = ''): string {
  * The EF-41 confused-overload variant keeps its stricter one-sentence rule.
  * Later turns are returned byte-for-byte.
  */
-export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
-  if (!isFirstTwoRounds(input)) return input.text;
+export function validateEf41DeepOutput(
+  input: Ef41DeepCompositionInput,
+  observe?: (category: Ef41DeepValidationCategory) => void,
+): string {
+  const finish = (category: Ef41DeepValidationCategory, output: string): string => {
+    try { observe?.(category); } catch { /* Diagnostics must not change chat output. */ }
+    return output;
+  };
+  if (!isFirstTwoRounds(input)) return finish('passthrough_later_turn', input.text);
 
   const userFacts = [...(input.sameSessionUserMessages ?? []), input.userMessage].join('\n');
 
   // Preserve factual violations before sentence selection can discard or replace them.
   if (hasFirstTwoRoundsFactViolation(input.text, userFacts)) {
-    return firstTwoRoundsFallback(input.visiblePrefix);
+    return finish('raw_fact_fallback', firstTwoRoundsFallback(input.visiblePrefix));
   }
 
-  const candidate = shouldValidateEf41DeepOutput(input)
-    ? splitSentences(input.text).find(isUsefulDeclarativeSentence) || EF41_DEEP_FALLBACK
-    : input.text.trim();
+  let accepted: Ef41DeepValidationCategory = 'accepted_plain';
+  let candidate: string;
+  if (shouldValidateEf41DeepOutput(input)) {
+    const sentence = splitSentences(input.text).find(isUsefulDeclarativeSentence);
+    candidate = sentence || EF41_DEEP_FALLBACK;
+    accepted = sentence ? 'accepted_ef41_sentence' : 'accepted_ef41_default';
+  } else {
+    candidate = input.text.trim();
+  }
 
-  return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix)
-    ? candidate
-    : firstTwoRoundsFallback(input.visiblePrefix);
+  const failure = firstTwoRoundsOutputFailure(candidate, userFacts, input.visiblePrefix);
+  return failure
+    ? finish(failure, firstTwoRoundsFallback(input.visiblePrefix))
+    : finish(accepted, candidate);
 }
 
 // EF57
