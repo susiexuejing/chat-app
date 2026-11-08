@@ -352,7 +352,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let firstTokenTime = 0;
     let usedFallback = false;
     let providerFirstEventAudited = false;
-    let providerTerminalFailure = false;
+    let streamReadStopped = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
     let pendingSseText = '';
     console.log('[Deep] Stream started');
@@ -428,8 +428,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     const streamReadLoop = (async () => {
       console.log('[Deep] Stream read loop started');
-      while (true) {
-        const { done, value } = await reader!.read();
+      while (!streamReadStopped) {
+        const { done, value } = await reader.read();
+        // A timed-out read can settle after cancellation. Never process it.
+        if (streamReadStopped) return;
         if (done) break;
 
         processCompleteSseLines(decoder.decode(value, { stream: true }));
@@ -445,7 +447,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     } catch (e) {
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const timedOut = e instanceof Error && e.message === 'stream_timeout';
-      providerTerminalFailure = true;
+      streamReadStopped = true;
       writeEf118RuntimeAudit({
         providerCategory: timedOut ? 'stream_timeout' : 'stream_read_error',
         ef45ProbeMarker,
@@ -454,9 +456,16 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         code: timedOut ? 'stream_timeout' : 'stream_read_error',
         retryable: true,
       });
-      // 超时或出错时仍然标记完成，让前端能拿到已缓存的chunks
+      // Partial provider output is not a completed answer. Stop before
+      // validation, publication, and LTU/evolution writes.
+      setSafeDeepError(session, 'deep_analysis_failure');
+      // Best-effort local reader cleanup only; do not wait on a possibly
+      // stalled provider, and do not imply provider-side billing cancellation.
+      try { void reader.cancel().catch(() => {}); } catch { /* already closed */ }
+      return;
+    } finally {
+      if (streamTimeout) clearTimeout(streamTimeout);
     }
-    if (streamTimeout) clearTimeout(streamTimeout);
 
     // ── 内容清洗：仅保留最终中文回复 ──
     // qwen3.6-plus 将推理过程混在 content 字段中，
@@ -519,9 +528,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
     session.deepDone = true;
-    if (!providerTerminalFailure) {
-      writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
-    }
+    writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
     const completionDuration = Date.now() - streamStartTime;
     const firstTokenDelay = firstTokenTime > 0 ? (firstTokenTime - streamStartTime) : -1;
     const hasContent = session.deepChunks.length > 0;
@@ -1348,7 +1355,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     }
     // 保存用户神经档案
     try {
-      if (!ef45ProbeMarker && session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE && session.userId && session.neuralProfile) {
+      if (!session.deepError && !ef45ProbeMarker && session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE && session.userId && session.neuralProfile) {
         neuralManager.updateAfterSession(session.userId, session.roleId, session.userMessage, session.deepChunks.join(''));
         neuralManager.saveProfiles();
       }

@@ -280,3 +280,105 @@ test('direct provider invocation cannot force DEV into historical turn/prompt pa
   assert.ok(h.calls.filter(x => x.name === 'validator').every(x => x.args[0].userTurn === 1));
   assertIsolated(h);
 });
+
+// EF-385 terminal transport regressions (synthetic provider, actual handlers).
+{
+const frame = text => ({ done: false, value: new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`) });
+function provider({ partial = true, terminal = 'reject', cancel = 'resolve' } = {}) {
+  const pending = deferred();
+  let reads = 0, cancels = 0;
+  return { pending, get reads() { return reads; }, get cancels() { return cancels; }, response: {
+    status: 200, ok: true, body: { getReader: () => ({
+      read: async () => {
+        reads++;
+        if (partial && reads === 1) return frame(REPLY);
+        if (terminal === 'reject') throw new Error('PRIVATE-PROVIDER-ERROR');
+        if (terminal === 'done') return { done: true };
+        return pending.promise;
+      },
+      cancel: () => {
+        cancels++;
+        if (cancel === 'throw') throw new Error('PRIVATE-CANCEL-ERROR');
+        if (cancel === 'reject') return Promise.reject(new Error('PRIVATE-CANCEL-ERROR'));
+        if (cancel === 'hang') return new Promise(() => {});
+        return Promise.resolve();
+      },
+    }) },
+  } };
+}
+async function run(p, ordinary = false) {
+  const h = await harness({ provider: async () => p.response });
+  const start = await h.request('POST', ordinary ? ORDINARY_START : START, { input: ordinary
+    ? { roleId: 'clever-fox', message: MESSAGE, conversationId: 'existing', requestId: 'ordinary' } : body() });
+  await settle();
+  const stream = await h.request('GET', STREAM, { query: { sessionId: start.res.body.sessionId } });
+  return { h, stream, session: h.sessions[0] };
+}
+function assertFailed({ h, stream, session }, ordinary = false) {
+  assert.equal(session.deepDone, false);
+  assert.equal(session.deepStreaming, false);
+  assert.equal(session.deepError, 'deep_analysis_failure');
+  assert.deepEqual(plain(session.deepChunks), []);
+  assert.equal(stream.res.ended, true);
+  const events = stream.events();
+  assert.deepEqual(events.filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
+  assert.equal(events.find(x => x.eventType === 'error').code, 'deep_response_failed');
+  assert.ok(!h.calls.some(x => x.name === 'validator'));
+  assert.ok(!h.calls.some(x => ['ltu.updateProfile', 'evolution.adjustWeights', 'evolution.logWeightChange', 'neural.updateAfterSession', 'neural.saveProfiles'].includes(x.name)));
+  assert.ok(!h.calls.some(x => x.name === 'audit' && x.args[0].providerCategory === 'stream_completed'));
+  assert.equal(h.providerRequests.length, 1, 'no automatic retry');
+  assert.doesNotMatch(JSON.stringify([h.logs, events]), /PRIVATE-/);
+  if (!ordinary) assert.deepEqual(h.identityCalls(), []);
+}
+for (const ordinary of [false, true]) for (const partial of [false, true]) {
+  test(`${ordinary ? 'ordinary' : 'DEV'} ${partial ? 'partial' : 'empty'} read failure never succeeds or saves failed output`, async () => {
+    const p = provider({ partial });
+    const r = await run(p, ordinary);
+    r.h.tick(3100); await settle();
+    r.stream.close();
+    assertFailed(r, ordinary);
+    assert.equal(p.cancels, 1);
+  });
+}
+for (const ordinary of [false, true]) for (const partial of [false, true]) for (const late of ['resolve', 'reject']) {
+  test(`${ordinary ? 'ordinary' : 'DEV'} ${partial ? 'partial' : 'empty'} timeout ignores late ${late} even when cancel hangs`, async () => {
+    const p = provider({ partial, terminal: 'pending', cancel: 'hang' });
+    const r = await run(p, ordinary);
+    r.h.tick(60000); await settle(); r.h.tick(100); await settle();
+    assertFailed(r, ordinary);
+    const before = JSON.stringify([r.session.deepChunks, r.h.calls, r.stream.res.writes]);
+    const reads = p.reads;
+    if (late === 'resolve') p.pending.resolve(frame('这个超时之后的内容必须被忽略。'));
+    else p.pending.reject(new Error('PRIVATE-LATE-ERROR'));
+    await settle(); r.h.tick(1000);
+    assert.equal(JSON.stringify([r.session.deepChunks, r.h.calls, r.stream.res.writes]), before);
+    assert.equal(p.reads, reads);
+    assert.equal(p.cancels, 1);
+  });
+}
+for (const cancel of ['throw', 'reject']) {
+  test(`cancel ${cancel} does not replace safe failure or cause an unhandled rejection`, async () => {
+    const r = await run(provider({ cancel }));
+    r.h.tick(3100); await settle();
+    assertFailed(r);
+  });
+}
+test('clean completion retains success and clears its timeout', async () => {
+  const p = provider({ terminal: 'done' });
+  const { h, stream, session } = await run(p);
+  h.tick(3100); await settle();
+  assert.equal(session.deepDone, true);
+  assert.equal(session.deepError, null);
+  assert.equal(p.cancels, 0);
+  assert.deepEqual(stream.events().slice(-3).map(x => x.eventType), ['deep.delta', 'deep.completed', 'turn.completed']);
+  assert.deepEqual(plain(session.deepChunks), [REPLY]);
+  const before = JSON.stringify([h.calls, stream.res.writes]);
+  h.tick(60000); await settle();
+  assert.equal(JSON.stringify([h.calls, stream.res.writes]), before);
+  assert.deepEqual(h.identityCalls(), []);
+});
+
+}
+
+// Cross-handler coverage runs in the dedicated Node 24 server VM CI step.
+import './streamTerminalIntegration.mjs';
