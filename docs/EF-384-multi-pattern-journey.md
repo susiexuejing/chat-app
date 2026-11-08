@@ -35,6 +35,8 @@ This change includes scoped repository/provenance tests, an authentic synthetic 
 
 Record the final commit and exact outcomes in the PR. Full Jest, semantic type checks, lint and builds run in the normal CI environment because the local workspace is a partial materialization without dependencies. Mocked checks are not browser or real-provider acceptance.
 
+The unchanged 51-case backend VM isolation suite terminated with SIGSEGV on Node 20.20.2 in two CI attempts. Only this suite now uses the locally verified Node 24.22.1 runtime and its native TypeScript-stripping path; all assertions remain unchanged. The workflow restores Node 20 before the existing application Jest, type/lint checks and builds. Deployment runtime and release workflow are unchanged. This is a bounded verification-runtime correction, not proof of the crash's underlying cause.
+
 Browser/visual screenshots of My/list/A/B details and real-provider tests are **Not Run** until separately performed through an allowed route. The previous file-protocol refusal is not bypassed by hosting another copy. No paid request is made to manufacture test data.
 
 Feature-branch verification does not deploy. Merging to `dev` still invokes the existing frontend/backend deployment and restart, even though this change is client-side. Review the migration limitation, exact-head checks and current protection/admission requirements before release. Do not change or bypass those controls.
