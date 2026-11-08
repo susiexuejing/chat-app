@@ -187,7 +187,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       }
       requireThat(!d.patterns.some(item=>item.path.some(e=>e.origin?.requestId === origin.requestId)),'这次请求已经保存，请查看现有路径。');
       matches(s?.pattern.version ?? 0,expectedVersion);
-      const at = time(s?.pattern.updatedAt), source = 'DEV 服务端 Deep 回复（上游供应商/模型未核验），用户编辑确认';
+      const at = time(s?.pattern.updatedAt), source = 'DEV 服务端 Deep 回复（可能参考本次会话前文；上游供应商/模型未核验），用户编辑确认；仅保留选中输入与理解';
       if (s) {
         const previous = s.pattern.currentUnderstanding;
         Object.assign(s.pattern,{demoSource:'dev-api-test',origin,currentUnderstanding:value,decision:'confirmed',updatedAt:at,version:s.pattern.version+1});

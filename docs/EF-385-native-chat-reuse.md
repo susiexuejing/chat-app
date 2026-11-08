@@ -1,5 +1,9 @@
 # EF-385: shared native chat presentation and explicit DEV requests
 
+## Current DEV session-context addendum
+
+The newly approved same-session scope is specified in [EF-385-dev-session-context.md](./EF-385-dev-session-context.md), based on deployed commit `61a69dae9baeab1d9aa0f2e03d79326312d60e21`. It supersedes the historical one-accepted-turn/current-input-only statements below for DEV `/demo` only. The historical implementation and verification notes below are retained as history, not current candidate test claims.
+
 Ticket: https://douhaoyu.atlassian.net/browse/EF-385
 
 Requirements: https://douhaoyu.atlassian.net/wiki/spaces/PM/pages/398786561/EmotionFlow+MVP+User+journey

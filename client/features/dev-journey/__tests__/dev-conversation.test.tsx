@@ -19,6 +19,9 @@ const mockStream = jest.fn<Promise<void>, [string, DevRealRequestCallbacks, Abor
 const mockConfirm = jest.fn();
 const mockDiscard = jest.fn();
 const mockControllers: DevRealRequestController[] = [];
+let mockRequestIdFailure: 'throw' | 'invalid' | null = null;
+const RECEIPT = { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000 };
+jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }));
 const DEEP_REPLY = '测试后端 Deep 内容：可以先确认眼前的需要。';
 const INPUT = '虚构场景：今天的安排有些乱。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
@@ -58,9 +61,9 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     oldAct = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     mockCreateController.mockReset(); mockConfirm.mockReset(); mockDiscard.mockReset();
-    mockControllers.splice(0);
+    mockControllers.splice(0); mockRequestIdFailure = null;
     mockStart.mockReset().mockResolvedValue({
-      sessionId: 'stub-session', reactionText: '即时回应（不是 Deep）', companionText: '陪伴回应（不是 Deep）',
+      ...RECEIPT, sessionId: 'stub-session', reactionText: '即时回应（不是 Deep）', companionText: '陪伴回应（不是 Deep）',
     });
     mockStream.mockReset().mockImplementation(async (_session, callbacks) => {
       callbacks.onDeepChunk(DEEP_REPLY); callbacks.onDone();
@@ -68,8 +71,12 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     let sequence = 0;
     mockCreateController.mockImplementation(() => {
       const controller = createDevRealRequestController({
-        enabled: true, transport: { start: mockStart, stream: mockStream },
-        createRequestId: () => `stub-request-${++sequence}`,
+        enabled: true, transport: { start: mockStart, stream: mockStream, end: async () => {} },
+        createRequestId: () => {
+          if (mockRequestIdFailure === 'throw') throw new Error('synthetic request-ID failure');
+          if (mockRequestIdFailure === 'invalid') return 'invalid request ID';
+          return `stub-request-${++sequence}`;
+        },
       });
       mockControllers.push(controller);
       return controller;
@@ -200,9 +207,9 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     await type('虚构场景：不得自动排队发送的下一句');
     await act(async () => { sendAgain(); node('chat-send').props.onPress(); });
     expect(mockStart).toHaveBeenCalledTimes(1);
-    await act(async () => { start.resolve({ sessionId: 'stub-session', reactionText: '', companionText: '' }); });
+    await act(async () => { start.resolve({ ...RECEIPT, sessionId: 'stub-session', reactionText: '', companionText: '' }); });
     expect(mockStream).toHaveBeenCalledTimes(1);
-    expect(node('chat-send').props.disabled).toBe(true);
+    expect(node('chat-send').props.disabled).toBe(false);
     expect(mockStart).toHaveBeenCalledTimes(1);
     await press('dev-new-chat');
     expect(node('chat-input').props.value).toBe('');
@@ -266,7 +273,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(signal.aborted).toBe(true);
     expect(mockDiscard).toHaveBeenCalledTimes(1);
     expect(output()).toContain(DEV_REAL_REQUEST_STOP_NOTICE);
-    await act(async () => { start.resolve({ sessionId: 'late-session', reactionText: '迟到回应', companionText: '' }); });
+    await act(async () => { start.resolve({ ...RECEIPT, sessionId: 'late-session', reactionText: '迟到回应', companionText: '' }); });
     expect(mockStream).not.toHaveBeenCalled();
     expect(output()).not.toContain('迟到回应');
     expectNoCandidate();
@@ -355,4 +362,59 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
       expect(mockConfirm).not.toHaveBeenCalled();
     },
   );
+  it('continues explicit same-session turns in the shared UI but confirms only selected current input and reply', async () => {
+    await mount(); await send(INPUT);
+    const second = '虚构场景：接着上一条，我想说的是明天的安排。';
+    await send(second);
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    expect(mockStart.mock.calls[1][0]).toEqual({ roleId: 'clever-fox', message: second, requestId: 'stub-request-2',
+      devConversationId: 'dev-conversation', afterRequestId: 'stub-request-1' });
+    expect(output()).toContain(INPUT); expect(output()).toContain(second);
+    expect(mockConfirm).not.toHaveBeenCalled();
+    await press('candidate-confirm');
+    expect(mockConfirm).toHaveBeenCalledWith({ text: DEEP_REPLY, input: second, requestId: 'stub-request-2' });
+  });
+
+  it('passive expiry clears unsent text, raw presentation and candidate without writing a pattern', async () => {
+    await mount(); await send(); await type('未发送的下一句'); mockDiscard.mockClear();
+    await act(async () => { jest.advanceTimersByTime(600000); });
+    expect(node('chat-input').props.value).toBe('');
+    expect(output()).not.toContain(DEEP_REPLY); expect(output()).not.toContain(INPUT);
+    expectNoCandidate(); expect(mockDiscard).toHaveBeenCalledTimes(1);
+    expect(node('chat-send').props.disabled).toBe(true); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('pagehide ends context; ordinary browser blur has no registered ending handler', async () => {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const listeners = new Map<string, () => void>();
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+      addEventListener: (name: string, fn: () => void) => listeners.set(name, fn),
+      removeEventListener: (name: string) => listeners.delete(name),
+    } });
+    try {
+      await mount(); await send();
+      expect(listeners.has('blur')).toBe(false);
+      await act(async () => { listeners.get('pagehide')?.(); });
+      expectNoCandidate(); expect(node('chat-input').props.value).toBe('');
+      expect(output()).not.toContain(DEEP_REPLY); expect(mockStart).toHaveBeenCalledTimes(1);
+      await unmount();
+    } finally {
+      if (previous) Object.defineProperty(globalThis, 'window', previous);
+      else delete (globalThis as any).window;
+    }
+  });
+
+  it.each(['throw', 'invalid'] as const)('retryable %s request-ID preflight preserves unsent text until an accepted send', async failure => {
+    await mount(); await type(INPUT); mockDiscard.mockClear(); mockRequestIdFailure = failure;
+    await press('chat-send');
+    expect(node('chat-input').props.value).toBe(INPUT);
+    expect(node('chat-send').props.disabled).toBe(false);
+    expect(output()).toContain('无法生成有效请求标识');
+    expect(mockStart).not.toHaveBeenCalled(); expect(mockStream).not.toHaveBeenCalled();
+    expect(mockDiscard).not.toHaveBeenCalled();
+    mockRequestIdFailure = null; await press('chat-send');
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStart.mock.calls[0][0].message).toBe(INPUT);
+    expect(node('chat-input').props.value).toBe(''); expect(mockDiscard).toHaveBeenCalledTimes(1);
+  });
+
 });

@@ -14,7 +14,8 @@ export async function loadTsModule(url, imports, globals = {}, dynamicImport) {
       compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
     }).outputText;
   const context = vm.createContext({
-    AbortController, TextDecoder, TextEncoder, setTimeout, clearTimeout,
+    AbortController, TextDecoder, TextEncoder,
+    setTimeout: (...args) => { const timer = setTimeout(...args); timer.unref?.(); return timer; }, clearTimeout,
     console: {
       log() { return undefined; },
       warn() { return undefined; },

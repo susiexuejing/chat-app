@@ -10,6 +10,8 @@ export interface Ef41DeepCompositionInput {
   source: Ef41DeepOutputSource;
   /** Reaction + Companion already visible before Deep is appended. */
   visiblePrefix?: string;
+  /** DEV only: bounded user-authored raw messages, never assistant assertions. */
+  sameSessionUserMessages?: readonly string[];
 }
 
 export const EF41_DEEP_FALLBACK = '等这一团稍微松开，事情的轻重也许会慢慢显出来。';
@@ -109,8 +111,10 @@ function firstTwoRoundsFallback(visiblePrefix = ''): string {
 export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
   if (!isFirstTwoRounds(input)) return input.text;
 
+  const userFacts = [...(input.sameSessionUserMessages ?? []), input.userMessage].join('\n');
+
   // Preserve factual violations before sentence selection can discard or replace them.
-  if (hasFirstTwoRoundsFactViolation(input.text, input.userMessage)) {
+  if (hasFirstTwoRoundsFactViolation(input.text, userFacts)) {
     return firstTwoRoundsFallback(input.visiblePrefix);
   }
 
@@ -118,7 +122,7 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
     ? splitSentences(input.text).find(isUsefulDeclarativeSentence) || EF41_DEEP_FALLBACK
     : input.text.trim();
 
-  return isSafeFirstTwoRoundsOutput(candidate, input.userMessage, input.visiblePrefix)
+  return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix)
     ? candidate
     : firstTwoRoundsFallback(input.visiblePrefix);
 }

@@ -11,7 +11,7 @@ export const STREAM = '/api/v1/chat/stream';
 export const OWNER = 'shared-anonymous-cookie-owner';
 export const MESSAGE = '今天的测试任务让我有点紧张，我想先把眼前的事情说清楚。';
 export const REPLY = '这件事情让你有些紧张，你可以从眼前最想说清楚的那一部分开始。';
-export const body = (extra = {}) => ({ requestMode: MODE, roleId: 'clever-fox', message: MESSAGE, requestId: 'request_1', ...extra });
+export const body = (extra = {}) => ({ requestMode: MODE, roleId: 'clever-fox', message: MESSAGE, requestId: '100000_request_1', ...extra });
 export const plain = value => JSON.parse(JSON.stringify(value));
 export async function settle() { for (let i = 0; i < 80; i++) await Promise.resolve(); }
 export function deferred() {
@@ -33,7 +33,7 @@ export function providerResponse({ status = 200, text = REPLY, readError = false
 }
 
 export async function harness(options = {}) {
-  const { provider = async () => providerResponse(), apiKey = 'mock-only-key' } = options;
+  const { provider = async () => providerResponse(), apiKey = 'mock-only-key', authWait } = options;
   const nodeEnv = Object.hasOwn(options, 'nodeEnv') ? options.nodeEnv : 'development';
   const calls = [];
   const logs = [];
@@ -126,6 +126,7 @@ export async function harness(options = {}) {
     './security/anonymousSession': {
       EF75_WEB_ORIGIN: 'https://dev.example.invalid',
       authenticateAnonymousRequest: tracked('auth', async (req, options) => {
+        await authWait?.(req, options);
         if (!req.owner) return { ok: false, kind: 'invalid' };
         if (options?.requireCsrf && req.get('x-ef-csrf') !== 'mock-csrf') return { ok: false, kind: 'request_not_allowed' };
         return { ok: true, session: { id: req.owner } };
@@ -217,7 +218,8 @@ export async function harness(options = {}) {
     const res = {
       statusCode: 200, headers: {}, body: undefined, writes: [], ended: false,
       status(code) { this.statusCode = code; return this; },
-      json(value) { this.body = value; return this; },
+      json(value) { this.body = value; this.ended = true; return this; },
+      on(name, fn) { events.set(name, fn); },
       setHeader(key, value) { this.headers[key] = value; },
       write(value) { this.writes.push(value); },
       end() { this.ended = true; events.get('close')?.(); },
@@ -227,7 +229,7 @@ export async function harness(options = {}) {
     else await handler(req, res);
     return { req, res, close: () => events.get('close')?.(), events: () => res.writes.filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6))) };
   }
-  return { calls, logs, sessions: observedSessions, providerRequests, routes, tick, request, process: processMock,
+  return { now: () => now, calls, logs, sessions: observedSessions, providerRequests, routes, tick, request, process: processMock,
     mode: modeModule.namespace, startDeepAnalysis: module.namespace.startDeepAnalysis, profile,
     identityCalls: () => calls.filter(({ name }) => /^(neural\.|flow\.|change\.|ltu\.|evolution\.|fs\.|turn\.|conversation\.)/.test(name)),
   };

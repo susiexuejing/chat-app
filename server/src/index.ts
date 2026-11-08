@@ -13,6 +13,12 @@ import { neuralManager } from './flows/neuralProfileManager';
 import type { NeuralProfile } from './flows/neuralProfileManager';
 import {
   createDevEphemeralProfile,
+  createDevConversationStore,
+  DEV_EPHEMERAL_END_PATH,
+  isValidDevEphemeralEnd,
+  isFreshDevRequestId,
+  type DevContextPair,
+  type DevConversation,
   DEV_EPHEMERAL_REQUEST_MODE,
   DEV_EPHEMERAL_START_PATH,
   isValidDevEphemeralRequest,
@@ -161,6 +167,12 @@ export interface ChatSession {
   sessionId: string;
   ownerSessionId: string;        // EF-75: verified server-issued anonymous owner
   readonly requestMode?: typeof DEV_EPHEMERAL_REQUEST_MODE;
+  devConversationId?: string;
+  devRequestId?: string;
+  devTurn?: number;
+  devContext?: DevContextPair[];
+  devAbort?: AbortController;
+  devStreamAttached?: boolean;
   roleId: string;
   roleName: string;
   userMessage: string;
@@ -193,9 +205,42 @@ type SafeDeepErrorCode =
 
 function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode): void {
   session.deepError = code;
+  // Failure revokes reuse even when no SSE connection was ever attached.
+  if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) endDevTurn(session);
 }
 
 const sessions = new Map<string, ChatSession>();
+
+function clearDevTurn(session: ChatSession) {
+  session.devAbort?.abort();
+  session.devContext?.splice(0);
+  session.userMessage = '';
+  session.deepChunks.length = 0;
+  session.reactionLayer = '';
+  session.companionLayer = '';
+  session.frontFlowText = '';
+  session.state = '';
+  session.emotionTag = 'general';
+  session.eventTag = 'general';
+  session.keywords.length = 0;
+  session.flowContext = null;
+  sessions.delete(session.sessionId);
+}
+const devConversations = createDevConversationStore({
+  now: () => Date.now(), createId: () => crypto.randomUUID(),
+  onInvalidate: id => {
+    for (const session of sessions.values()) if (session.devConversationId === id) clearDevTurn(session);
+  },
+});
+function activeDevTurn(session: ChatSession): boolean {
+  if (session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE) return true;
+  if (session.devAbort?.signal.aborted || !session.devConversationId) return false;
+  const conversation = devConversations.find(session.devConversationId, session.ownerSessionId);
+  return !!conversation && conversation.pendingRequestId === session.devRequestId;
+}
+function endDevTurn(session: ChatSession) {
+  if (session.devConversationId) devConversations.invalidate(session.devConversationId);
+}
 
 const SESSION_TTL_MS = 10 * 60 * 1000; // 10分钟过期
 
@@ -203,6 +248,7 @@ const SESSION_TTL_MS = 10 * 60 * 1000; // 10分钟过期
 if (process.env.NODE_ENV !== 'test') {
   setInterval(() => {
     const now = Date.now();
+    devConversations.sweep();
     for (const [id, session] of sessions) {
       if (now - session.createdAt > SESSION_TTL_MS) {
         sessions.delete(id);
@@ -233,7 +279,8 @@ async function callDashScope(
   model: string,
   messages: Array<{ role: string; content: string }>,
   stream: boolean,
-  maxTokens: number = 1200
+  maxTokens: number = 1200,
+  signal?: AbortSignal
 ): Promise<Response> {
   const url = `${baseUrl}/chat/completions`;
 
@@ -248,6 +295,9 @@ async function callDashScope(
   // 60秒超时控制（Deep模型流式回复较慢）
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const abort = () => controller.abort();
+  signal?.addEventListener('abort', abort, { once: true });
+  if (signal?.aborted) controller.abort();
 
   try {
     const response = await fetch(url, {
@@ -262,6 +312,7 @@ async function callDashScope(
     return response;
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', abort);
   }
 }
 
@@ -270,8 +321,9 @@ async function callDashScope(
 // ============================================================
 export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
   const isDevEphemeral = session.requestMode === DEV_EPHEMERAL_REQUEST_MODE;
-  // This mode has no previous turns, regardless of the caller's turn argument.
+  // All DEV turns retain entry-turn safety; conversation order is separate.
   if (isDevEphemeral) userTurn = 1;
+  if (!activeDevTurn(session)) return;
   const apiKey = API_KEY_LIGHT;
   const ef45ProbeMarker = session.ef45ProbeMarker;
   const ef45OneShotMarker = markerForEf45OneShotDiagnosticSession(session);
@@ -294,12 +346,16 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // EF-57: New-chat entry turns must not read or present cross-session
     // memories. They may still be updated after completion for later turns.
     const isEntryTurn = userTurn >= 1 && userTurn <= 2;
-    const changeBlock = isEntryTurn ? undefined : getChangeBlock(session.userId, session.roleId);
-    const ltuProfile = isEntryTurn ? undefined : await loadProfile(session.userId, session.roleId);
+    const changeBlock = isDevEphemeral || isEntryTurn ? undefined : getChangeBlock(session.userId, session.roleId);
+    const ltuProfile = isDevEphemeral || isEntryTurn ? undefined : await loadProfile(session.userId, session.roleId);
     const longTermSummary = ltuProfile ? generateLTUSummary(ltuProfile) : undefined;
-    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn, session.userMessage);
+    const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn, session.userMessage,
+      isDevEphemeral ? { userTurn: session.devTurn ?? 1, hasContext: !!session.devContext?.length } : undefined);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
+      ...(isDevEphemeral ? (session.devContext ?? []).flatMap(pair => [
+        { role: 'user', content: pair.user }, { role: 'assistant', content: pair.assistant },
+      ]) : []),
       { role: 'user', content: session.userMessage },
     ];
 
@@ -311,9 +367,14 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       MODELS.DEEP,
       deepMessages,
       true,      // stream: true
-      1200       // max_tokens: 确保有足够空间输出中文回复
+      1200,      // max_tokens: 确保有足够空间输出中文回复
+      session.devAbort?.signal
     );
 
+    if (!activeDevTurn(session)) {
+      try { void response.body?.cancel().catch(() => {}); } catch { /* best effort */ }
+      return;
+    }
     console.log('[Deep] Provider response received', {
       statusClass: response.status >= 500 ? 'server_error' : response.status >= 400 ? 'client_error' : 'success',
     });
@@ -334,6 +395,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const errorText = await response.text().catch(() => '');
       void errorText;
+      if (!activeDevTurn(session)) return;
       console.error('[Deep] Provider response rejected', {
         code: 'provider_api_error',
         retryable: response.status === 429 || response.status >= 500,
@@ -373,6 +435,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     });
 
     const processSseLine = (rawLine: string): void => {
+      if (!activeDevTurn(session)) return;
       const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
       if (line.startsWith('data: ')) {
         const data = line.slice(6);
@@ -441,7 +504,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       while (!streamReadStopped) {
         const { done, value } = await reader.read();
         // A timed-out read can settle after cancellation. Never process it.
-        if (streamReadStopped) return;
+        if (streamReadStopped || !activeDevTurn(session)) return;
         if (done) break;
 
         processCompleteSseLines(decoder.decode(value, { stream: true }));
@@ -452,9 +515,22 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       pendingSseText = '';
     })();
 
+    let cancelRead: (() => void) | undefined;
+    const cancelled = new Promise<void>(resolve => {
+      cancelRead = () => {
+        streamReadStopped = true;
+        deepContentBuffer = ''; reasoningBuffer = ''; pendingSseText = '';
+        try { void reader.cancel().catch(() => {}); } catch { /* best effort */ }
+        resolve();
+      };
+      session.devAbort?.signal.addEventListener('abort', cancelRead, { once: true });
+      if (session.devAbort?.signal.aborted) cancelRead();
+    });
     try {
-      await Promise.race([streamReadLoop, streamReadTimeout]);
+      await Promise.race([streamReadLoop, streamReadTimeout, cancelled]);
+      if (!activeDevTurn(session)) return;
     } catch (e) {
+      if (!activeDevTurn(session)) return;
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const timedOut = e instanceof Error && e.message === 'stream_timeout';
       streamReadStopped = true;
@@ -471,10 +547,13 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       setSafeDeepError(session, 'deep_analysis_failure');
       // Best-effort local reader cleanup only; do not wait on a possibly
       // stalled provider, and do not imply provider-side billing cancellation.
-      try { void reader.cancel().catch(() => {}); } catch { /* already closed */ }
+      if (!isDevEphemeral) {
+        try { void reader.cancel().catch(() => {}); } catch { /* already closed */ }
+      }
       return;
     } finally {
       if (streamTimeout) clearTimeout(streamTimeout);
+      if (cancelRead) session.devAbort?.signal.removeEventListener('abort', cancelRead);
     }
 
     // ── 内容清洗：仅保留最终中文回复 ──
@@ -488,6 +567,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         roleId: session.roleId,
         userTurn,
         userMessage: session.userMessage,
+        sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
         source: 'cleaned',
         visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
       }));
@@ -505,6 +585,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           roleId: session.roleId,
           userTurn,
           userMessage: session.userMessage,
+          sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
           source: 'last-resort',
           visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
         }));
@@ -527,6 +608,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         roleId: session.roleId,
         userTurn,
         userMessage: session.userMessage,
+        sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
         source: 'reasoning',
         visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
       }));
@@ -636,6 +718,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
   } catch (error) {
+    if (!activeDevTurn(session)) return;
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
     writeEf118RuntimeAudit({ providerCategory: 'analysis_failure', ef45ProbeMarker });
     const errTime = Date.now() - streamStartTime;
@@ -915,6 +998,12 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 // 即时返回前端流 + 触发后台百炼调用
 // ============================================================
 async function handleChatStart(req: express.Request, res: express.Response, isDevEphemeral = false) {
+  const receivedAt = Date.now();
+  let devConversation: DevConversation | undefined;
+  if (isDevEphemeral && process.env.NODE_ENV !== 'development') return res.status(404).json({ error: 'resource_not_found' });
+  if (isDevEphemeral && isValidDevEphemeralRequest(req.body) && !isFreshDevRequestId(req.body.requestId, receivedAt)) {
+    return res.status(410).json({ error: 'dev_request_expired_or_clock_skew' });
+  }
   let ef235StartBoundary: 'anonymous_auth' | 'request_validation' | 'conversation_ownership' | 'runtime_profile' | 'flow_preparation' | 'session_create' = 'anonymous_auth';
   const ef45ProbeMarker = isFixedEf45SyntheticProbe(
     req.get('x-ef45-diagnostic-marker'),
@@ -948,6 +1037,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     } else if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'requestMode')) {
       return res.status(400).json({ error: 'invalid_request_mode' });
     }
+    if (isDevEphemeral && req.aborted) return res.status(409).json({ error: 'dev_conversation_unavailable' });
     const { roleId, message, conversationId } = req.body;
     // The authenticated identity is used only for SSE ownership in DEV mode.
     const userId = isDevEphemeral ? '' : authenticated.session.id;
@@ -990,6 +1080,13 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     // EM-43: 递增会话轮数（幂等，支持 requestId）
     const { requestId } = req.body;
     let userTurn = 1;
+    if (isDevEphemeral) {
+      const begun = devConversations.begin(authenticated.session.id, requestId, receivedAt,
+        req.body.devConversationId, req.body.afterRequestId);
+      if (!begun.ok) return res.status(begun.status).json({ error: 'dev_conversation_unavailable' });
+      devConversation = begun.conversation;
+      userTurn = devConversation.turn;
+    }
     if (conversationId) {
       userTurn = incrementConversationTurnIdempotent(conversationId, requestId);
     }
@@ -1049,8 +1146,8 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
-      reactionTimeline = generateReactionTimeline(roleId, message, signal, userTurn);
-      companionTimeline = generateCompanionTimeline(roleId, message, signal, userTurn);
+      reactionTimeline = generateReactionTimeline(roleId, message, signal, isDevEphemeral ? 1 : userTurn);
+      companionTimeline = generateCompanionTimeline(roleId, message, signal, isDevEphemeral ? 1 : userTurn);
       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
       companionLayer = companionTimeline[0]?.text || frontFlowText;
 
@@ -1089,7 +1186,12 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       eventSequencer: new TurnEventSequencer(),
       ef45ProbeMarker,
     };
-    if (isDevEphemeral) {
+    if (isDevEphemeral && devConversation) {
+      session.devConversationId = devConversation.id;
+      session.devRequestId = requestId;
+      session.devTurn = userTurn;
+      session.devContext = devConversation.pairs.map(pair => ({ ...pair }));
+      session.devAbort = new AbortController();
       // Server-created, immutable mode survives SSE disconnects and late work.
       Object.defineProperty(session, 'requestMode', {
         value: DEV_EPHEMERAL_REQUEST_MODE,
@@ -1108,7 +1210,9 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     // 6. 立即返回前端流 + R+C + 时间线模板 + FlowContext（不等待百炼）
     res.json({
       sessionId,
-      ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE } : {}),
+      ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE,
+        devConversationId: devConversation?.id, expiresAt: devConversation?.expiresAt,
+        remainingLifetimeMs: Math.max(0, (devConversation?.expiresAt ?? now) - now) } : {}),
       userTurn,
       state,
       keywords,
@@ -1179,6 +1283,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       });
     }
   } catch (error) {
+    if (devConversation) devConversations.invalidate(devConversation.id);
     if (process.env.NODE_ENV === 'development') res.setHeader('X-EF235-Chat-Start-Boundary', ef235StartBoundary);
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
@@ -1202,6 +1307,14 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
 app.post('/api/v1/chat/start', (req, res) => handleChatStart(req, res));
 if (process.env.NODE_ENV === 'development') {
   app.post(DEV_EPHEMERAL_START_PATH, (req, res) => handleChatStart(req, res, true));
+  app.post(DEV_EPHEMERAL_END_PATH, async (req, res) => {
+    if (process.env.NODE_ENV !== 'development') return res.status(404).json({ error: 'resource_not_found' });
+    const authenticated = await authenticateAnonymousRequest(req, { requireCsrf: true });
+    if (!authenticated.ok) return sendAnonymousFailure(res, authenticated.kind);
+    if (!isValidDevEphemeralEnd(req.body)) return res.status(400).json({ error: 'invalid_dev_request' });
+    const ended = devConversations.end(authenticated.session.id, req.body.requestId);
+    return res.status(ended ? 200 : 429).json({ ended });
+  });
 }
 
 // ============================================================
@@ -1231,7 +1344,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   }
 
   const session = sessions.get(sessionId);
-  if (!session || session.ownerSessionId !== authenticated.session.id) {
+  if (!session || session.ownerSessionId !== authenticated.session.id || !activeDevTurn(session)) {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_missing',
@@ -1239,6 +1352,10 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       frontendErrorMappingCategory: 'safe_connection_retry',
     });
     return res.status(404).json({ error: 'resource_not_found' });
+  }
+  if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) {
+    if (session.devStreamAttached) return res.status(409).json({ error: 'dev_conversation_unavailable' });
+    session.devStreamAttached = true;
   }
   const ef45ProbeMarker = session.ef45ProbeMarker;
   const sessionOneShotMarker = markerForEf45OneShotDiagnosticSession(session);
@@ -1286,6 +1403,12 @@ app.get('/api/v1/chat/stream', async (req, res) => {
 
   // 每 100ms 轮询 session.deepChunks，推送新chunk（但前90秒不发）
   const pollInterval = setInterval(() => {
+    if (!activeDevTurn(session)) {
+      clearInterval(pollInterval); clearTimeout(timeout);
+      sseTerminated = true;
+      emit('error', mapSafeStreamError('deep_response_failed'));
+      res.end(); return;
+    }
     const now = Date.now();
 
     // 动态缓冲期内：只发心跳，不发deep chunks
@@ -1308,6 +1431,20 @@ app.get('/api/v1/chat/stream', async (req, res) => {
 
     // 完成
     if (session.deepDone) {
+      if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) {
+        if (!session.deepChunks.join('').trim()) {
+          // Preserve the deployed empty-Deep terminal contract. The client still
+          // rejects it; no conversation context/continuation survives. PR167 is separate.
+          endDevTurn(session);
+        } else if (!session.devConversationId || !session.devRequestId
+          || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
+            session.userMessage, session.deepChunks.join(''))) {
+          clearInterval(pollInterval); clearTimeout(timeout);
+          sseTerminated = true;
+          emit('error', mapSafeStreamError('deep_response_failed'));
+          endDevTurn(session); res.end(); return;
+        }
+      }
       clearInterval(pollInterval);
       clearTimeout(timeout);
       emit('deep.completed', {});
@@ -1319,6 +1456,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
         ef45ProbeMarker,
       });
       res.end();
+      if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) clearDevTurn(session);
       return;
     }
 
@@ -1337,6 +1475,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
         ef45ProbeMarker,
       });
       recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
+      endDevTurn(session);
       res.end();
       return;
     }
@@ -1353,15 +1492,17 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       ef45ProbeMarker,
     });
     recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
+    endDevTurn(session);
     res.end();
   }, 150000);
 
-  req.on('close', () => {
+  const onStreamClose = () => {
     clearInterval(pollInterval);
     clearTimeout(timeout);
     if (!sseTerminated) {
       sseTerminated = true;
       writeEf118RuntimeAudit({ sseCategory: 'client_closed', ef45ProbeMarker });
+      endDevTurn(session);
     }
     // 保存用户神经档案
     try {
@@ -1372,7 +1513,10 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     } catch (e) {
       // 静默失败，不影响用户体验
     }
-  });
+  };
+  // Response close tracks DEV SSE disconnects; retain the ordinary chat hook.
+  if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) res.on('close', onStreamClose);
+  else req.on('close', onStreamClose);
 });
 
 // ============================================================

@@ -420,6 +420,9 @@ export interface FlowContext {
 
 export interface ChatStartResponse {
   requestMode?: 'dev-ephemeral-v1';
+  devConversationId?: string;
+  expiresAt?: number;
+  remainingLifetimeMs?: number;
   sessionId: string;
   emotionTag: string;
   eventKeyword: string;
@@ -481,11 +484,14 @@ export async function chatStart(
   oneShotDiagnosticMarker?: string,
   signal?: AbortSignal,
   requestMode?: 'dev-ephemeral-v1',
+  devContext?: { devConversationId: string; afterRequestId?: string },
 ): Promise<ChatStartResponse> {
   throwIfChatAborted(signal);
   if (requestMode !== undefined && (requestMode !== 'dev-ephemeral-v1' || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || conversationId !== undefined)) {
     throw new Error('dev_request_disabled');
   }
+  if (devContext && (requestMode !== 'dev-ephemeral-v1' || !/^[\w-]{1,100}$/.test(devContext.devConversationId)
+    || typeof devContext.afterRequestId !== 'string' || !/^[\w-]{1,100}$/.test(devContext.afterRequestId))) throw new Error('invalid_dev_context');
   const BASE = getBackendUrl();
   const startPath = requestMode === 'dev-ephemeral-v1' ? '/api/v1/chat/dev-journey/start' : '/api/v1/chat/start';
   const startedAt = Date.now();
@@ -502,11 +508,13 @@ export async function chatStart(
       // An empty value marks a local-only turn while canonical persistence is
       // unavailable. Omit it so the authenticated runtime path does not
       // attempt durable-conversation ownership validation.
-      body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId, ...(requestMode ? { requestMode } : {}) }),
+      body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId, ...(requestMode ? { requestMode } : {}),
+        ...(devContext ? { devConversationId: devContext.devConversationId, afterRequestId: devContext.afterRequestId } : {}) }),
     });
     throwIfChatAborted(signal);
     httpStatus = response.status;
     if (!response.ok) {
+      if (requestMode === 'dev-ephemeral-v1' && response.status === 410) throw new Error('dev_request_expired_or_clock_skew');
       // Never read or propagate an HTTP error body into the client error path.
       // The caller maps this opaque failure to the single safe retryable prompt.
       const boundary = response.headers?.get?.('X-EF235-Chat-Start-Boundary') || 'unknown';
@@ -535,6 +543,23 @@ export async function chatStart(
     });
     throw error;
   }
+}
+
+/** Authenticated/CSRF-protected best-effort end; no anonymous beacon fallback. */
+export async function endDevConversation(requestId: string): Promise<void> {
+  if (process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || !/^[\w-]{1,100}$/.test(requestId)) return;
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 5000);
+  try {
+    const BASE = getBackendUrl();
+    const auth = await getAnonymousRequestOptions(BASE, 'POST');
+    throwIfChatAborted(abort.signal);
+    await fetch(`${BASE}/api/v1/chat/dev-journey/end`, {
+      method: 'POST', credentials: auth.credentials, signal: abort.signal, keepalive: true,
+      headers: { 'Content-Type': 'application/json', ...auth.headers },
+      body: JSON.stringify({ requestMode: 'dev-ephemeral-v1', requestId }),
+    });
+  } finally { clearTimeout(timeout); }
 }
 
 function throwIfChatAborted(signal?: AbortSignal): void {

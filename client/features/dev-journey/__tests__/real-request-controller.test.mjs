@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadTsModule } from './moduleHarness.mjs';
 
+const receipt = { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000 };
 const source = new URL('../realRequestController.ts', import.meta.url);
 const { createDevRealRequestController } = await loadTsModule(source, {});
 
@@ -14,9 +15,10 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 function setup(overrides = {}, enabled = true) {
   const calls = { start: [], stream: [], uuid: 0 };
   const transport = {
+    end: async () => {},
     start: async (...args) => {
       calls.start.push(args);
-      return { sessionId: 'backend-session', reactionText: 'front reaction', companionText: 'front companion' };
+      return { ...receipt, sessionId: 'backend-session', reactionText: 'front reaction', companionText: 'front companion' };
     },
     stream: async (...args) => {
       calls.stream.push(args);
@@ -60,7 +62,7 @@ test('invalid request IDs never reach transport or consume a turn', async () => 
   for (const id of ['', 'space id', 'x'.repeat(101), 'id/with/slash', undefined]) {
     let calls = 0, valid = false;
     const controller = createDevRealRequestController({ enabled: true, createRequestId: () => valid ? 'valid_ID-1' : id,
-      transport: { start: async () => { calls++; return { sessionId: 's' }; }, stream: async (_s, c) => { c.onDeepChunk('ok'); c.onDone(); } },
+      transport: { end: async () => {}, start: async () => { calls++; return { ...receipt, sessionId: 's' }; }, stream: async (_s, c) => { c.onDeepChunk('ok'); c.onDone(); } },
     });
     assert.equal(await controller.send('one'), false); assert.equal(calls, 0);
     assert.equal(controller.getSnapshot().canSend, true); assert.equal(controller.getSnapshot().status, 'idle');
@@ -74,12 +76,14 @@ test('success separates front layers and Deep, sending only allowlisted current 
   assert.deepEqual(JSON.parse(JSON.stringify(calls.start[0][0])), { roleId: 'clever-fox', message: 'current input', requestId: 'request-1' });
   assert.equal(calls.start[0][1], calls.stream[0][2]);
   assert.deepEqual(JSON.parse(JSON.stringify(controller.getSnapshot())), {
-    status: 'success', inputText: 'current input', requestId: 'request-1',
+    status: 'success', inputText: 'current input', requestId: 'request-1', sentAt: controller.getSnapshot().sentAt,
     reactionText: 'front reaction', companionText: 'front companion', deepText: 'backend Deep',
-    error: null, canSend: false, source: 'backend-deep',
+    completedTurns: [], error: null, canSend: true, source: 'backend-deep',
   });
-  assert.equal(await controller.send('duplicate'), false);
-  assert.equal(calls.start.length, 1);
+  assert.equal(await controller.send('explicit second turn'), true);
+  assert.equal(calls.start.length, 2);
+  assert.equal(calls.start[1][0].devConversationId, 'dev-conversation');
+  assert.equal(calls.start[1][0].afterRequestId, 'request-1');
   assert.ok(Object.isFrozen(controller.getSnapshot()));
 });
 
@@ -89,7 +93,7 @@ test('duplicate click during start starts exactly once and does not queue', asyn
   const first = controller.send('one');
   assert.equal(await controller.send('two'), false);
   assert.equal(count, 1);
-  pending.resolve({ sessionId: 's', reactionText: '', companionText: '' });
+  pending.resolve({ ...receipt, sessionId: 's', reactionText: '', companionText: '' });
   assert.equal(await first, true);
 });
 
@@ -110,7 +114,7 @@ for (const content of ['', ' \n ']) {
     assert.equal(await controller.send('one'), false);
     assert.equal(controller.getSnapshot().status, 'failed');
     assert.equal(controller.getSnapshot().source, null);
-    assert.equal(controller.getSnapshot().reactionText, 'front reaction');
+    assert.equal(controller.getSnapshot().reactionText, '', 'failed conversation context is cleared');
   });
 }
 
@@ -120,7 +124,7 @@ test('partial Deep with error remains failed and partial content remains identif
   } });
   assert.equal(await controller.send('one'), false);
   assert.equal(controller.getSnapshot().status, 'failed');
-  assert.equal(controller.getSnapshot().deepText, 'partial');
+  assert.equal(controller.getSnapshot().deepText, '', 'failed/stopped context is cleared');
 });
 
 test('transport resolution without terminal is not success', async () => {
@@ -136,7 +140,7 @@ test('stop during pending auth/start settles promptly and late start cannot laun
   controller.stop();
   assert.equal(signal.aborted, true);
   assert.equal(await result, false);
-  pending.resolve({ sessionId: 'late', reactionText: 'late', companionText: '' });
+  pending.resolve({ ...receipt, sessionId: 'late', reactionText: 'late', companionText: '' });
   await flush();
   assert.equal(calls.stream.length, 0);
   assert.equal(controller.getSnapshot().status, 'stopped');
@@ -160,7 +164,7 @@ test('stop during stream ignores late chunks, terminal and rejection', async () 
   callbacks.onDeepChunk('late'); callbacks.onDone(); callbacks.onError(); pending.reject(new Error('late'));
   await flush();
   assert.equal(controller.getSnapshot().status, 'stopped');
-  assert.equal(controller.getSnapshot().deepText, 'partial');
+  assert.equal(controller.getSnapshot().deepText, '', 'failed/stopped context is cleared');
 });
 
 test('explicit reset invalidates old generation and permits one new turn only', async () => {
@@ -188,7 +192,7 @@ test('dispose during start aborts work, ignores late result and cannot be revive
   const result = controller.send('one');
   controller.dispose(); const before = notifications;
   assert.equal(await result, false); assert.equal(signal.aborted, true);
-  pending.resolve({ sessionId: 'late', reactionText: '', companionText: '' }); await flush();
+  pending.resolve({ ...receipt, sessionId: 'late', reactionText: '', companionText: '' }); await flush();
   controller.reset(); assert.equal(await controller.send('two'), false);
   assert.equal(calls.stream.length, 0); assert.equal(notifications, before);
 });
@@ -209,12 +213,12 @@ test('deadline aborts a stuck start without retry and rejects late completion', 
   });
   const pending = deferred(); let streams = 0;
   const controller = module.createDevRealRequestController({ enabled: true, createRequestId: () => 'id',
-    transport: { start: (_input, s) => { signal = s; return pending.promise; }, stream: async () => { streams++; } },
+    transport: { end: async () => {}, start: (_input, s) => { signal = s; return pending.promise; }, stream: async () => { streams++; } },
   });
   const result = controller.send('one'); fireDeadline();
   assert.equal(await result, false); assert.equal(signal.aborted, true); assert.equal(timerCleared, true);
   assert.equal(controller.getSnapshot().status, 'failed'); assert.equal(await controller.send('retry'), false);
-  pending.resolve({ sessionId: 'late', reactionText: '', companionText: '' }); await flush();
+  pending.resolve({ ...receipt, sessionId: 'late', reactionText: '', companionText: '' }); await flush();
   assert.equal(streams, 0);
 });
 
@@ -226,4 +230,68 @@ test('dispose during stream aborts and discards late content and completion', as
   const snapshot = controller.getSnapshot();
   callbacks.onDeepChunk('late'); callbacks.onDone(); pending.resolve(); await flush();
   assert.equal(controller.getSnapshot(), snapshot); assert.equal(snapshot.status, 'stopped');
+});
+
+test('three explicit turns share opaque anchor, retain bounded presentation, and never send history fields', async () => {
+  const { controller, calls } = setup();
+  for (let n = 1; n <= 5; n++) {
+    assert.equal(await controller.send(`input ${n}`), true);
+    assert.equal(calls.start.length, n);
+    const sent = calls.start[n - 1][0];
+    assert.deepEqual(Object.keys(sent).sort(), n === 1 ? ['message', 'requestId', 'roleId']
+      : ['afterRequestId', 'devConversationId', 'message', 'requestId', 'roleId']);
+    if (n > 1) assert.equal(sent.afterRequestId, `request-${n - 1}`);
+    assert.equal(controller.getSnapshot().completedTurns.length, Math.min(n - 1, 3));
+  }
+  controller.stop();
+  assert.equal(controller.getSnapshot().canSend, false);
+  assert.deepEqual(JSON.parse(JSON.stringify(controller.getSnapshot().completedTurns)), []);
+  assert.equal(controller.getSnapshot().deepText, '');
+});
+
+test('end during pending start is sent once by request identity and late result never establishes context', async () => {
+  const pending = deferred(), ended = [];
+  const { controller, calls } = setup({ start: () => pending.promise, end: async id => { ended.push(id); } });
+  const sent = controller.send('one'); controller.stop(); controller.stop(); controller.dispose();
+  assert.equal(await sent, false); assert.deepEqual(ended, ['request-1']);
+  pending.resolve({ ...receipt, sessionId: 'late' }); await flush();
+  assert.equal(calls.stream.length, 0); assert.equal(controller.getSnapshot().inputText, '');
+});
+
+test('new chat and dispose retire completed server context but never implicitly send a next turn', async () => {
+  const ended = []; const { controller, calls } = setup({ end: async id => { ended.push(id); } });
+  await controller.send('one'); controller.reset();
+  assert.deepEqual(ended, ['request-1']); assert.equal(calls.start.length, 1);
+  await controller.send('two'); assert.equal(calls.start[1][0].devConversationId, undefined);
+  controller.dispose(); assert.deepEqual(ended, ['request-1', 'request-2']);
+});
+
+test('passive expiry clears completed input/output and uses server remaining lifetime, not skewed wall time', async () => {
+  const timers = new Map(); let now = 999999999, seq = 0; const ended = [];
+  const mod = await loadTsModule(source, {}, { Date: class extends Date { static now() { return now; } },
+    setTimeout: (fn, ms) => { timers.set(++seq, { fn, ms }); return seq; }, clearTimeout: id => timers.delete(id) });
+  const c = mod.createDevRealRequestController({ enabled: true, createRequestId: () => 'id', transport: {
+    start: async () => ({ ...receipt, sessionId: 's', expiresAt: 123, remainingLifetimeMs: 5000 }),
+    stream: async (_s, callbacks) => { callbacks.onDeepChunk('reply'); callbacks.onDone(); }, end: async id => { ended.push(id); },
+  } });
+  assert.equal(await c.send('one'), true);
+  assert.equal([...timers.values()][0].ms, 5000); now += 5000; [...timers.values()][0].fn();
+  assert.equal(c.getSnapshot().status, 'failed'); assert.equal(c.getSnapshot().canSend, false);
+  assert.equal(c.getSnapshot().inputText, ''); assert.equal(c.getSnapshot().deepText, '');
+  assert.deepEqual(ended, ['id']); assert.equal(await c.send('implicit retry'), false);
+});
+
+for (const field of ['sessionId', 'devConversationId']) for (const value of [undefined, null, 123]) {
+  test(`malformed receipt ${field}=${value} is rejected without streaming or a reusable context`, async () => {
+    const { controller, calls } = setup({ start: async () => ({ ...receipt, sessionId: 's', [field]: value }) });
+    assert.equal(await controller.send('one'), false); assert.equal(calls.stream.length, 0);
+    assert.equal(controller.getSnapshot().requestId, null); assert.equal(controller.getSnapshot().canSend, false);
+  });
+}
+
+test('explicit clock/expiry rejection is safe and never regenerated or retried', async () => {
+  const { controller, calls } = setup({ start: async () => { throw new Error('dev_request_expired_or_clock_skew'); } });
+  assert.equal(await controller.send('one'), false);
+  assert.match(controller.getSnapshot().error, /时钟/); assert.equal(calls.uuid, 1);
+  assert.equal(await controller.send('retry'), false); assert.equal(calls.uuid, 1);
 });

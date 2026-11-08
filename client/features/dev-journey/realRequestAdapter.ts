@@ -1,5 +1,5 @@
 import * as Crypto from 'expo-crypto';
-import { chatStart, chatStream } from '@/screens/chat/api/cozeApi';
+import { chatStart, chatStream, endDevConversation } from '@/screens/chat/api/cozeApi';
 import {
   createDevRealRequestController,
   DEV_REAL_REQUEST_ID_PATTERN,
@@ -35,19 +35,30 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
         || typeof input.requestId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(input.requestId)) {
         throw new Error('invalid_dev_request');
       }
-      // Explicit allowlist: no account ID, demo history/state, conversation ID,
-      // provider settings, diagnostic marker or long-term context is accepted.
+      if ((input.devConversationId === undefined) !== (input.afterRequestId === undefined)
+        || (input.devConversationId !== undefined && (typeof input.devConversationId !== 'string'
+          || !DEV_REAL_REQUEST_ID_PATTERN.test(input.devConversationId)
+          || typeof input.afterRequestId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(input.afterRequestId)))) {
+        throw new Error('invalid_dev_context');
+      }
+      // Explicit allowlist: opaque DEV continuation only. Never caller history,
+      // account ID, pattern state, diagnostic marker or durable conversation ID.
       const result = await chatStart(
         'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal, 'dev-ephemeral-v1',
+        input.devConversationId === undefined ? undefined : { devConversationId: input.devConversationId, afterRequestId: input.afterRequestId },
       );
       assertAllowed(signal);
       if (result.requestMode !== 'dev-ephemeral-v1') throw new Error('dev_isolation_not_confirmed');
       return {
         sessionId: result.sessionId,
+        devConversationId: result.devConversationId!,
+        expiresAt: result.expiresAt!,
+        remainingLifetimeMs: result.remainingLifetimeMs!,
         reactionText: frontText(result.reactionTimeline, result.reactionLayer || result.frontFlowText),
         companionText: frontText(result.companionTimeline, result.companionLayer),
       };
     },
+    end: requestId => endDevConversation(requestId),
     stream: async (sessionId, callbacks, signal) => {
       assertAllowed(signal);
       let terminal = false;
@@ -95,6 +106,6 @@ export function createDevRealRequestControllerForRuntime(): DevRealRequestContro
   return createDevRealRequestController({
     enabled: process.env.EXPO_PUBLIC_APP_ENV === 'DEV',
     transport: createDevRealRequestTransport(),
-    createRequestId: () => Crypto.randomUUID(),
+    createRequestId: () => `${Date.now()}_${Crypto.randomUUID()}`,
   });
 }

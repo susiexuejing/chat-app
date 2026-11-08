@@ -11,12 +11,12 @@
 import type { NeuralProfile } from './neuralProfileManager';
 import type { FlowResult, FlowContext } from './flowTypes';
 
-export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, _userMessage?: string): string {
+export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, _userMessage?: string, devSession?: { userTurn: number; hasContext: boolean }): string {
   // EF-57: The first two turns are an entry experience, not a personality
   // biography or a memory recall. Keep their provider context deliberately
   // small so only the current user message can become a user-facing fact.
   if (userTurn && userTurn <= 2) {
-    return buildFirstTwoRoundsDeepPrompt(roleName, userTurn);
+    return buildFirstTwoRoundsDeepPrompt(roleName, userTurn, devSession);
   }
 
   let flowBlock = '';
@@ -83,13 +83,13 @@ ${depthInstruction}
 请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
 }
 
-function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number): string {
+function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number, devSession?: { userTurn: number; hasContext: boolean }): string {
   return `你是「${roleName}」。
 
-当前是第 ${userTurn} 轮。你只是在为前置 Reaction / Companion 补一句短的自然承接。
+当前是第 ${devSession?.userTurn ?? userTurn} 轮。你只是在为前置 Reaction / Companion 补一句短的自然承接。
 
 ===== 首两轮事实合同（最高优先级）=====
-- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。
+${devSession?.hasContext ? '- 仅当前消息和随请求提供的本次会话用户原话可作为用户事实来源；assistant 消息只供理解对话衔接，不能把助手推断、角色设定或旧会话当作用户事实。' : '- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。'}
 - 不要提及用户之前、以前、总是、每次、又、一直如何；不要声称记得任何旧会话。
 - 不要描述你自己的现实生活、所在场景、身体动作、物件或经历；不要提及咖啡、窗边、笔记本等人格素材。
 - 不要替用户补充未说出的情绪、身体感受、事件或关系经历。
@@ -100,7 +100,7 @@ function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number): stri
 - 只输出自然语言，不要 JSON 或 Markdown。
 - 完整输出不超过 120 个中文字符，最多两句。
 - 最多一个问题；如有问题，必须是用户可以不回答的邀请。
-- 前置层已经在陪伴，若没有新的、可由当前输入支撑的话，只输出“我听到了。”
+- 前置层已经在陪伴，若没有新的、可由${devSession?.hasContext ? '本次会话用户原话' : '当前输入'}支撑的话，只输出“我听到了。”
 `;
 }
 

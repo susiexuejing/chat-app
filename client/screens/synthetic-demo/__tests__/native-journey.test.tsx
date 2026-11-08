@@ -11,13 +11,14 @@ import {
 const mockReplace = jest.fn();
 const mockCreateController = jest.fn();
 const mockStart = jest.fn<Promise<DevRealRequestStart>, [DevRealRequestInput, AbortSignal]>();
+const mockEnd = jest.fn();
 const mockStream = jest.fn<Promise<void>, [string, DevRealRequestCallbacks, AbortSignal]>();
 const DEEP_REPLY = '这是测试传输返回的 Deep：先确认自己的需要，再选择下一步。';
 const CURRENT_INPUT = '虚构场景：我准备先停下来想一想。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
   createDevRealRequestControllerForRuntime: () => mockCreateController(),
 }));
-jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace }) }));
+jest.mock('expo-router', () => ({ useRouter: () => ({ replace: mockReplace }), useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }));
 
 // Render the actual screen, controller and shared chat views; stub only platform hosts and transport.
 // No live ChatProvider, auth helper, history, recording, external images or APIs are mounted.
@@ -47,7 +48,9 @@ describe('EF-385 native journey with the real controller, views and local reposi
   let mounted: boolean;
   let values: Map<string, string>;
   let failWrites: boolean;
+  let failRequestId: boolean;
   let storage: { getItem: jest.Mock; setItem: jest.Mock };
+  let listeners: Map<string, (event: any) => void>;
   let oldWindow: PropertyDescriptor | undefined;
   let oldAct: unknown;
 
@@ -55,17 +58,20 @@ describe('EF-385 native journey with the real controller, views and local reposi
     mounted = false;
     jest.useFakeTimers();
     mockReplace.mockClear();
-    mockCreateController.mockReset();
+    mockCreateController.mockReset(); mockEnd.mockReset().mockResolvedValue(undefined); failRequestId = false;
     mockStart.mockReset().mockResolvedValue({
-      sessionId: 'stub-session', reactionText: '前层即时回应', companionText: '前层陪伴回应',
+      devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, sessionId: 'stub-session', reactionText: '前层即时回应', companionText: '前层陪伴回应',
     });
     mockStream.mockReset().mockImplementation(async (_session, callbacks) => {
       callbacks.onDeepChunk(DEEP_REPLY); callbacks.onDone();
     });
     let requestSequence = 0;
     mockCreateController.mockImplementation(() => createDevRealRequestController({
-      enabled: true, transport: { start: mockStart, stream: mockStream },
-      createRequestId: () => `stub-request-${++requestSequence}`,
+      enabled: true, transport: { start: mockStart, stream: mockStream, end: mockEnd },
+      createRequestId: () => {
+        if (failRequestId) throw new Error('synthetic request-ID failure');
+        return `stub-request-${++requestSequence}`;
+      },
     }));
     values = new Map();
     failWrites = false;
@@ -77,7 +83,11 @@ describe('EF-385 native journey with the real controller, views and local reposi
       }),
     };
     oldWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
-    Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: storage } });
+    listeners = new Map();
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: storage,
+      addEventListener: (name: string, fn: (event: any) => void) => listeners.set(name, fn),
+      removeEventListener: (name: string) => listeners.delete(name),
+    } });
     oldAct = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   });
@@ -236,7 +246,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(output()).not.toContain('已保存到此浏览器的演示空间。');
     expect(values.get(STORAGE_KEY)).toBe(after);
     expect(storage.setItem).not.toHaveBeenCalled();
-    await act(async () => { finishStart({ sessionId: 'second-session', reactionText: '', companionText: '' }); });
+    await act(async () => { finishStart({ devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, sessionId: 'second-session', reactionText: '', companionText: '' }); });
     expect(output()).not.toContain('已保存到此浏览器的演示空间。');
   });
 
@@ -516,6 +526,82 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(nodes('displayed-code')).toHaveLength(0);
     expect(nodes('chat-input')).toHaveLength(0);
     expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('cross-tab logout retires context and unsaved drafts but preserves previously saved patterns', async () => {
+    await mount(); await login(); await send(); await press('candidate-confirm');
+    await press('candidate-new-choice'); await press('candidate-save');
+    const savedPatterns = saved().patterns;
+    await send('虚构场景：新的未保存讨论。'); await press('candidate-confirm');
+    const oldValue = values.get(STORAGE_KEY)!;
+    createDemoRepository(storage).logout();
+    const newValue = values.get(STORAGE_KEY)!; storage.setItem.mockClear(); mockEnd.mockClear();
+    await act(async () => { listeners.get('storage')?.({ key: STORAGE_KEY, oldValue, newValue }); });
+    expect(nodes('candidate-text')).toHaveLength(0); expect(nodes('chat-input')).toHaveLength(0);
+    expect(mockEnd).toHaveBeenCalledWith('stub-request-2');
+    expect(output()).toContain('当前对话已重置'); expect(output()).toContain('只保留一个聊天标签页');
+    expect(saved().patterns).toEqual(savedPatterns); expect(storage.setItem).not.toHaveBeenCalled();
+    await login(); expect(mockStart).toHaveBeenCalledTimes(2);
+    await send('虚构场景：重新登录后的新对话。');
+    expect(mockStart.mock.calls[2][0].devConversationId).toBeUndefined();
+    expect(saved().patterns).toEqual(savedPatterns);
+  });
+
+  it('pre-send account validation blocks a stale tab even before its storage event is delivered', async () => {
+    await mount(); await login(); await send();
+    createDemoRepository(storage).logout(); const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear();
+    await type('chat-input', '此旧页面不能继续发送'); await press('chat-send');
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockEnd).toHaveBeenCalledWith('stub-request-1');
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
+    expect(nodes('chat-input')).toHaveLength(0); expect(output()).toContain('当前对话已重置');
+  });
+
+  it('passive conversation expiry discards an open editable candidate without a local write', async () => {
+    await mount(); await login(); await send(); await press('candidate-confirm'); await press('candidate-new-choice');
+    await type('candidate-text', '未保存的编辑'); await type('chat-input', '未发送的新输入');
+    const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear();
+    await act(async () => { jest.advanceTimersByTime(600000); });
+    expect(nodes('candidate-text')).toHaveLength(0); expect(node('chat-input').props.value).toBe('');
+    expect(mockEnd).toHaveBeenCalledWith('stub-request-1'); expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('failed continuation request-ID preflight preserves the input and edited understanding without transport or writes', async () => {
+    await mount(); await login(); await send(); await press('candidate-confirm'); await press('candidate-new-choice');
+    await type('candidate-text', '仍在编辑、尚未保存的理解');
+    const nextInput = '虚构场景：这句话还没有发送。'; await type('chat-input', nextInput);
+    const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear(); failRequestId = true;
+    await press('chat-send');
+    expect(node('chat-input').props.value).toBe(nextInput);
+    expect(node('candidate-text').props.value).toBe('仍在编辑、尚未保存的理解');
+    expect(output()).toContain('无法生成有效请求标识'); expect(node('chat-send').props.disabled).toBe(false);
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
+    failRequestId = false; await press('chat-send');
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    expect(mockStart.mock.calls[1][0].message).toBe(nextInput);
+    expect(mockStart.mock.calls[1][0].afterRequestId).toBe('stub-request-1');
+    expect(node('chat-input').props.value).toBe(''); expect(nodes('candidate-text')).toHaveLength(0);
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
+  });
+
+  it('missed same-account revision changes reset chat with a persistent notice and preserve the other tab write', async () => {
+    await mount(); await login(); await send();
+    const otherTab = createDemoRepository(storage);
+    const account = otherTab.snapshot().session!;
+    otherTab.createPattern(account, '其他标签页明确保存的理解');
+    const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear();
+    await type('chat-input', '旧标签页的未发送输入'); await press('chat-send');
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockEnd).toHaveBeenCalledWith('stub-request-1');
+    expect(node('chat-input').props.value).toBe('');
+    expect(output()).toContain('当前对话已重置'); expect(output()).toContain('只保留一个聊天标签页');
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
+    await act(async () => { await Promise.resolve(); });
+    expect(output()).toContain('当前对话已重置');
+    await send('虚构场景：我明确重新发送的新输入。');
+    expect(mockStart).toHaveBeenCalledTimes(2); expect(mockStart.mock.calls[1][0].devConversationId).toBeUndefined();
+    expect(output()).not.toContain('当前对话已重置');
+    expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
   });
 
 });
