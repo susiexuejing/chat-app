@@ -157,18 +157,46 @@ describe('EF-385 shared chat presentation without live dependencies', () => {
     expect(hosts('ActivityIndicator')).toHaveLength(0);
   });
 
-  it('shows generating only for a final user message and preserves interruption retry', async () => {
+  it('shows generating only for a final user message', async () => {
     const props = listProps({ turnStatus: 'generating' });
     await render(<MessageListView {...props} />);
     expect(hosts('ActivityIndicator')).toHaveLength(1);
     expect(output()).toContain('正在思考中...');
     await render(<MessageListView {...props} messages={[user, assistant]} />);
     expect(hosts('ActivityIndicator')).toHaveLength(0);
-    await render(<MessageListView {...props} turnStatus="interrupted" />);
-    expect(output()).toContain('刚才的回复因页面刷新而中断');
+  });
+
+  // ChatContext uses interrupted for live empty/timeout outcomes as well as
+  // restored pending turns. The view receives no evidence of either cause.
+  it.each([
+    ['live interrupted turn', [user]],
+    ['restored interrupted turn with completed history', [
+      user, assistant, { ...user, id: 'pending-user', content: '待恢复的虚构输入' },
+    ]],
+  ] as const)('shows a cause-neutral notice and explicit retry for %s', async (_source, messages) => {
+    const props = listProps({ messages, turnStatus: 'interrupted' });
+    await render(<MessageListView {...props} />);
+    expect(output()).toContain('刚才的回复已中断，你可以重新生成。');
+    expect(output()).not.toContain('页面刷新');
+    expect(hosts('ActivityIndicator')).toHaveLength(0);
+    expect(props.retryLastMessage).not.toHaveBeenCalled();
+    expect(hosts('TouchableOpacity')).toHaveLength(1);
     await act(async () => { hosts('TouchableOpacity')[0].props.onPress(); });
     expect(props.retryLastMessage).toHaveBeenCalledTimes(1);
   });
+
+  it.each([undefined, 'idle', 'generating', 'completed', 'failed'] as const)(
+    'does not classify %s as an interruption or retry automatically', async turnStatus => {
+      const props = listProps({ turnStatus: 'interrupted' });
+      await render(<MessageListView {...props} />);
+      await render(<MessageListView {...props} turnStatus={turnStatus} />);
+      expect(output()).not.toContain('刚才的回复');
+      expect(output()).not.toContain('页面刷新');
+      expect(output()).not.toContain('重新生成');
+      expect(hosts('TouchableOpacity')).toHaveLength(0);
+      expect(props.retryLastMessage).not.toHaveBeenCalled();
+    },
+  );
 
   it('reuses the real collapsible deep-analysis card only after assistant messages', async () => {
     const analysis = { fact: '虚构事实', interpretation: '虚构解读', reframe: '虚构重构' };
