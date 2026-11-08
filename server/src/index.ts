@@ -33,7 +33,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import type { ResponseWeights } from './flows/evolutionTypes';
 import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
-import { FIRST_TWO_ROUNDS_MAX_CHARS, validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
+import { FIRST_TWO_ROUNDS_DEEP_FALLBACK, FIRST_TWO_ROUNDS_MAX_CHARS, validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations';
 import anonymousSessionsRouter from './routes/anonymousSessions';
@@ -80,6 +80,13 @@ import {
   markerForEf45OneShotDiagnosticSession,
   recordEf45OneShotDiagnosticCategory,
 } from './observability/ef45OneShotDiagnostic';
+
+import { createEf385DevResultDiagnostic, type Ef385Result } from './observability/ef385DevResultDiagnostic';
+
+// Optional private diagnostics must never alter chat execution.
+const ef385DevResultDiagnostic = (() => {
+  try { return createEf385DevResultDiagnostic(); } catch { return undefined; }
+})();
 
 // 调试：打印环境变量
 console.log('DASHSCOPE_API_KEY:', process.env.DASHSCOPE_API_KEY ? 'SET' : 'NOT SET');
@@ -324,6 +331,9 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
   // All DEV turns retain entry-turn safety; conversation order is separate.
   if (isDevEphemeral) userTurn = 1;
   if (!activeDevTurn(session)) return;
+  let resultCapture: ReturnType<NonNullable<typeof ef385DevResultDiagnostic>['begin']>;
+  try { resultCapture = ef385DevResultDiagnostic?.begin(session.requestMode); } catch { /* Optional diagnostic. */ }
+  try {
   const apiKey = API_KEY_LIGHT;
   const ef45ProbeMarker = session.ef45ProbeMarker;
   const ef45OneShotMarker = markerForEf45OneShotDiagnosticSession(session);
@@ -565,8 +575,26 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // qwen3.6-plus 将推理过程混在 content 字段中，
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
+    const classifyResultText = (text: string): Ef385Result['contentClass'] => {
+      const trimmed = text.trim();
+      return !trimmed ? 'empty' : trimmed === FIRST_TWO_ROUNDS_DEEP_FALLBACK ? 'exact_ack' : 'other';
+    };
+    const result: Ef385Result | undefined = resultCapture ? {
+      contentClass: classifyResultText(deepContentBuffer), cleanedClass: 'empty',
+      selection: 'none', candidateClass: 'not_selected', validation: 'not_called', finalClass: 'empty',
+    } : undefined;
+    const observeValidation = result ? (category: Exclude<Ef385Result['validation'], 'not_called'>): void => {
+      result.validation = category;
+    } : undefined;
+    const selectResult = (selection: Ef385Result['selection'], candidate: string): void => {
+      if (!result) return;
+      result.selection = selection;
+      result.candidateClass = candidate.trim() === FIRST_TWO_ROUNDS_DEEP_FALLBACK ? 'exact_ack' : 'other';
+    };
     const cleaned = extractFinalChineseResponse(deepContentBuffer);
+    if (result) result.cleanedClass = classifyResultText(cleaned);
     if (cleaned.trim()) {
+      selectResult('cleaned', cleaned);
       session.deepChunks.push(validateEf41DeepOutput({
         text: cleaned,
         roleId: session.roleId,
@@ -575,7 +603,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
         source: 'cleaned',
         visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
-      }));
+      }, observeValidation));
       console.log('[Deep] Cleaned content ready', {
         cleanedChars: cleaned.length,
         rawChars: deepContentBuffer.length,
@@ -585,6 +613,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       const last300 = deepContentBuffer.slice(-300).trim();
       const cjk = last300.match(/[\u4e00-\u9fff]/g);
       if (cjk && cjk.length >= 10) {
+        selectResult('last_resort', last300);
         session.deepChunks.push(validateEf41DeepOutput({
           text: last300,
           roleId: session.roleId,
@@ -593,7 +622,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
           source: 'last-resort',
           visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
-        }));
+        }, observeValidation));
         console.log('[Deep] Last-resort content selected', {
           fallbackChars: last300.length,
           cjkCount: cjk.length,
@@ -608,6 +637,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
     // 将 reasoning_content 作为最终内容推给前端
     if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
+      selectResult('reasoning', reasoningBuffer.trim());
       session.deepChunks.push(validateEf41DeepOutput({
         text: reasoningBuffer.trim(),
         roleId: session.roleId,
@@ -616,7 +646,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
         source: 'reasoning',
         visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
-      }));
+      }, observeValidation));
       const duration = Date.now() - streamStartTime;
       console.log('[Deep] Reasoning fallback selected', {
         reasoningChars: reasoningBuffer.length,
@@ -624,6 +654,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       });
     }
 
+    if (result) {
+      result.finalClass = classifyResultText(session.deepChunks.join(''));
+      try { resultCapture?.complete(result); } catch { /* Optional diagnostic. */ }
+    }
     session.deepDone = true;
     writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
     const completionDuration = Date.now() - streamStartTime;
@@ -735,6 +769,9 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     setSafeDeepError(session, 'deep_analysis_failure');
   } finally {
     session.deepStreaming = false;
+  }
+  } finally {
+    try { resultCapture?.finish(); } catch { /* Optional diagnostic. */ }
   }
 }
 
