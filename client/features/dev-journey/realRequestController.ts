@@ -79,12 +79,13 @@ export function createDevRealRequestController(options: {
   function invalidate() {
     generation += 1;
     const run = active; active = null;
-    const requestId = latestRequestId;
+    const requestIds = new Set([context?.afterRequestId, latestRequestId]);
     latestRequestId = null; context = null;
     clearTimeout(expiry); expiry = undefined;
     // Revoke callbacks before abort because listeners can fire synchronously.
     run?.cancel(); run?.abort.abort();
-    if (requestId) {
+    for (const requestId of requestIds) {
+      if (!requestId) continue;
       try { void transport.end(requestId).catch(() => undefined); } catch { /* expiry remains the backstop */ }
     }
   }

@@ -504,3 +504,6 @@ test('provider rejection before an HTTP response adds no status detail', async (
 
 // Same-session lifecycle and bounded context are part of this existing CI suite.
 import './devSessionContext.test.mjs';
+
+// Cross-layer pending-admission cancellation regression, on the same CI entrypoint.
+import './devPendingCancellation.test.mjs';
