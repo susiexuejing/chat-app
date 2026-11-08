@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { MessageListView } from '@/screens/chat/components/MessageListView';
@@ -34,7 +34,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   const [input, setInput] = useState('');
   const [showIntro, setShowIntro] = useState(false);
   const discard = useRef(onDraftDiscard);
-  discard.current = onDraftDiscard;
+  useLayoutEffect(() => { discard.current = onDraftDiscard; }, [onDraftDiscard]);
   const leave = useCallback(() => {
     const instance = controller.current;
     const before = instance?.getSnapshot();

@@ -10,7 +10,7 @@ async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1
     'expo-crypto': { randomUUID: () => `uuid-${++calls.uuid}` },
     '@/features/dev-journey/realRequestController': controllerModule,
     '@/screens/chat/api/cozeApi': {
-      endDevConversation: async () => {},
+      endDevConversation: async () => undefined,
       chatStart: async (...args) => {
         calls.start.push(args);
         return { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };

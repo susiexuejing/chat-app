@@ -71,7 +71,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     let sequence = 0;
     mockCreateController.mockImplementation(() => {
       const controller = createDevRealRequestController({
-        enabled: true, transport: { start: mockStart, stream: mockStream, end: async () => {} },
+        enabled: true, transport: { start: mockStart, stream: mockStream, end: async () => undefined },
         createRequestId: () => {
           if (mockRequestIdFailure === 'throw') throw new Error('synthetic request-ID failure');
           if (mockRequestIdFailure === 'invalid') return 'invalid request ID';

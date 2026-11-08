@@ -15,7 +15,7 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
 function setup(overrides = {}, enabled = true) {
   const calls = { start: [], stream: [], uuid: 0 };
   const transport = {
-    end: async () => {},
+    end: async () => undefined,
     start: async (...args) => {
       calls.start.push(args);
       return { ...receipt, sessionId: 'backend-session', reactionText: 'front reaction', companionText: 'front companion' };
@@ -62,7 +62,7 @@ test('invalid request IDs never reach transport or consume a turn', async () => 
   for (const id of ['', 'space id', 'x'.repeat(101), 'id/with/slash', undefined]) {
     let calls = 0, valid = false;
     const controller = createDevRealRequestController({ enabled: true, createRequestId: () => valid ? 'valid_ID-1' : id,
-      transport: { end: async () => {}, start: async () => { calls++; return { ...receipt, sessionId: 's' }; }, stream: async (_s, c) => { c.onDeepChunk('ok'); c.onDone(); } },
+      transport: { end: async () => undefined, start: async () => { calls++; return { ...receipt, sessionId: 's' }; }, stream: async (_s, c) => { c.onDeepChunk('ok'); c.onDone(); } },
     });
     assert.equal(await controller.send('one'), false); assert.equal(calls, 0);
     assert.equal(controller.getSnapshot().canSend, true); assert.equal(controller.getSnapshot().status, 'idle');
@@ -213,7 +213,7 @@ test('deadline aborts a stuck start without retry and rejects late completion', 
   });
   const pending = deferred(); let streams = 0;
   const controller = module.createDevRealRequestController({ enabled: true, createRequestId: () => 'id',
-    transport: { end: async () => {}, start: (_input, s) => { signal = s; return pending.promise; }, stream: async () => { streams++; } },
+    transport: { end: async () => undefined, start: (_input, s) => { signal = s; return pending.promise; }, stream: async () => { streams++; } },
   });
   const result = controller.send('one'); fireDeadline();
   assert.equal(await result, false); assert.equal(signal.aborted, true); assert.equal(timerCleared, true);
