@@ -1,4 +1,16 @@
-import {
+import { jest } from '@jest/globals';
+
+// ESM imports are evaluated before jest.mock; register the filesystem mock first.
+jest.unstable_mockModule('node:fs', () => ({
+  appendFileSync: jest.fn(),
+  existsSync: jest.fn(() => false),
+  lstatSync: jest.fn(() => ({ isDirectory: () => true, isSymbolicLink: () => false })),
+  mkdirSync: jest.fn(),
+  readFileSync: jest.fn(),
+}));
+
+const fs = await import('node:fs');
+const {
   EF45_R2_PROBE_MARKER,
   EF118_AUDIT_FIELD_WHITELIST,
   EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES,
@@ -7,22 +19,13 @@ import {
   createEf118RuntimeAuditRecord,
   isEf118RuntimeAuditEnabled,
   writeEf118RuntimeAudit,
-} from '../observability/ef118RuntimeAudit';
-import * as fs from 'node:fs';
-import {
+} = await import('../observability/ef118RuntimeAudit');
+const {
   EF45_DIAGNOSTIC_CATEGORIES,
   classifyEf45AuditRecord,
   ef45CategoryReader,
   readEf45Category,
-} from '../observability/ef45CategoryReader';
-
-jest.mock('node:fs', () => ({
-  appendFileSync: jest.fn(),
-  existsSync: jest.fn(() => false),
-  lstatSync: jest.fn(() => ({ isDirectory: () => true, isSymbolicLink: () => false })),
-  mkdirSync: jest.fn(),
-  readFileSync: jest.fn(),
-}));
+} = await import('../observability/ef45CategoryReader');
 
 describe('EF-118 sanitized runtime audit', () => {
   const originalEnv = process.env;
@@ -177,9 +180,11 @@ describe('EF-118 sanitized runtime audit', () => {
     }
     expect(fs.appendFileSync).toHaveBeenCalledTimes(6);
     expect(fs.mkdirSync).toHaveBeenCalledWith('/var/log/emotionflow', { recursive: true, mode: 0o750 });
-    for (const [path, line, options] of (fs.appendFileSync as jest.Mock).mock.calls) {
+    for (const [path, line, options] of (fs.appendFileSync as jest.Mock<typeof fs.appendFileSync>).mock.calls) {
       expect(path).toBe(EF118_RUNTIME_AUDIT_PATH);
       expect(options).toEqual({ encoding: 'utf8', mode: 0o640, flag: 'a' });
+      expect(typeof line).toBe('string');
+      if (typeof line !== 'string') throw new Error('Audit record must be serialized as a string');
       expect(Object.keys(JSON.parse(line))).toEqual(EF118_AUDIT_FIELD_WHITELIST);
       expect(line).not.toMatch(/synthetic-provider-secret|synthetic-deep-secret|synthetic\.invalid|synthetic-anon-secret|synthetic-service-secret/);
     }
