@@ -507,3 +507,6 @@ import './devSessionContext.test.mjs';
 
 // Cross-layer pending-admission cancellation regression, on the same CI entrypoint.
 import './devPendingCancellation.test.mjs';
+
+// DEV shared visible-budget alignment uses the same existing CI entrypoint.
+import './devDeepBudget.test.mjs';

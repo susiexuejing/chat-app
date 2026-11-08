@@ -33,7 +33,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import type { ResponseWeights } from './flows/evolutionTypes';
 import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
-import { validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
+import { FIRST_TWO_ROUNDS_MAX_CHARS, validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations';
 import anonymousSessionsRouter from './routes/anonymousSessions';
@@ -350,7 +350,12 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     const ltuProfile = isDevEphemeral || isEntryTurn ? undefined : await loadProfile(session.userId, session.roleId);
     const longTermSummary = ltuProfile ? generateLTUSummary(ltuProfile) : undefined;
     const systemPrompt = buildDeepSystemPrompt(session.roleId, session.roleName, session.frontFlowText, session.neuralProfile, session.flowResult, changeBlock, session.flowContext, longTermSummary, userTurn, session.userMessage,
-      isDevEphemeral ? { userTurn: session.devTurn ?? 1, hasContext: !!session.devContext?.length } : undefined);
+      isDevEphemeral ? {
+        userTurn: session.devTurn ?? 1,
+        hasContext: !!session.devContext?.length,
+        // Use the exact visible prefix counted by the unchanged validator below.
+        deepMaxChars: Math.max(0, FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(`${session.reactionLayer}${session.companionLayer}`).length),
+      } : undefined);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
       ...(isDevEphemeral ? (session.devContext ?? []).flatMap(pair => [
