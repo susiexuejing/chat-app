@@ -179,6 +179,23 @@ export async function harness(options = {}) {
   await modeModule.link(() => { throw new Error('Unexpected helper dependency'); });
   await promptModule.link(() => { throw new Error('Unexpected prompt dependency'); });
   await modeModule.evaluate(); await promptModule.evaluate();
+  // Exercise the real pure status classifier and DEV gate; keep the audit sink a spy.
+  const auditModule = await sourceModule('../observability/ef118RuntimeAudit.ts');
+  await auditModule.link(specifier => {
+    const unexpectedIo = () => { throw new Error('Unexpected audit filesystem access in handler harness'); };
+    const exported = specifier === 'node:fs'
+      ? { appendFileSync: unexpectedIo, existsSync: unexpectedIo, lstatSync: unexpectedIo, mkdirSync: unexpectedIo }
+      : specifier === 'node:path' ? { dirname: unexpectedIo } : null;
+    if (!exported) throw new Error(`Unexpected audit dependency: ${specifier}`);
+    return new vm.SyntheticModule(Object.keys(exported), function () {
+      for (const [name, value] of Object.entries(exported)) this.setExport(name, value);
+    }, { context });
+  });
+  await auditModule.evaluate();
+  Object.assign(imports['./observability/ef118RuntimeAudit'], {
+    classifyEf118ProviderHttpStatus: auditModule.namespace.classifyEf118ProviderHttpStatus,
+    isEf118RuntimeAuditEnabled: auditModule.namespace.isEf118RuntimeAuditEnabled,
+  });
   imports['./flows/deepSystemPromptBuilder'] = {
     buildDeepSystemPrompt: tracked('prompt', (...args) => promptModule.namespace.buildDeepSystemPrompt(...args)),
   };

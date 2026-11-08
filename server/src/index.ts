@@ -55,7 +55,12 @@ import {
 } from './security/anonymousSession';
 import { mapSafeStreamError, serializeStreamEvent, TurnEventSequencer } from './contracts/streamEvents';
 import type { StreamEventType, StreamPayloadByType } from './contracts/streamEvents';
-import { EF45_R2_PROBE_MARKER, writeEf118RuntimeAudit } from './observability/ef118RuntimeAudit';
+import {
+  EF45_R2_PROBE_MARKER,
+  classifyEf118ProviderHttpStatus,
+  isEf118RuntimeAuditEnabled,
+  writeEf118RuntimeAudit,
+} from './observability/ef118RuntimeAudit';
 import {
   ef45CategoryReader,
   isFixedEf45SyntheticProbe,
@@ -320,6 +325,11 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           : 'response_success',
       ef45ProbeMarker,
     });
+    // Private DEV evidence only, recorded before any potentially pending error body read.
+    if (isEf118RuntimeAuditEnabled()) {
+      const providerCategory = classifyEf118ProviderHttpStatus(response.status);
+      if (providerCategory) writeEf118RuntimeAudit({ providerCategory, ef45ProbeMarker });
+    }
     if (!response.ok) {
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
       const errorText = await response.text().catch(() => '');
