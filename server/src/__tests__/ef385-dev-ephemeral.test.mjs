@@ -382,6 +382,7 @@ test('clean completion retains success and clears its timeout', async () => {
 
 // Cross-handler coverage runs in the dedicated Node 24 server VM CI step.
 import './streamTerminalIntegration.mjs';
+import './shortDeepIntegration.mjs';
 
 // Status-only diagnostics use the real classifier; provider and audit I/O stay synthetic.
 {

@@ -27,7 +27,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import type { ResponseWeights } from './flows/evolutionTypes';
 import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
-import { validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
+import { FIRST_TWO_ROUNDS_DEEP_FALLBACK, validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations';
 import anonymousSessionsRouter from './routes/anonymousSessions';
@@ -481,7 +481,12 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // qwen3.6-plus 将推理过程混在 content 字段中，
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
-    const cleaned = extractFinalChineseResponse(deepContentBuffer);
+    // The entry prompt explicitly permits this short response. Keep its narrow
+    // exception behind the same composition validator as every other result.
+    const trimmedContent = deepContentBuffer.trim();
+    const cleaned = isEntryTurn && trimmedContent === FIRST_TWO_ROUNDS_DEEP_FALLBACK
+      ? trimmedContent
+      : extractFinalChineseResponse(deepContentBuffer);
     if (cleaned.trim()) {
       session.deepChunks.push(validateEf41DeepOutput({
         text: cleaned,
@@ -535,6 +540,15 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         reasoningChars: reasoningBuffer.length,
         durationMs: duration,
       });
+    }
+
+    // A completed provider stream may still yield no usable validated Deep.
+    // Do not publish success or update completion-time profiles for that case.
+    if (!session.deepChunks.some(chunk => chunk.trim().length > 0)) {
+      recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
+      writeEf118RuntimeAudit({ providerCategory: 'analysis_failure', ef45ProbeMarker });
+      setSafeDeepError(session, 'deep_analysis_failure');
+      return;
     }
 
     session.deepDone = true;

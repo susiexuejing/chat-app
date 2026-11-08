@@ -116,10 +116,13 @@ export async function harness(options = {}) {
       adjustWeights: tracked('evolution.adjustWeights', () => ({ weights: { updatedAt: 'mock' }, trigger: { factor: 'mock' } })),
       getDefaultWeights: tracked('evolution.getDefaultWeights'), logWeightChange: tracked('evolution.logWeightChange'),
     },
-    './flows/ef41DeepCompositionValidator': { validateEf41DeepOutput: tracked('validator', input => input.text) },
+    './flows/ef41DeepCompositionValidator': {
+      FIRST_TWO_ROUNDS_DEEP_FALLBACK: '我听到了。',
+      validateEf41DeepOutput: tracked('validator', options.validateDeepOutput ?? (input => input.text)),
+    },
     './flows/conversationTurns': {
       incrementConversationTurn: tracked('turn.increment'),
-      incrementConversationTurnIdempotent: tracked('turn.incrementIdempotent', () => 3),
+      incrementConversationTurnIdempotent: tracked('turn.incrementIdempotent', () => options.userTurn ?? 3),
       getConversationTurn: tracked('turn.get'),
     },
     './routes/conversations': { default: () => {} }, './routes/anonymousSessions': { default: () => {} },
@@ -133,7 +136,7 @@ export async function harness(options = {}) {
       sendAnonymousFailure: (res, kind) => res.status(kind === 'request_not_allowed' ? 403 : 401).json({ error: kind }),
       verifyOwnedConversation: tracked('conversation.verifyOwned', async () => 'owned'),
     },
-    './contracts/streamEvents': {
+    './contracts/streamEvents': options.streamContract ?? {
       TurnEventSequencer: class { sequence = 0; next(eventType, payload) { return { eventType, ...payload, sequence: ++this.sequence }; } },
       serializeStreamEvent: event => `data: ${JSON.stringify(event)}\n\n`,
       mapSafeStreamError: code => ({ code }),
