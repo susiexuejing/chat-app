@@ -67,6 +67,11 @@ test('unmarked ordinary chat on the same cookie retains neural, flow, LTU, evolu
   assert.equal(res.statusCode, 200);
   assert.equal(Object.hasOwn(res.body, 'requestMode'), false);
   assert.equal(res.body.userTurn, 3);
+  for (const name of ['local.reaction', 'local.companion']) {
+    const calls = h.calls.filter(call => call.name === name);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(plain(calls[0].args), ['clever-fox', MESSAGE, {}, 3], 'ordinary generators receive raw input and actual turn');
+  }
   const session = h.sessions[0];
   assert.equal(session.userId, OWNER);
   assert.equal(session.neuralProfile, h.profile);
@@ -93,6 +98,11 @@ test('ordinary unmarked first turn still uses real profile and still updates it 
   const stream = await open(h, res.body.sessionId);
   h.tick(3100);
   assert.equal(res.body.userTurn, 1);
+  for (const name of ['local.reaction', 'local.companion']) {
+    const calls = h.calls.filter(call => call.name === name);
+    assert.equal(calls.length, 1);
+    assert.deepEqual(plain(calls[0].args), ['clever-fox', MESSAGE, {}, 1], 'ordinary first-turn arguments remain unchanged');
+  }
   assert.equal(stream.res.ended, true);
   const names = h.identityCalls().map(x => x.name);
   assert.ok(names.includes('neural.getOrCreateProfile'));

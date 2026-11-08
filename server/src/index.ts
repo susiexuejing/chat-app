@@ -1146,8 +1146,13 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
-      reactionTimeline = generateReactionTimeline(roleId, message, signal, isDevEphemeral ? 1 : userTurn);
-      companionTimeline = generateCompanionTimeline(roleId, message, signal, isDevEphemeral ? 1 : userTurn);
+      if (isDevEphemeral) {
+        reactionTimeline = generateReactionTimeline(roleId, message, signal, 1);
+        companionTimeline = generateCompanionTimeline(roleId, message, signal, 1);
+      } else {
+        reactionTimeline = generateReactionTimeline(roleId, message, signal, userTurn);
+        companionTimeline = generateCompanionTimeline(roleId, message, signal, userTurn);
+      }
       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
       companionLayer = companionTimeline[0]?.text || frontFlowText;
 
