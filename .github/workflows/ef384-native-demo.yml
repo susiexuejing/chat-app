@@ -40,8 +40,19 @@ jobs:
         run: node --test scripts/__tests__/ef384-native-*.test.cjs scripts/__tests__/ef385-*.test.cjs
       - name: Bounded DEV transport and cancellation (mocked)
         run: node --experimental-vm-modules --test client/features/dev-journey/__tests__/*.test.mjs
+      # This VM-only suite crashed with SIGSEGV on Node 20.20.2. Keep its
+      # assertions intact and use the locally verified native TS-stripping path.
+      # Restore Node 20 below for the existing application tests and builds.
+      - name: Use Node 24 for backend VM isolation checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.22.1'
       - name: Ephemeral DEV backend isolation (mocked)
         run: node --experimental-vm-modules --test server/src/__tests__/ef385-dev-ephemeral.test.mjs
+      - name: Restore Node 20 for application verification
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
       - name: All existing and new client tests
         run: pnpm --dir client exec jest --runInBand
       - name: Type-check client

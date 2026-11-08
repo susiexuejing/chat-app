@@ -57,7 +57,8 @@ test('journey state stays local without live provider, direct networking or embe
     assert.doesNotMatch(source, /\bfetch\s*\(|\bXMLHttpRequest\b|\bWebSocket\s*\(|\baxios\b|\buseChat\s*\(|<iframe\b|<WebView\b/);
     assert.doesNotMatch(source, /(?:from\s*|require\s*\()\s*['"][^'"]*(?:ChatContext|services\/api|AsyncStorage)/);
   }
-  assert.match(repository, /const STORAGE_KEY = 'emotionflow\.ef384\.native\.v1'/);
+  assert.match(repository, /const STORAGE_KEY = 'emotionflow\.ef384\.native\.v2'/);
+  assert.match(repository, /const LEGACY_STORAGE_KEY = 'emotionflow\.ef384\.native\.v1'/);
   assert.match(screen, /createDemoRepository\(window\.localStorage\)/);
   assert.doesNotMatch(repository, /(?:window|globalThis)\.(?:localStorage|sessionStorage)|\b(?:localStorage|sessionStorage)\s*\./);
   assert.match(screen, /testID="return-live-chat"[\s\S]*?navigate\('chat'\);\s*router\.replace\('\/'\)/);
