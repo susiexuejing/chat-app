@@ -382,3 +382,98 @@ test('clean completion retains success and clears its timeout', async () => {
 
 // Cross-handler coverage runs in the dedicated Node 24 server VM CI step.
 import './streamTerminalIntegration.mjs';
+
+// Status-only diagnostics use the real classifier; provider and audit I/O stay synthetic.
+{
+const cases = [
+  [400, 'response_http_400'], [401, 'response_http_401'], [403, 'response_http_403'],
+  [404, 'response_http_404'], [429, 'response_http_429'], [402, 'response_http_other_4xx'],
+  [418, 'response_http_other_4xx'], [499, 'response_http_other_4xx'],
+];
+const providerCategories = h => h.calls.filter(x => x.name === 'audit').map(x => x.args[0].providerCategory).filter(Boolean);
+const details = h => providerCategories(h).filter(x => x.startsWith('response_http_'));
+async function begin(h, ordinary) {
+  const result = await h.request('POST', ordinary ? ORDINARY_START : START, { input: ordinary
+    ? { roleId: 'clever-fox', message: MESSAGE, conversationId: 'existing', requestId: 'ordinary-http' } : body() });
+  await settle();
+  return result;
+}
+for (const ordinary of [false, true]) for (const [status, category] of cases) {
+  test(`${ordinary ? 'ordinary' : 'DEV'} HTTP ${status} adds exactly one private detail before reading the body`, async () => {
+    let reads = 0, h;
+    h = await harness({ provider: async () => ({ ...providerResponse({ status }), text: async () => {
+      reads++;
+      assert.deepEqual(details(h), [category]);
+      assert.deepEqual(providerCategories(h).slice(-2), ['response_client_error', category]);
+      return 'PRIVATE-RAW-CODE PRIVATE-RAW-MESSAGE PRIVATE-RAW-BODY https://private.invalid PRIVATE-MODEL PRIVATE-KEY';
+    } }) });
+    const initial = await begin(h, ordinary);
+    assert.equal(initial.res.statusCode, 200);
+    assert.equal(reads, 1, 'the existing error body read is neither removed nor duplicated');
+    assert.equal(h.sessions[0].deepError, 'provider_api_error');
+    assert.equal(h.sessions[0].deepDone, false);
+    const stream = await open(h, initial.res.body.sessionId);
+    h.tick(3100); await settle();
+    assert.equal(stream.res.ended, true);
+    assert.deepEqual(stream.events().filter(x => ['error', 'deep.delta', 'deep.completed', 'turn.completed'].includes(x.eventType)).map(x => x.eventType), ['error']);
+    assert.equal(stream.events().at(-1).code, 'deep_response_failed');
+    assert.deepEqual(details(h), [category]);
+    assert.equal(providerCategories(h).filter(x => x === 'response_client_error').length, 1);
+    assert.equal(h.calls.filter(x => x.name === 'diagnostic' && x.args[1] === 'provider_failed').length, 1);
+    assert.equal(h.providerRequests.length, 1, 'no retry');
+    assert.ok(!h.calls.some(x => ['ltu.updateProfile', 'evolution.adjustWeights', 'neural.updateAfterSession', 'neural.saveProfiles'].includes(x.name)));
+    if (!ordinary) assertIsolated(h);
+    else assert.ok(h.calls.some(x => x.name === 'change.recordChange'), 'ordinary start-stage input processing remains');
+    assert.doesNotMatch(JSON.stringify([h.logs, initial.res.body, stream.events(), h.calls.filter(x => x.name === 'diagnostic')]), /PRIVATE-RAW|private\.invalid|PRIVATE-MODEL|PRIVATE-KEY|response_http_/);
+    const detailedEvents = h.calls.filter(x => x.name === 'audit' && x.args[0].providerCategory === category);
+    assert.deepEqual(Object.keys(detailedEvents[0].args[0]).sort(), ['ef45ProbeMarker', 'providerCategory']);
+  });
+}
+for (const behavior of ['reject', 'hang']) test(`HTTP detail precedes existing error body ${behavior} without a new read`, async () => {
+  const pending = deferred();
+  let reads = 0;
+  const h = await harness({ provider: async () => ({ ...providerResponse({ status: 401 }), text: () => {
+    reads++;
+    return behavior === 'reject' ? Promise.reject(new Error('PRIVATE-BODY-FAILURE')) : pending.promise;
+  } }) });
+  const initial = await begin(h, false);
+  assert.equal(reads, 1);
+  assert.deepEqual(providerCategories(h).slice(0, 4), ['request_reached', 'request_started', 'response_client_error', 'response_http_401']);
+  assert.deepEqual(details(h), ['response_http_401']);
+  if (behavior === 'hang') {
+    assert.equal(h.sessions[0].deepError, null, 'existing body wait is not silently changed');
+    pending.resolve('PRIVATE-BODY-CONTENT'); await settle();
+  }
+  const stream = await open(h, initial.res.body.sessionId);
+  h.tick(3100); await settle();
+  assert.equal(h.sessions[0].deepError, 'provider_api_error');
+  assert.deepEqual(details(h), ['response_http_401']);
+  assert.equal(reads, 1);
+  assert.equal(h.providerRequests.length, 1);
+  assert.doesNotMatch(JSON.stringify([h.logs, stream.events(), h.calls.filter(x => ['audit', 'diagnostic'].includes(x.name))]), /PRIVATE-BODY/);
+});
+for (const nodeEnv of ['production', 'test', '', undefined]) test(`no new private detail outside explicit DEV (${String(nodeEnv)})`, async () => {
+  const h = await harness({ nodeEnv, provider: async () => providerResponse({ status: 401 }) });
+  await begin(h, true);
+  assert.deepEqual(details(h), []);
+  assert.equal(providerCategories(h).filter(x => x === 'response_client_error').length, 1);
+  assert.equal(h.sessions[0].deepError, 'provider_api_error');
+  assert.equal(h.providerRequests.length, 1);
+});
+for (const status of [200, 302, 399, 500, 503]) test(`HTTP ${status} does not acquire a private 4xx detail`, async () => {
+  const h = await harness({ provider: async () => providerResponse({ status }) });
+  await begin(h, false);
+  assert.deepEqual(details(h), []);
+  assert.equal(h.providerRequests.length, 1);
+  assert.equal(h.sessions[0].deepDone, status === 200);
+  assert.equal(h.sessions[0].deepError, status === 200 ? null : 'provider_api_error');
+});
+test('provider rejection before an HTTP response adds no status detail', async () => {
+  const h = await harness({ provider: async () => { throw new Error('PRIVATE-FETCH-FAILURE'); } });
+  await begin(h, false);
+  assert.deepEqual(details(h), []);
+  assert.equal(h.providerRequests.length, 1);
+  assert.equal(h.sessions[0].deepError, 'deep_analysis_failure');
+  assert.doesNotMatch(JSON.stringify(h.logs), /PRIVATE-FETCH/);
+});
+}

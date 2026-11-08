@@ -4,6 +4,7 @@ import {
   EF45_R2_PROBE_MARKER,
   EF118_AUDIT_FIELD_WHITELIST,
   EF118_RUNTIME_AUDIT_PATH,
+  EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES,
 } from './ef118RuntimeAudit';
 
 export const EF45_SYNTHETIC_PROBE = {
@@ -83,6 +84,7 @@ export function classifyEf45AuditRecord(record: Ef45AuditRecord): Ef45Diagnostic
     return 'stream_transport';
   }
   if (record.providerCategory === 'key_missing'
+    || EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES.some(category => category === record.providerCategory)
     || record.providerCategory === 'response_client_error'
     || record.providerCategory === 'response_server_error'
     || record.providerCategory === 'reader_missing'

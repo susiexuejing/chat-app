@@ -46,6 +46,30 @@ const DB_SESSION_CATEGORIES = [
   'chat_start_processing_error',
 ] as const;
 
+export const EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES = [
+  'response_http_400',
+  'response_http_401',
+  'response_http_403',
+  'response_http_404',
+  'response_http_429',
+  'response_http_other_4xx',
+] as const;
+
+/** Closed status-only classification; never accepts provider text or coerces input. */
+export function classifyEf118ProviderHttpStatus(
+  status: unknown,
+): (typeof EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES)[number] | null {
+  if (typeof status !== 'number' || !Number.isInteger(status) || status < 400 || status > 499) return null;
+  switch (status) {
+    case 400: return 'response_http_400';
+    case 401: return 'response_http_401';
+    case 403: return 'response_http_403';
+    case 404: return 'response_http_404';
+    case 429: return 'response_http_429';
+    default: return 'response_http_other_4xx';
+  }
+}
+
 const PROVIDER_CATEGORIES = [
   'not_reached',
   'request_reached',
@@ -53,6 +77,7 @@ const PROVIDER_CATEGORIES = [
   'request_started',
   'response_success',
   'response_client_error',
+  ...EF118_PROVIDER_HTTP_CLIENT_ERROR_CATEGORIES,
   'response_server_error',
   'reader_missing',
   'first_event',
