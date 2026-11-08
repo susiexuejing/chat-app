@@ -182,7 +182,7 @@ export function MessageListView({
           />
           <View className="flex-1 bg-orange-50 dark:bg-orange-900/20 px-4 py-3 rounded-2xl rounded-bl-md">
             <Text className="text-orange-700 dark:text-orange-300 text-sm mb-3">
-              刚才的回复因页面刷新而中断，你可以重新生成。
+              刚才的回复已中断，你可以重新生成。
             </Text>
             <TouchableOpacity
               onPress={retryLastMessage}
