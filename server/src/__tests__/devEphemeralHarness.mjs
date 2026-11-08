@@ -99,8 +99,8 @@ export async function harness(options = {}) {
       saveProfiles: tracked('neural.saveProfiles'), loadProfiles: tracked('neural.loadProfiles'),
     } },
     './flows/localReactionEngine': {
-      generateReactionTimeline: tracked('local.reaction', () => [{ displayAt: 0, text: '我听到了。' }]),
-      generateCompanionTimeline: tracked('local.companion', () => [{ displayAt: 0, text: '可以慢慢说。' }]),
+      generateReactionTimeline: tracked('local.reaction', () => options.reactionTimeline ?? [{ displayAt: 0, text: '我听到了。' }]),
+      generateCompanionTimeline: tracked('local.companion', () => options.companionTimeline ?? [{ displayAt: 0, text: '可以慢慢说。' }]),
     },
     './flows/index': {
       analyzeFlow: tracked('flow.analyzeFlow', () => flow), recordChange: tracked('change.recordChange', () => null),
@@ -116,10 +116,9 @@ export async function harness(options = {}) {
       adjustWeights: tracked('evolution.adjustWeights', () => ({ weights: { updatedAt: 'mock' }, trigger: { factor: 'mock' } })),
       getDefaultWeights: tracked('evolution.getDefaultWeights'), logWeightChange: tracked('evolution.logWeightChange'),
     },
-    './flows/ef41DeepCompositionValidator': { validateEf41DeepOutput: tracked('validator', input => input.text) },
     './flows/conversationTurns': {
       incrementConversationTurn: tracked('turn.increment'),
-      incrementConversationTurnIdempotent: tracked('turn.incrementIdempotent', () => 3),
+      incrementConversationTurnIdempotent: tracked('turn.incrementIdempotent', () => options.ordinaryTurn ?? 3),
       getConversationTurn: tracked('turn.get'),
     },
     './routes/conversations': { default: () => {} }, './routes/anonymousSessions': { default: () => {} },
@@ -176,9 +175,25 @@ export async function harness(options = {}) {
     return new vm.SourceTextModule(source, { context, identifier: url.href });
   }
   const modeModule = await sourceModule('../devEphemeralChat.ts');
+  const reactionModule = await sourceModule('../flows/firstTwoRoundsReaction.ts');
+  await reactionModule.link(() => { throw new Error('Unexpected reaction dependency'); });
+  const validatorModule = await sourceModule('../flows/ef41DeepCompositionValidator.ts');
+  await validatorModule.link(specifier => {
+    if (specifier === './firstTwoRoundsReaction') return reactionModule;
+    throw new Error(`Unexpected validator dependency: ${specifier}`);
+  });
+  await validatorModule.evaluate();
+  imports['./flows/ef41DeepCompositionValidator'] = {
+    FIRST_TWO_ROUNDS_MAX_CHARS: validatorModule.namespace.FIRST_TWO_ROUNDS_MAX_CHARS,
+    validateEf41DeepOutput: tracked('validator', input => options.realValidator
+      ? validatorModule.namespace.validateEf41DeepOutput(input) : input.text),
+  };
   const promptModule = await sourceModule('../flows/deepSystemPromptBuilder.ts');
   await modeModule.link(() => { throw new Error('Unexpected helper dependency'); });
-  await promptModule.link(() => { throw new Error('Unexpected prompt dependency'); });
+  await promptModule.link(specifier => {
+    if (specifier === './ef41DeepCompositionValidator') return validatorModule;
+    throw new Error(`Unexpected prompt dependency: ${specifier}`);
+  });
   await modeModule.evaluate(); await promptModule.evaluate();
   // Exercise the real pure status classifier and DEV gate; keep the audit sink a spy.
   const auditModule = await sourceModule('../observability/ef118RuntimeAudit.ts');
