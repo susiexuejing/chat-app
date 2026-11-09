@@ -60,7 +60,7 @@ for (const [name, provider, expected, timeout = false] of [
     }
     const sessionId = new URL(url).searchParams.get('sessionId');
     const stream = await h.request('GET', STREAM, { query: { sessionId } });
-    h.tick(timeout ? 60000 : 3100); await settle();
+    h.tick(timeout ? 120000 : 3100); await settle();
     if (timeout) { h.tick(100); await settle(); }
     wireEvents = stream.events().map(versionedFixture);
     let sent = false;

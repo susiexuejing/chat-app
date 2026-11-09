@@ -361,7 +361,7 @@ for (const ordinary of [false, true]) for (const partial of [false, true]) for (
   test(`${ordinary ? 'ordinary' : 'DEV'} ${partial ? 'partial' : 'empty'} timeout ignores late ${late} even when cancel hangs`, async () => {
     const p = provider({ partial, terminal: 'pending', cancel: 'hang' });
     const r = await run(p, ordinary);
-    r.h.tick(60000); await settle(); r.h.tick(100); await settle();
+    r.h.tick(ordinary ? 60000 : 120000); await settle(); r.h.tick(100); await settle();
     assertFailed(r, ordinary);
     const before = JSON.stringify([r.session.deepChunks, r.h.calls, r.stream.res.writes]);
     const reads = p.reads;
@@ -417,7 +417,7 @@ async function begin(h, ordinary) {
   return result;
 }
 for (const ordinary of [false, true]) for (const [status, category] of cases) {
-  test(`${ordinary ? 'ordinary' : 'DEV'} HTTP ${status} adds exactly one private detail before reading the body`, async () => {
+  test(`${ordinary ? 'ordinary' : 'DEV'} HTTP ${status} adds exactly one private detail before handling the failure`, async () => {
     let reads = 0, h;
     h = await harness({ provider: async () => ({ ...providerResponse({ status }), text: async () => {
       reads++;
@@ -427,7 +427,7 @@ for (const ordinary of [false, true]) for (const [status, category] of cases) {
     } }) });
     const initial = await begin(h, ordinary);
     assert.equal(initial.res.statusCode, 200);
-    assert.equal(reads, 1, 'the existing error body read is neither removed nor duplicated');
+    assert.equal(reads, ordinary ? 1 : 0, 'only ordinary chat retains the discarded error body read');
     assert.equal(h.sessions[0].deepError, 'provider_api_error');
     assert.equal(h.sessions[0].deepDone, false);
     const stream = await open(h, initial.res.body.sessionId);
@@ -453,26 +453,26 @@ for (const ordinary of [false, true]) for (const [status, category] of cases) {
     assert.deepEqual(Object.keys(detailedEvents[0].args[0]).sort(), ['ef45ProbeMarker', 'providerCategory']);
   });
 }
-for (const behavior of ['reject', 'hang']) test(`HTTP detail precedes existing error body ${behavior} without a new read`, async () => {
+for (const ordinary of [false, true]) for (const behavior of ['reject', 'hang']) test(`${ordinary ? 'ordinary' : 'DEV'} HTTP failure with error body ${behavior}`, async () => {
   const pending = deferred();
   let reads = 0;
   const h = await harness({ provider: async () => ({ ...providerResponse({ status: 401 }), text: () => {
     reads++;
     return behavior === 'reject' ? Promise.reject(new Error('PRIVATE-BODY-FAILURE')) : pending.promise;
   } }) });
-  const initial = await begin(h, false);
-  assert.equal(reads, 1);
+  const initial = await begin(h, ordinary);
+  assert.equal(reads, ordinary ? 1 : 0);
   assert.deepEqual(providerCategories(h).slice(0, 4), ['request_reached', 'request_started', 'response_client_error', 'response_http_401']);
   assert.deepEqual(details(h), ['response_http_401']);
-  if (behavior === 'hang') {
-    assert.equal(h.sessions[0].deepError, null, 'existing body wait is not silently changed');
+  if (ordinary && behavior === 'hang') {
+    assert.equal(h.sessions[0].deepError, null, 'ordinary body wait remains unchanged');
     pending.resolve('PRIVATE-BODY-CONTENT'); await settle();
-  }
+  } else assert.equal(h.sessions[0].deepError, 'provider_api_error');
   const stream = await open(h, initial.res.body.sessionId);
   h.tick(3100); await settle();
   assert.equal(h.sessions[0].deepError, 'provider_api_error');
   assert.deepEqual(details(h), ['response_http_401']);
-  assert.equal(reads, 1);
+  assert.equal(reads, ordinary ? 1 : 0);
   assert.equal(h.providerRequests.length, 1);
   assert.doesNotMatch(JSON.stringify([h.logs, stream.events(), h.calls.filter(x => ['audit', 'diagnostic'].includes(x.name))]), /PRIVATE-BODY/);
 });
@@ -517,3 +517,6 @@ import './devDeclarativePrompt.test.mjs';
 // Preserve normal output parity and retirement guards after the temporary diagnostic.
 import './ef385ValidatorParity.test.mjs';
 import './ef385DeepOutputRegression.test.mjs';
+
+// Absolute DEV transport/acceptance deadline and nonblocking failure cleanup.
+import './devDeepDeadline.test.mjs';

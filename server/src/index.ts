@@ -172,6 +172,7 @@ export interface ChatSession {
   devTurn?: number;
   devContext?: DevContextPair[];
   devAbort?: AbortController;
+  devDeepDeadlineAt?: number; // Private result-acceptance deadline, never returned to the client.
   devStreamAttached?: boolean;
   roleId: string;
   roleName: string;
@@ -280,7 +281,8 @@ async function callDashScope(
   messages: Array<{ role: string; content: string }>,
   stream: boolean,
   maxTokens: number = 1200,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  devDeadlineAt?: number
 ): Promise<Response> {
   const url = `${baseUrl}/chat/completions`;
 
@@ -294,13 +296,19 @@ async function callDashScope(
 
   // 60秒超时控制（Deep模型流式回复较慢）
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const headerDeadlineAt = Math.min(Date.now() + 60000, devDeadlineAt ?? Infinity);
+  const headerWaitMs = devDeadlineAt === undefined ? 60000 : Math.max(0, headerDeadlineAt - Date.now());
+  const timeoutId = setTimeout(() => controller.abort(), headerWaitMs);
   const abort = () => controller.abort();
   signal?.addEventListener('abort', abort, { once: true });
   if (signal?.aborted) controller.abort();
 
+  let rejectAborted: (() => void) | undefined;
   try {
-    const response = await fetch(url, {
+    if (devDeadlineAt !== undefined && (controller.signal.aborted || Date.now() >= headerDeadlineAt)) {
+      throw new Error('stream_timeout');
+    }
+    const request = fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -309,8 +317,23 @@ async function callDashScope(
       body,
       signal: controller.signal,
     });
-    return response;
+    // Preserve ordinary fetch behavior. DEV stops waiting locally even if a
+    // provider mock/transport settles after abort; consume and discard that reply.
+    if (devDeadlineAt === undefined) return await request;
+    const aborted = new Promise<Response>((_, reject) => {
+      rejectAborted = () => reject(new Error('stream_timeout'));
+      controller.signal.addEventListener('abort', rejectAborted, { once: true });
+      if (controller.signal.aborted) rejectAborted();
+    });
+    return await Promise.race([request.then(response => {
+      if (controller.signal.aborted || Date.now() >= headerDeadlineAt) {
+        try { void response.body?.cancel().catch(() => {}); } catch { /* best effort */ }
+        throw new Error('stream_timeout');
+      }
+      return response;
+    }), aborted]);
   } finally {
+    if (rejectAborted) controller.signal.removeEventListener('abort', rejectAborted);
     clearTimeout(timeoutId);
     signal?.removeEventListener('abort', abort);
   }
@@ -319,10 +342,17 @@ async function callDashScope(
 // ============================================================
 // 后端异步调用百炼（实时流式推送chunk到session）
 // ============================================================
-export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3): Promise<void> {
+export async function startDeepAnalysis(session: ChatSession, userTurn: number = 3, devDeadlineAt?: number): Promise<void> {
   const isDevEphemeral = session.requestMode === DEV_EPHEMERAL_REQUEST_MODE;
   // All DEV turns retain entry-turn safety; conversation order is separate.
-  if (isDevEphemeral) userTurn = 1;
+  if (isDevEphemeral) {
+    userTurn = 1;
+    if (devDeadlineAt !== undefined) session.devDeepDeadlineAt = devDeadlineAt;
+  }
+  const remainingDevMs = () => (session.devDeepDeadlineAt ?? 0) - Date.now();
+  const checkDevDeadline = () => {
+    if (isDevEphemeral && remainingDevMs() <= 0) throw new Error('stream_timeout');
+  };
   if (!activeDevTurn(session)) return;
   const apiKey = API_KEY_LIGHT;
   const ef45ProbeMarker = session.ef45ProbeMarker;
@@ -343,6 +373,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
   let streamStartTime = Date.now();
 
   try {
+    checkDevDeadline();
     // EF-57: New-chat entry turns must not read or present cross-session
     // memories. They may still be updated after completion for later turns.
     const isEntryTurn = userTurn >= 1 && userTurn <= 2;
@@ -364,6 +395,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       { role: 'user', content: session.userMessage },
     ];
 
+    if (!activeDevTurn(session)) return;
+    checkDevDeadline();
     console.log('[Deep] Provider request started', { modelClass: 'deep' });
     writeEf118RuntimeAudit({ providerCategory: 'request_started', ef45ProbeMarker });
     const response = await callDashScope(
@@ -373,12 +406,14 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       deepMessages,
       true,      // stream: true
       1200,      // max_tokens: 确保有足够空间输出中文回复
-      session.devAbort?.signal
+      session.devAbort?.signal,
+      isDevEphemeral ? session.devDeepDeadlineAt : undefined
     );
 
-    if (!activeDevTurn(session)) {
+    if (!activeDevTurn(session) || (isDevEphemeral && remainingDevMs() <= 0)) {
       try { void response.body?.cancel().catch(() => {}); } catch { /* best effort */ }
-      return;
+      if (!activeDevTurn(session)) return;
+      checkDevDeadline();
     }
     console.log('[Deep] Provider response received', {
       statusClass: response.status >= 500 ? 'server_error' : response.status >= 400 ? 'client_error' : 'success',
@@ -398,8 +433,12 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
     if (!response.ok) {
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
-      const errorText = await response.text().catch(() => '');
-      void errorText;
+      if (isDevEphemeral) {
+        try { void response.body?.cancel().catch(() => {}); } catch { /* best effort */ }
+      } else {
+        const errorText = await response.text().catch(() => '');
+        void errorText;
+      }
       if (!activeDevTurn(session)) return;
       console.error('[Deep] Provider response rejected', {
         code: 'provider_api_error',
@@ -434,9 +473,15 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let pendingSseText = '';
     console.log('[Deep] Stream started');
 
-    // 60秒流读取超时（Deep模型首次token可能需要较长时间）
+    // DEV body reading gets at most 120s within the original 135s deadline.
+    // Ordinary chat retains its independent 60s body-read limit.
+    const streamReadDeadlineAt = Math.min(Date.now() + 120000, session.devDeepDeadlineAt ?? Infinity);
+    const streamReadWaitMs = isDevEphemeral ? Math.max(0, streamReadDeadlineAt - Date.now()) : 60000;
+    const checkDevReadDeadline = () => {
+      if (isDevEphemeral && Date.now() >= streamReadDeadlineAt) throw new Error('stream_timeout');
+    };
     const streamReadTimeout = new Promise<void>((_, reject) => {
-      streamTimeout = setTimeout(() => reject(new Error('stream_timeout')), 60000);
+      streamTimeout = setTimeout(() => reject(new Error('stream_timeout')), streamReadWaitMs);
     });
 
     const processSseLine = (rawLine: string): void => {
@@ -510,6 +555,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         const { done, value } = await reader.read();
         // A timed-out read can settle after cancellation. Never process it.
         if (streamReadStopped || !activeDevTurn(session)) return;
+        checkDevReadDeadline();
         if (done) break;
 
         processCompleteSseLines(decoder.decode(value, { stream: true }));
@@ -534,6 +580,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     try {
       await Promise.race([streamReadLoop, streamReadTimeout, cancelled]);
       if (!activeDevTurn(session)) return;
+      checkDevReadDeadline();
     } catch (e) {
       if (!activeDevTurn(session)) return;
       recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'provider_failed');
@@ -561,13 +608,16 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       if (cancelRead) session.devAbort?.signal.removeEventListener('abort', cancelRead);
     }
 
+    // Stage DEV validation locally. Synchronous processing can cross the
+    // deadline too, so do not publish any chunks before the final guard.
+    const completedChunks = isDevEphemeral ? [] : session.deepChunks;
     // ── 内容清洗：仅保留最终中文回复 ──
     // qwen3.6-plus 将推理过程混在 content 字段中，
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
     const cleaned = extractFinalChineseResponse(deepContentBuffer);
     if (cleaned.trim()) {
-      session.deepChunks.push(validateEf41DeepOutput({
+      completedChunks.push(validateEf41DeepOutput({
         text: cleaned,
         roleId: session.roleId,
         userTurn,
@@ -585,7 +635,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       const last300 = deepContentBuffer.slice(-300).trim();
       const cjk = last300.match(/[\u4e00-\u9fff]/g);
       if (cjk && cjk.length >= 10) {
-        session.deepChunks.push(validateEf41DeepOutput({
+        completedChunks.push(validateEf41DeepOutput({
           text: last300,
           roleId: session.roleId,
           userTurn,
@@ -607,8 +657,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
     // 将 reasoning_content 作为最终内容推给前端
-    if (session.deepChunks.length === 0 && reasoningBuffer.trim()) {
-      session.deepChunks.push(validateEf41DeepOutput({
+    if (completedChunks.length === 0 && reasoningBuffer.trim()) {
+      completedChunks.push(validateEf41DeepOutput({
         text: reasoningBuffer.trim(),
         roleId: session.roleId,
         userTurn,
@@ -624,6 +674,9 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       });
     }
 
+    if (!activeDevTurn(session)) return;
+    checkDevDeadline();
+    if (isDevEphemeral) session.deepChunks.push(...completedChunks);
     session.deepDone = true;
     writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
     const completionDuration = Date.now() - streamStartTime;
@@ -1283,7 +1336,9 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
         }
       }
 
-      startDeepAnalysis(session, userTurn).catch(err => {
+      // receivedAt starts after the global parser, before auth/front-layer work.
+      // This bounds result acceptance, not pending auth or request upload.
+      startDeepAnalysis(session, userTurn, isDevEphemeral ? receivedAt + 135000 : undefined).catch(err => {
         void err;
         console.error('[Deep] Async analysis failed', {
           code: 'deep_analysis_failure',
@@ -1354,6 +1409,9 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   }
 
   const session = sessions.get(sessionId);
+  if (session && session.ownerSessionId === authenticated.session.id && session.requestMode === DEV_EPHEMERAL_REQUEST_MODE
+    && session.devDeepDeadlineAt !== undefined
+    && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
   if (!session || session.ownerSessionId !== authenticated.session.id || !activeDevTurn(session)) {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
@@ -1413,6 +1471,9 @@ app.get('/api/v1/chat/stream', async (req, res) => {
 
   // 每 100ms 轮询 session.deepChunks，推送新chunk（但前90秒不发）
   const pollInterval = setInterval(() => {
+    // The same private deadline also gates delayed SSE publication/context save.
+    if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined
+      && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
     if (!activeDevTurn(session)) {
       clearInterval(pollInterval); clearTimeout(timeout);
       sseTerminated = true;
@@ -1447,6 +1508,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
           // rejects it; no conversation context/continuation survives. PR167 is separate.
           endDevTurn(session);
         } else if (!session.devConversationId || !session.devRequestId
+          || (session.devDeepDeadlineAt !== undefined && Date.now() >= session.devDeepDeadlineAt)
           || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
             session.userMessage, session.deepChunks.join(''))) {
           clearInterval(pollInterval); clearTimeout(timeout);
