@@ -24,6 +24,14 @@ Assistant history remains role-separated context, not user evidence. An earlier 
 
 This is a prompt-only runtime refinement. It does not change context assembly, validators, the cleaner, provider options, deadlines, UI, storage or automatic saving. The existing validator is not a semantic quality gate: it can still accept unsupported advice or explanations and does not resolve negation by meaning. Hermetic prompt/request tests verify delivery of the task and unchanged role boundaries; fixed synthetic provider output cannot demonstrate that the model follows it. Authorized live multi-turn QA and full CI remain required before making any quality-fix claim.
 
+## PR174 live-QA follow-up
+
+On DEV `eda948783a03f695cbd57e74562c3d165f031369`, ten synthetic browser turns completed, but the sample did not pass full semantic acceptance: one answer promoted scenario descriptions into causal premises, two answers contained three sentences despite being well under 120 code points, and one new-session identity answer claimed not to retain past records before a follow-up clarified that provider/server retention could not be guaranteed.
+
+The follow-up remains prompt-only. It distinguishes a reported scenario from an established cause: comparing observations does not establish, exclude or rank causes. Memory/privacy answers describe only context supplied to the request, without turning unavailable history into a promise about storage, deletion, logging or training. An explicit pre-output check requests one or two natural sentences while retaining negation, conditions and uncertainty. No output truncation, validator change, extra provider call, new fallback or hardcoded scenario answer is added.
+
+The regression suite replays all ten synthetic input/observed-output fixtures through the real handler to verify prompt delivery, role-separated context, one provider call per explicit send and unchanged output processing. These fixed flawed outputs deliberately remain accepted where the existing validator accepts them: passing this suite is not a claim that the quality defects are fixed. Full exact-head CI and independent real browser retesting remain required; sentence count is still a generation instruction, not an enforced validator guarantee.
+
 ## Latency scope
 
 - DEV has no artificial 3-second `deepReadyAt` floor. Completed output is eligible for the next existing 100ms publication poll; this does not imply a 3-second saving when provider work takes longer.
