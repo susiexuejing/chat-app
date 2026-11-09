@@ -1,5 +1,7 @@
 # EF-94 CI Release Gate and dev Protection
 
+> Historical design record. The PR checks `Protected fixed successor admission` and `EF-94 Release Gate` are retired by the EF-385 cleanup. The workflow files no longer run on pull requests. This document does not describe the current `dev` merge requirements. Keep the independent code tests, static gate, and Gitleaks checks active. Production readiness remains a separate gate.
+
 ## CI contract
 
 The workflow `.github/workflows/release-gate.yml` has the fixed workflow name `Release Gate` and job/check name `EF-94 Release Gate`. It runs for pull requests targeting `dev`, pushes to `dev`, and manual `workflow_dispatch` runs. A pull request uses fixed sibling `authority` and `candidate` checkouts. Authority is the exact event base SHA and is the only source of scope policy, gate tests, and the review-manifest executable. Candidate is the exact event head SHA and is the only source of the git diff, dependency install, and canonical `pnpm run test:release` execution. Push and dispatch retain one checkout at the event SHA.
