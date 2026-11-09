@@ -16,6 +16,14 @@ This replaces the previous DEV supplement/shared-front-budget behavior documente
 - Stop, end, navigation, new conversation, error, timeout and late callbacks cannot expose a pending answer or save a candidate. The client clears its pending buffer. Same-session history remains at most three completed raw user/validated assistant pairs, 6000 characters, with the fixed 10-minute lifetime and 1000-character current input limit.
 - Understanding is volatile until the user explicitly confirms/edits and chooses new pattern or a specific correction target. Practice, record and path actions remain separately explicit. No model response creates those writes by itself.
 
+## Grounded-understanding task refinement
+
+The DEV-only prompt now gives the primary answer a positive task: form a concrete understanding that the user can check and revise, selecting useful connections among stated facts rather than echoing each sentence or turning the answer into reassurance or advice. Latest explicit corrections and negations take precedence over earlier claims about the same matter. Negation, conditions, time and uncertainty must survive the synthesis; an anticipated situation must not replace an observed one.
+
+Assistant history remains role-separated context, not user evidence. An earlier assistant explanation, judgment or suggestion cannot become a confirmed premise without user confirmation. The prompt excludes invented causes, emotions, motives, body mechanisms, predictions and improvement guarantees, and preserves uncertainty when a cause is not established. Greetings, truthful AI identity, the 120-code-point/two-sentence limit, declarative wording and the existing unsupported-fact acknowledgement remain.
+
+This is a prompt-only runtime refinement. It does not change context assembly, validators, the cleaner, provider options, deadlines, UI, storage or automatic saving. The existing validator is not a semantic quality gate: it can still accept unsupported advice or explanations and does not resolve negation by meaning. Hermetic prompt/request tests verify delivery of the task and unchanged role boundaries; fixed synthetic provider output cannot demonstrate that the model follows it. Authorized live multi-turn QA and full CI remain required before making any quality-fix claim.
+
 ## Latency scope
 
 - DEV has no artificial 3-second `deepReadyAt` floor. Completed output is eligible for the next existing 100ms publication poll; this does not imply a 3-second saving when provider work takes longer.
@@ -26,6 +34,6 @@ This replaces the previous DEV supplement/shared-front-budget behavior documente
 
 ## Regression entrypoints
 
-- Existing backend CI `node --experimental-vm-modules --test server/src/__tests__/ef385-dev-ephemeral.test.mjs` imports `devPrimaryReply.test.mjs`, plus budget/prompt/deadline/context/cancellation and ordinary frozen-validator/output parity suites.
+- Existing backend CI `node --experimental-vm-modules --test server/src/__tests__/ef385-dev-ephemeral.test.mjs` imports `devPrimaryReply.test.mjs` and `devGroundedUnderstandingPrompt.test.mjs`, plus budget/prompt/deadline/context/cancellation and ordinary frozen-validator/output parity suites.
 - Existing DEV controller/adapter Node tests cover pending answer privacy, full terminal publication, cancellation/error/empty behavior and bounded continuation.
 - Actual native React screen/controller/repository tests cover thinking without template bubbles, deferred full reply, editable/unchanged explicit confirmation, relation selection and pattern/practice/record/path isolation. Shared view tests retain ordinary loading text and presentation behavior.
