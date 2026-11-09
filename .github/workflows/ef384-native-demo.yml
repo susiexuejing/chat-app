@@ -27,6 +27,8 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: pnpm/action-setup@v4
+        env:
+          npm_config_registry: https://registry.npmjs.org
         with:
           version: 9.0.0
           run_install: false
@@ -36,6 +38,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+        env:
+          npm_config_registry: https://registry.npmjs.org
       - name: Repository transactions and source isolation guards
         run: node --test scripts/__tests__/ef384-native-*.test.cjs scripts/__tests__/ef385-*.test.cjs
       - name: Bounded DEV transport and cancellation (mocked)
