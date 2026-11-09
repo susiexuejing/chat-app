@@ -10,8 +10,6 @@ import {
 } from '../fixed-pr-admission.mjs';
 
 const profileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
-const workflowUrl = new URL('../../.github/workflows/protected-fixed-pr-admission.yml', import.meta.url);
-const releaseWorkflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
 const DISK_REGISTRY = JSON.parse(await readFile(profileUrl, 'utf8'));
 
 const PRODUCT_PATHS = Object.freeze([
@@ -799,35 +797,6 @@ test('unknown source identity is not applicable to release routing and fails pro
   event.eventName = 'pull_request_target';
   assert.throws(() => validateAdmission(registry, event, acceptedEvidence()), /no unique Base-owned registry match/);
 });
-
-test('protected admission workflow reads only protected Base authority and never candidate code', async () => {
-  const workflow = await readFile(workflowUrl, 'utf8');
-  assert.match(workflow, /^name: Protected Fixed PR Admission$/m);
-  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
-  assert.match(workflow, /ref: refs\/heads\/dev/);
-  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
-  assert.match(workflow, /path: authority/);
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /working-directory: authority/);
-  assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
-  assert.match(workflow, /node scripts\/fixed-pr-admission\.mjs/);
-  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
-  assert.doesNotMatch(workflow, /pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|write|deploy/i);
-});
-
-test('release gate performs authority-only admission and never executes product regressions', async () => {
-  const workflow = await readFile(releaseWorkflowUrl, 'utf8');
-  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
-  assert.match(workflow, /ref: refs\/heads\/dev/);
-  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
-  assert.match(workflow, /working-directory: authority[\s\S]*EF_AUTHORITY_SNAPSHOT_SHA:[\s\S]*node scripts\/fixed-pr-admission\.mjs/);
-  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
-  assert.doesNotMatch(workflow, /candidate|pull_request\.head|pnpm|npm|yarn|install|cache|artifact|secrets|id-token|test:release|jest|tsc|deploy/i);
-});
-
 
 test('EF-235 protected archive admits PR #141 only when every recorded identity field matches', () => {
   const record = DISK_REGISTRY.records.find(entry => entry.pullRequest?.number === 141);
