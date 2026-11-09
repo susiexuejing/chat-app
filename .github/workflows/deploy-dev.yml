@@ -25,6 +25,8 @@ jobs:
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
+        env:
+          npm_config_registry: https://registry.npmjs.org
         with:
           version: 9.0.0
           run_install: false
@@ -37,6 +39,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
+        env:
+          npm_config_registry: https://registry.npmjs.org
         run: pnpm install --frozen-lockfile
 
       - name: Verify runtime data is not tracked or bundled
