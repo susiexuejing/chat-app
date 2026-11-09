@@ -139,9 +139,6 @@ export async function harness(options = {}) {
       mapSafeStreamError: code => ({ code }),
     },
     './observability/ef118RuntimeAudit': { EF45_R2_PROBE_MARKER: 'mock-probe', writeEf118RuntimeAudit: tracked('audit') },
-    './observability/ef385DevResultDiagnostic': {
-      createEf385DevResultDiagnostic: options.diagnosticFactory ?? (() => ({ begin: () => undefined })),
-    },
     './observability/ef45CategoryReader': { ef45CategoryReader() {}, isFixedEf45SyntheticProbe: () => false },
     './observability/ef45OneShotDiagnostic': {
       bindEf45OneShotDiagnosticMarker: session => observedSessions.push(session),
@@ -188,9 +185,8 @@ export async function harness(options = {}) {
   await validatorModule.evaluate();
   imports['./flows/ef41DeepCompositionValidator'] = {
     FIRST_TWO_ROUNDS_MAX_CHARS: validatorModule.namespace.FIRST_TWO_ROUNDS_MAX_CHARS,
-    FIRST_TWO_ROUNDS_DEEP_FALLBACK: validatorModule.namespace.FIRST_TWO_ROUNDS_DEEP_FALLBACK,
-    validateEf41DeepOutput: tracked('validator', (input, observe) => options.realValidator
-      ? validatorModule.namespace.validateEf41DeepOutput(input, observe) : input.text),
+    validateEf41DeepOutput: tracked('validator', input => options.realValidator
+      ? validatorModule.namespace.validateEf41DeepOutput(input) : input.text),
   };
   const promptModule = await sourceModule('../flows/deepSystemPromptBuilder.ts');
   await modeModule.link(() => { throw new Error('Unexpected helper dependency'); });
