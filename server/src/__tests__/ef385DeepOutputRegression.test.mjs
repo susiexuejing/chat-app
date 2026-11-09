@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { readFile, access } from 'node:fs/promises';
 import test from 'node:test';
-import { body, harness, plain, providerResponse, settle, START, STREAM } from './devEphemeralHarness.mjs';
+import { body, harness, plain, providerResponse, settle, START, STREAM, ORDINARY_START } from './devEphemeralHarness.mjs';
 
 const ACK = '我听到了。';
 const DEFAULT = '等这一团稍微松开，事情的轻重也许会慢慢显出来。';
@@ -39,11 +39,15 @@ const cases = [
   ['EF41 default selection', { text: ACK, reasoning: true }, { message: overload }, [DEFAULT], 'reasoning'],
   ['post-selection fact rejection', { text: `你\`\`\`${'x'.repeat(30)}\`\`\`以前留下的材料仍然摆在眼前。`, reasoning: true }, { message: overload }, [ACK], 'reasoning'],
 ];
-for (const [name, response, extra, expected, source] of cases) test(`unchanged Deep output: ${name}`, async () => {
+for (const ordinary of [false, true]) for (const [name, response, extra, baselineExpected, baselineSource] of cases) test(`${ordinary ? 'unchanged ordinary' : 'DEV final-only'} Deep output: ${name}`, async () => {
+  const source = !ordinary && baselineSource === 'reasoning' ? null : baselineSource;
+  const expected = !ordinary && baselineSource === 'reasoning' ? [] : !ordinary && baselineExpected[0] === '' ? [ACK] : baselineExpected;
   const h = await harness({ realValidator: true, provider: async () => typeof response === 'function' ? response() : providerResponse(response),
     ...(extra.prefix ? { reactionTimeline: [{ displayAt: 0, text: extra.prefix }], companionTimeline: [] } : {}),
   });
-  const started = await h.request('POST', START, { input: body(extra.message ? { message: extra.message } : {}) });
+  const payload = body(extra.message ? { message: extra.message } : {});
+  const started = await h.request('POST', ordinary ? ORDINARY_START : START, { input: ordinary
+    ? { roleId: payload.roleId, message: payload.message, requestId: payload.requestId } : payload });
   await settle(); assert.equal(started.res.statusCode, 200);
   assert.deepEqual(plain(h.sessions[0].deepChunks), expected);
   const validations = h.calls.filter(call => call.name === 'validator');
@@ -54,9 +58,10 @@ for (const [name, response, extra, expected, source] of cases) test(`unchanged D
   assert.equal(stream.events().filter(event => event.eventType === 'deep.delta').map(event => event.content).join(''), expected.join(''));
   assert.equal(h.providerRequests.length, 1);
   const sent = JSON.parse(h.providerRequests[0].options.body);
-  assert.deepEqual(Object.keys(sent).sort(), ['max_tokens', 'messages', 'model', 'stream', 'temperature']);
+  assert.deepEqual(Object.keys(sent).sort(), [...(ordinary ? [] : ['enable_thinking']), 'max_tokens', 'messages', 'model', 'stream', 'temperature']);
   assert.equal(sent.model, 'qwen3.6-plus'); assert.equal(sent.max_tokens, 1200); assert.equal(sent.temperature, 0.6); assert.equal(sent.stream, true);
-  assert.equal(sent.messages.length, 2); assert.deepEqual(h.identityCalls(), []);
+  assert.equal(sent.messages.length, 2);
+  if (!ordinary) assert.deepEqual(h.identityCalls(), []);
 });
 
 test('retired runtime/helper and temporary test sinks are absent', async () => {

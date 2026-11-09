@@ -17,14 +17,14 @@ const build = (turn, devSession) => prompt.buildDeepSystemPrompt(
   'clever-fox', '测试角色', '前置测试文本', undefined, null, '测试变化', null, '测试摘要', turn, input, devSession,
 );
 
-for (const userTurn of [1, 2, 3, 5]) test(`DEV entry-style prompt requests only declarative continuation at conversation turn${userTurn}`, () => {
+for (const userTurn of [1, 2, 3, 5]) test(`DEV primary prompt requests a complete declarative reply at conversation turn${userTurn}`, () => {
   const hasContext = userTurn > 1;
   // DEV always passes the safe entry turn separately from its conversation turn.
   const text = build(1, { userTurn, hasContext, deepMaxChars: 71 });
   assert.ok(text.includes(DEV_LINE));
   assert.ok(!text.includes(ORDINARY_LINE));
   assert.match(text, new RegExp(`当前是第 ${userTurn} 轮`));
-  assert.match(text, /本次 Deep 完整输出不超过 71 个字符（按 Unicode 码点计数，标点、空格和换行均计入），最多两句/);
+  assert.match(text, /完整回复不超过 71 个字符（按 Unicode 码点计数，标点、空格和换行均计入），最多两句/);
   assert.match(text, /不要诊断、解释原因、给建议或安排任务/);
   assert.match(text, /只输出“我听到了。”/);
   assert.match(text, hasContext ? /仅当前消息和随请求提供的本次会话用户原话可作为用户事实来源；assistant 消息只供理解对话衔接/ : /当前这条用户消息是关于用户的唯一事实来源/);
@@ -44,9 +44,9 @@ test('five actual DEV requests retain entry-turn safety, exact bounded context, 
     assert.equal(started.res.statusCode, 200);
     assert.equal(h.providerRequests.length, turn, 'one provider request per explicit turn, without retries');
     const request = JSON.parse(h.providerRequests.at(-1).options.body);
-    assert.deepEqual(Object.keys(request).sort(), ['max_tokens', 'messages', 'model', 'stream', 'temperature']);
+    assert.deepEqual(Object.keys(request).sort(), ['enable_thinking', 'max_tokens', 'messages', 'model', 'stream', 'temperature']);
     assert.deepEqual({ ...request, messages: undefined }, {
-      model: 'qwen3.6-plus', stream: true, temperature: 0.6, max_tokens: 1200, messages: undefined,
+      model: 'qwen3.6-plus', stream: true, temperature: 0.6, max_tokens: 1200, enable_thinking: false, messages: undefined,
     });
     assert.deepEqual(request.messages.slice(1), [
       ...messages.slice(-3).flatMap(content => [{ role: 'user', content }, { role: 'assistant', content: reply }]),
@@ -56,17 +56,17 @@ test('five actual DEV requests retain entry-turn safety, exact bounded context, 
     assert.equal(args[8], 1, 'entry-turn prompt safety never changes with DEV conversation turn');
     const session = h.sessions.at(-1);
     const visiblePrefix = session.reactionLayer + session.companionLayer;
-    const deepMaxChars = Math.max(0, 120 - Array.from(visiblePrefix).length);
+    const deepMaxChars = 120;
     assert.deepEqual(plain(args[10]), { userTurn: turn, hasContext: turn > 1, deepMaxChars });
     assert.equal(request.messages[0].content, prompt.buildDeepSystemPrompt(...args));
     assert.ok(request.messages[0].content.includes(DEV_LINE));
     assert.ok(!request.messages[0].content.includes(ORDINARY_LINE));
-    assert.match(request.messages[0].content, new RegExp(`本次 Deep 完整输出不超过 ${deepMaxChars} 个字符`));
+    assert.match(request.messages[0].content, new RegExp(`完整回复不超过 ${deepMaxChars} 个字符`));
     const calls = h.calls.filter(call => call.name === 'validator');
     assert.equal(calls.length, turn);
     assert.deepEqual(plain(calls.at(-1).args[0]), {
       text: reply, source: 'cleaned', roleId: 'clever-fox', userTurn: 1,
-      userMessage: message, visiblePrefix, sameSessionUserMessages: messages.slice(-3),
+      userMessage: message, visiblePrefix, devPrimaryResponse: true, sameSessionUserMessages: messages.slice(-3),
     });
     const stream = await h.request('GET', STREAM, { query: { sessionId: started.res.body.sessionId } });
     h.tick(3100); await settle();

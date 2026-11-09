@@ -53,7 +53,7 @@ export const DEV_REAL_REQUEST_MAX_INPUT = 1000;
 export const DEV_REAL_REQUEST_ID_PATTERN = /^[\w-]{1,100}$/;
 const FAILED_MESSAGE = '本次真实请求未完成，会话已结束。请新开对话后再显式发送。';
 const EXPIRED_MESSAGE = '会话或请求已过期，也可能是设备时钟不准确。请检查时间并新开对话，再自行发送。';
-const EMPTY_MESSAGE = '未收到完整的 Deep 回复，会话已结束；前层内容不代表真实 API 成功。';
+const EMPTY_MESSAGE = '未收到完整的 AI 回复，会话已结束。请新开对话后再发送。';
 const REQUEST_TIMEOUT_MS = 165_000;
 const MAX_SESSION_MS = 600_000;
 
@@ -123,8 +123,9 @@ export function createDevRealRequestController(options: {
       const priorLocalExpiresAt = context?.localExpiresAt;
       const runGeneration = ++generation;
       const abort = new AbortController();
+      let completedText = '';
       let cancel!: () => void;
-      const cancelled = new Promise<boolean>(resolve => { cancel = () => resolve(false); });
+      const cancelled = new Promise<boolean>(resolve => { cancel = () => { completedText = ''; resolve(false); }; });
       active = { abort, cancel }; latestRequestId = requestId;
       const isCurrent = () => !disposed && generation === runGeneration && !abort.signal.aborted;
       publish({ ...initial(), inputText: message, requestId, sentAt: Date.now(), completedTurns: Object.freeze(previous), status: 'starting', canSend: false });
@@ -144,24 +145,26 @@ export function createDevRealRequestController(options: {
           context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
           clearTimeout(expiry);
           expiry = setTimeout(() => { if (!disposed && context?.id === start.devConversationId) end('failed', EXPIRED_MESSAGE); }, Math.max(0, localExpiresAt - Date.now()));
-          publish({ ...snapshot, status: 'streaming', reactionText: typeof start.reactionText === 'string' ? start.reactionText : '',
-            companionText: typeof start.companionText === 'string' ? start.companionText : '' });
+          // Ignore legacy front-layer strings even when an older DEV server
+          // sends them. A single complete answer replaces the thinking state.
+          publish({ ...snapshot, status: 'streaming' });
           if (!isCurrent()) return false;
           let terminal = false, failed = false;
           await transport.stream(start.sessionId, {
             onDeepChunk: content => {
               if (!isCurrent() || terminal || typeof content !== 'string') return;
-              publish({ ...snapshot, deepText: snapshot.deepText + content,
-                source: (snapshot.deepText + content).trim() ? 'backend-deep' : null });
+              // The server validates before emitting, but transport completion
+              // is still required. Keep pending chunks out of UI and save state.
+              completedText += content;
             },
             onDone: () => { if (isCurrent()) terminal = true; },
             onError: () => { if (isCurrent()) { terminal = true; failed = true; } },
           }, abort.signal);
           if (!isCurrent()) return false;
-          const success = terminal && !failed && !!snapshot.deepText.trim();
+          const success = terminal && !failed && !!completedText.trim();
           if (!success) { end('failed', failed ? FAILED_MESSAGE : EMPTY_MESSAGE); return false; }
           active = null;
-          publish({ ...snapshot, status: 'success', error: null, canSend: true });
+          publish({ ...snapshot, deepText: completedText, source: 'backend-deep', status: 'success', error: null, canSend: true });
           return true;
         } catch (error) {
           const expired = !!error && typeof error === 'object' && 'message' in error && error.message === 'dev_request_expired_or_clock_skew';
@@ -177,6 +180,7 @@ export function createDevRealRequestController(options: {
       });
       try { return await Promise.race([run(), cancelled, deadline]); }
       finally {
+        completedText = '';
         clearTimeout(timeout);
         if (generation === runGeneration) { active = null; generation += 1; }
       }

@@ -9,10 +9,10 @@ const reaction = await loadTsModule(new URL('../flows/firstTwoRoundsReaction.ts'
 const validator = await loadTsModule(new URL('../flows/ef41DeepCompositionValidator.ts', import.meta.url), { './firstTwoRoundsReaction': reaction });
 const prompt = await loadTsModule(new URL('../flows/deepSystemPromptBuilder.ts', import.meta.url), { './ef41DeepCompositionValidator': validator });
 const sha256 = text => createHash('sha256').update(text).digest('hex');
-const promptBudget = text => Number(text.match(/本次 Deep 完整输出不超过 (\d+) 个字符/)?.[1]);
+const promptBudget = text => Number(text.match(/完整回复不超过 (\d+) 个字符/)?.[1]);
 const reflection = '你想慢慢说，同时仍担心大家沉默、没有回应。';
 const input = '我想把那张卡片当成慢慢说的提醒，但想到大家可能沉默还是想退出。你会怎么理解我现在的顾虑？';
-// Screenshot-transcribed fictional QA fixture, not a recovered server variable.
+// Harmless fictional fixture retained only to prove unused template budgets are ignored.
 const qaReaction = '你说的「我想把那张卡片当成慢慢说」，我听到了。';
 const qaCompanion = '我想把那张卡片当成慢慢说的提醒——你说的，我都在听。';
 const qaPrefix = qaReaction + qaCompanion;
@@ -33,7 +33,7 @@ async function complete(h, started) {
 function assertRequest(h, expectedPrefix, expectedBudget, expectedCount = 1) {
   assert.equal(h.providerRequests.length, expectedCount, 'one provider request per explicit turn, never a budget retry');
   const request = JSON.parse(h.providerRequests.at(-1).options.body);
-  assert.deepEqual(Object.keys(request).sort(), ['max_tokens', 'messages', 'model', 'stream', 'temperature']);
+  assert.deepEqual(Object.keys(request).sort(), ['enable_thinking', 'max_tokens', 'messages', 'model', 'stream', 'temperature']);
   assert.equal(request.model, 'qwen3.6-plus'); assert.equal(request.max_tokens, 1200);
   assert.equal(request.stream, true); assert.equal(request.temperature, 0.6);
   assert.equal(promptBudget(request.messages[0].content), expectedBudget);
@@ -49,72 +49,50 @@ function assertRequest(h, expectedPrefix, expectedBudget, expectedCount = 1) {
   return request;
 }
 
-for (const [name, reactionText, companionText, expectedBudget] of [
-  ['QA prefix49', qaReaction, qaCompanion, 71],
-  ['25 non-BMP code points', '🙂'.repeat(12), '🙂'.repeat(13), 95],
-  ['mixed punctuation whitespace and non-BMP', '中🙂，\n', ' 文。\n', 112],
-  ['fallback fits exactly5', '前'.repeat(60), '置'.repeat(55), 5],
-  ['fallback cannot fit4', '前'.repeat(60), '置'.repeat(56), 4],
-  ['exact full prefix120', '前'.repeat(60), '置'.repeat(60), 0],
-  ['overfull prefix121', '前'.repeat(60), '置'.repeat(61), 0],
-]) {
-  test(`actual handler sends accurate shared budget: ${name}`, async () => {
-    // An overlong synthetic candidate isolates existing validator fallback behavior.
-    const h = await harness(withPrefix(reactionText, companionText, { provider: async () => providerResponse({ text: '事'.repeat(121) }) }));
-    const started = await start(h);
-    assertRequest(h, reactionText + companionText, expectedBudget);
-    assert.equal(h.sessions[0].frontFlowText, '当前输入的本地陪伴。', 'budget is not estimated from frontFlowText');
-    assert.equal(h.sessions[0].reactionLayer, reactionText); assert.equal(h.sessions[0].companionLayer, companionText);
-    const stream = await complete(h, started);
-    const deep = stream.events().filter(x => x.eventType === 'deep.delta').map(x => x.content).join('');
-    assert.equal(deep, expectedBudget >= 5 ? '我听到了。' : '');
-    assert.ok(!stream.events().some(x => x.eventType === 'error'), 'low budget retains the existing empty-completed terminal');
-    assert.equal(h.providerRequests.length, 1); assert.deepEqual(h.identityCalls(), []);
-    if (expectedBudget < 5) {
-      const continuation = await h.request('POST', START, { input: body({ message: input, requestId: `${h.now()}_next`,
-        devConversationId: started.res.body.devConversationId, afterRequestId: started.req.body.requestId }) });
-      assert.equal(continuation.res.statusCode, 404, 'empty Deep still ends context, without absorbing PR167');
-      assert.equal(h.providerRequests.length, 1);
-    }
-  });
-}
-
-test('actual provider assembly handles the internal no-prefix boundary with budget120', async () => {
-  const h = await harness({ realValidator: true, provider: async () => providerResponse({ text: reflection }) });
-  // Greeting creates a valid ephemeral session without a provider call. The empty
-  // prefix is an injected internal boundary, not a normally generated front layer.
-  await start(h, body({ message: '你好' })); assert.equal(h.providerRequests.length, 0);
-  Object.assign(h.sessions[0], { reactionLayer: '', companionLayer: '', userMessage: input });
-  await h.startDeepAnalysis(h.sessions[0], 1, h.now() + 135000); await settle();
-  assertRequest(h, '', 120); assert.deepEqual(plain(h.sessions[0].deepChunks), [reflection]);
+for (const [name, reactionText, companionText] of [
+  ['synthetic49', qaReaction, qaCompanion],
+  ['25 non-BMP code points', '🙂'.repeat(12), '🙂'.repeat(13)],
+  ['mixed whitespace', '中🙂，\n', ' 文。\n'],
+  ['fallback used to fit exactly5', '前'.repeat(60), '置'.repeat(55)],
+  ['fallback used to exceed4', '前'.repeat(60), '置'.repeat(56)],
+  ['full former prefix120', '前'.repeat(60), '置'.repeat(60)],
+  ['overfull former prefix121', '前'.repeat(60), '置'.repeat(61)],
+]) test(`DEV full budget ignores unused front generators: ${name}`, async () => {
+  const h = await harness(withPrefix(reactionText, companionText, { provider: async () => providerResponse({ text: reflection }) }));
+  const started = await start(h);
+  assertRequest(h, '', 120);
+  for (const field of ['frontFlowText', 'reactionLayer', 'companionLayer']) assert.equal(h.sessions[0][field], '');
+  assert.ok(!h.calls.some(x => ['local.reaction', 'local.companion'].includes(x.name)));
+  const stream = await complete(h, started);
+  assert.equal(stream.events().filter(x => x.eventType === 'deep.delta').map(x => x.content).join(''), reflection);
 });
 
-for (const length of [71, 72, 84]) test(`QA prefix49 gives71; unchanged actual validator handles candidate${length}`, async () => {
-  const text = length === 84 ? reflection.repeat(4) : '事'.repeat(length - 1) + '。';
-  assert.equal(Array.from(qaPrefix).length, 49); assert.equal(Array.from(text).length, length);
+for (const length of [71, 72, 84, 119, 120, 121]) test(`full DEV budget handles candidate${length}`, async () => {
+  const text = '事'.repeat(length - 1) + '。';
   const h = await harness(withPrefix(qaReaction, qaCompanion, { provider: async () => providerResponse({ text }) }));
-  const started = await start(h); assertRequest(h, qaPrefix, 71);
-  assert.deepEqual(plain(h.sessions[0].deepChunks), [length <= 71 ? text : '我听到了。']);
+  const started = await start(h); assertRequest(h, '', 120);
+  assert.deepEqual(plain(h.sessions[0].deepChunks), [length <= 120 ? text : '我听到了。']);
   await complete(h, started);
 });
 
 for (const [source, responseOptions] of [
-  ['cleaned', { text: reflection }], ['last-resort', { text: '事'.repeat(10) }], ['reasoning', { text: reflection, reasoning: true }],
-]) test(`prompt and ${source} validator use the same exact prefix`, async () => {
+  ['cleaned', { text: reflection }], ['last-resort', { text: '事'.repeat(10) }],
+]) test(`primary prompt and ${source} validator have the same full budget`, async () => {
   const h = await harness(withPrefix(qaReaction, qaCompanion, { provider: async () => providerResponse(responseOptions) }));
-  await start(h); assertRequest(h, qaPrefix, 71);
+  await start(h); assertRequest(h, '', 120);
   const validation = h.calls.filter(x => x.name === 'validator');
   assert.equal(validation.length, 1); assert.equal(validation[0].args[0].source, source);
+  assert.equal(validation[0].args[0].devPrimaryResponse, true);
   assert.deepEqual(plain(h.sessions[0].deepChunks), [responseOptions.text]);
 });
 
-test('third DEV turn uses current prefix budget and exact bounded role-separated context', async () => {
+test('third DEV turn uses full budget and exact bounded role-separated context', async () => {
   const h = await harness(withPrefix(qaReaction, qaCompanion, { provider: async () => providerResponse({ text: reflection }) }));
   let previous;
   for (let turn = 1; turn <= 3; turn++) {
     const payload = body({ message: input, requestId: `${h.now()}_turn-${turn}`,
       ...(previous ? { devConversationId: previous.res.body.devConversationId, afterRequestId: previous.req.body.requestId } : {}) });
-    const started = await start(h, payload), sent = assertRequest(h, qaPrefix, 71, turn);
+    const started = await start(h, payload), sent = assertRequest(h, '', 120, turn);
     assert.deepEqual(sent.messages.slice(1), [
       ...Array.from({ length: turn - 1 }, () => [{ role: 'user', content: input }, { role: 'assistant', content: reflection }]).flat(),
       { role: 'user', content: input },
@@ -162,7 +140,7 @@ for (const turn of [1, 2, 3]) test(`ordinary handler does not receive DEV budget
   assert.equal(args[8], turn); assert.equal(args[10], undefined);
   const sent = JSON.parse(h.providerRequests[0].options.body);
   assert.equal(sent.messages[0].content, prompt.buildDeepSystemPrompt(...args));
-  assert.doesNotMatch(sent.messages[0].content, /本次 Deep 完整输出不超过|已占用总预算/);
+  assert.doesNotMatch(sent.messages[0].content, /完整回复不超过|已占用总预算/);
   for (const name of ['local.reaction', 'local.companion']) assert.equal(h.calls.find(x => x.name === name).args[3], turn);
 });
 

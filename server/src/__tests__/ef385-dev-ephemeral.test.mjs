@@ -46,7 +46,7 @@ test('shared cookie DEV turn runs real provider path with current input only, no
   const stream = await open(h, res.body.sessionId);
   h.tick(3100);
   assert.equal(stream.res.ended, true);
-  assert.deepEqual(stream.events().map(x => x.eventType), ['turn.started', 'reaction', 'companion', 'deep.delta', 'deep.completed', 'turn.completed']);
+  assert.deepEqual(stream.events().map(x => x.eventType), ['turn.started', 'deep.delta', 'deep.completed', 'turn.completed']);
   assert.equal(stream.events().find(x => x.eventType === 'deep.delta').content, REPLY);
   stream.close(); // Duplicate close must not introduce a late persistence write.
   assertIsolated(h);
@@ -111,16 +111,33 @@ test('ordinary unmarked first turn still uses real profile and still updates it 
   assert.ok(!names.includes('turn.incrementIdempotent'));
 });
 
-test('DEV normal_chat preserves the original local-only greeting branch without profile access', async () => {
+for (const message of ['你好', '你是谁', '你今天在做什么']) test(`DEV greeting uses the isolated primary AI path: ${message}`, async () => {
   const h = await harness();
-  const { res } = await start(h, body({ message: '你好' }));
+  const { res } = await start(h, body({ message }));
   assert.equal(res.body.requestMode, MODE);
+  assert.equal(h.providerRequests.length, 1);
+  assert.equal(res.body.frontFlowText, '');
+  assert.equal(res.body.reactionLayer, '');
+  assert.equal(res.body.companionLayer, '');
+  assert.equal(h.sessions[0].deepReadyAt, h.sessions[0].createdAt);
+  const stream = await open(h, res.body.sessionId);
+  h.tick(100);
+  assert.equal(stream.res.ended, true);
+  assert.ok(stream.events().some(x => x.eventType === 'deep.delta'));
+  assert.ok(!stream.events().some(x => ['reaction', 'companion'].includes(x.eventType)));
+  assertIsolated(h);
+});
+
+for (const message of ['你好', '你是谁', '你今天在做什么']) test(`ordinary greeting remains local-only: ${message}`, async () => {
+  const h = await harness();
+  const { res } = await h.request('POST', ORDINARY_START, { input: { roleId: 'clever-fox', message } });
+  await settle();
   assert.equal(h.providerRequests.length, 0);
+  assert.match(res.body.frontFlowText, /我是聪明狐狸/);
   const stream = await open(h, res.body.sessionId);
   h.tick(100);
   assert.equal(stream.res.ended, true);
   assert.ok(!stream.events().some(x => x.eventType === 'deep.delta'));
-  assertIsolated(h);
 });
 
 test('stop/close during in-flight provider does not write identity state when provider later finishes', async () => {
@@ -520,3 +537,6 @@ import './ef385DeepOutputRegression.test.mjs';
 
 // Absolute DEV transport/acceptance deadline and nonblocking failure cleanup.
 import './devDeepDeadline.test.mjs';
+
+// DEV primary answer completeness, safety and supported latency option.
+import './devPrimaryReply.test.mjs';

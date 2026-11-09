@@ -27,8 +27,7 @@ test('four explicit turns send only bounded role-separated completed raw pairs; 
     assert.equal(started.res.body.userTurn, i);
     for (const name of ['local.reaction', 'local.companion']) {
       const calls = h.calls.filter(call => call.name === name);
-      assert.equal(calls.length, i, 'exactly one generator call per explicit DEV turn');
-      assert.deepEqual(plain(calls.at(-1).args), ['clever-fox', input, {}, 1], 'DEV generators retain raw current input and safe entry turn even after turn two');
+      assert.equal(calls.length, 0, 'DEV never generates fixed front replies');
     }
     assert.equal(started.res.body.expiresAt, 700000, 'absolute, never sliding');
     const sent = JSON.parse(h.providerRequests.at(-1).options.body);

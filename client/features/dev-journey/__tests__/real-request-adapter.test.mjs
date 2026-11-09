@@ -53,7 +53,8 @@ test('adapter allowlists fields and uses only existing helpers with the same sig
     accountId: 'synthetic-account', conversationId: 'old-conversation', history: ['private history'],
     patterns: ['pattern'], practice: 'practice', path: 'path', }, signal);
   assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined]);
-  assert.equal(result.reactionText, 'fixed front');
+  assert.equal(result.reactionText, '');
+  assert.equal(result.companionText, '');
   const deep = []; let done = 0, failed = 0;
   await transport.stream(result.sessionId, { onDeepChunk: value => deep.push(value),
     onDone: () => done++, onError: () => failed++, }, signal);

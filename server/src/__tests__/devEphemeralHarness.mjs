@@ -42,7 +42,10 @@ export async function harness(options = {}) {
   const routes = new Map();
   const timers = new Map();
   let now = 100_000, timerId = 0, sessionId = 0;
-  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey }, cwd: () => '/mock-server' };
+  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey,
+    ...(Object.hasOwn(options, 'model') ? { MODEL_DEEP: options.model } : {}),
+    ...(Object.hasOwn(options, 'baseUrl') ? { DASHSCOPE_BASE_URL: options.baseUrl } : {}),
+  }, cwd: () => '/mock-server' };
   const tracked = (name, fn = () => undefined) => (...args) => {
     calls.push({ name, args });
     options.onCall?.(name, args);

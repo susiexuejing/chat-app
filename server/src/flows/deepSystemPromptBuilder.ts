@@ -13,11 +13,15 @@ import type { FlowResult, FlowContext } from './flowTypes';
 import { FIRST_TWO_ROUNDS_MAX_CHARS } from './ef41DeepCompositionValidator';
 
 export function buildDeepSystemPrompt(roleId: string, roleName: string, frontFlowText: string, neuralProfile?: NeuralProfile, flowResult?: FlowResult | null, changeBlock?: string, flowContext?: FlowContext | null, longTermSummary?: string, userTurn?: number, _userMessage?: string, devSession?: { userTurn: number; hasContext: boolean; deepMaxChars: number }): string {
+  // DEV answers the user's message directly, without front-layer templates or
+  // profile-derived context. Its conversation order is not an LTU turn number.
+  if (devSession) return buildDevPrimaryReplyPrompt(roleName, devSession);
+
   // EF-57: The first two turns are an entry experience, not a personality
   // biography or a memory recall. Keep their provider context deliberately
   // small so only the current user message can become a user-facing fact.
   if (userTurn && userTurn <= 2) {
-    return buildFirstTwoRoundsDeepPrompt(roleName, userTurn, devSession);
+    return buildFirstTwoRoundsDeepPrompt(roleName, userTurn);
   }
 
   let flowBlock = '';
@@ -84,17 +88,41 @@ ${depthInstruction}
 请接着前端陪伴流自然续写，让用户感受到是同一个「${roleName}」一直在陪伴ta。`;
 }
 
-function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number, devSession?: { userTurn: number; hasContext: boolean; deepMaxChars: number }): string {
-  // DEV budget is server-derived. Fail closed for invalid internal values.
-  const deepMaxChars = devSession && Number.isFinite(devSession.deepMaxChars)
+function buildDevPrimaryReplyPrompt(roleName: string, devSession: { userTurn: number; hasContext: boolean; deepMaxChars: number }): string {
+  // This is the whole visible answer budget, not a remainder after templates.
+  const deepMaxChars = Number.isFinite(devSession.deepMaxChars)
     ? Math.max(0, Math.min(FIRST_TWO_ROUNDS_MAX_CHARS, Math.floor(devSession.deepMaxChars)))
     : 0;
+  return `你是「${roleName}」，一个 AI 陪伴角色，不是真人或医师。
+
+当前是第 ${devSession.userTurn} 轮。直接回应用户当前消息，给出一段完整、简洁的回复。
+用户只会看到你的这段回复；没有前置 Reaction / Companion，不要续写或补充固定话术。
+
+===== 事实与安全合同（最高优先级）=====
+${devSession.hasContext ? '- 仅当前消息和随请求提供的本次会话用户原话可作为用户事实来源；assistant 消息只供理解对话衔接，不能把助手推断、角色设定或旧会话当作用户事实。' : '- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。'}
+- 不要提及用户之前、以前、总是、每次、又、一直如何；不要声称记得任何旧会话。
+- 不要描述你自己的现实生活、所在场景、身体动作、物件或经历；不要提及咖啡、窗边、笔记本等人格素材。
+- 不要替用户补充未说出的情绪、身体感受、事件或关系经历。
+- 不要诊断、解释原因、给建议或安排任务，也不要自动判断或保存心理模式。
+- 对问候自然回应；被问身份时如实说明是 AI 角色，不编造真人生活、专业资质或天气等未知事实。
+====================================
+
+输出要求：
+- 只输出给用户的最终自然语言回复，不要思考过程、分析步骤、JSON 或 Markdown。
+- 完整回复不超过 ${deepMaxChars} 个字符（按 Unicode 码点计数，标点、空格和换行均计入），最多两句。
+- 用陈述句自然承接，不要提问。
+- 先回应当前输入的具体意思；可在用户原话支持的范围内串起本次对话，不机械重复“我听到了”。
+- 若没有可由${devSession.hasContext ? '本次会话用户原话' : '当前输入'}支撑的话，只输出“我听到了。”
+`;
+}
+
+function buildFirstTwoRoundsDeepPrompt(roleName: string, userTurn: number): string {
   return `你是「${roleName}」。
 
-当前是第 ${devSession?.userTurn ?? userTurn} 轮。你只是在为前置 Reaction / Companion 补一句短的自然承接。
+当前是第 ${userTurn} 轮。你只是在为前置 Reaction / Companion 补一句短的自然承接。
 
 ===== 首两轮事实合同（最高优先级）=====
-${devSession?.hasContext ? '- 仅当前消息和随请求提供的本次会话用户原话可作为用户事实来源；assistant 消息只供理解对话衔接，不能把助手推断、角色设定或旧会话当作用户事实。' : '- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。'}
+- 当前这条用户消息是关于用户的唯一事实来源；不能把推测、角色设定或旧会话当作用户事实。
 - 不要提及用户之前、以前、总是、每次、又、一直如何；不要声称记得任何旧会话。
 - 不要描述你自己的现实生活、所在场景、身体动作、物件或经历；不要提及咖啡、窗边、笔记本等人格素材。
 - 不要替用户补充未说出的情绪、身体感受、事件或关系经历。
@@ -103,9 +131,9 @@ ${devSession?.hasContext ? '- 仅当前消息和随请求提供的本次会话�
 
 输出要求：
 - 只输出自然语言，不要 JSON 或 Markdown。
-${devSession ? `- 前置 Reaction / Companion 已占用总预算，本次 Deep 完整输出不超过 ${deepMaxChars} 个字符（按 Unicode 码点计数，标点、空格和换行均计入），最多两句。` : '- 完整输出不超过 120 个中文字符，最多两句。'}
-${devSession ? '- 用陈述句自然承接，不要提问。' : '- 最多一个问题；如有问题，必须是用户可以不回答的邀请。'}
-- 前置层已经在陪伴，若没有新的、可由${devSession?.hasContext ? '本次会话用户原话' : '当前输入'}支撑的话，只输出“我听到了。”
+- 完整输出不超过 120 个中文字符，最多两句。
+- 最多一个问题；如有问题，必须是用户可以不回答的邀请。
+- 前置层已经在陪伴，若没有新的、可由当前输入支撑的话，只输出“我听到了。”
 `;
 }
 
