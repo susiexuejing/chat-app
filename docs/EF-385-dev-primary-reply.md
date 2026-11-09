@@ -32,6 +32,12 @@ The follow-up remains prompt-only. It distinguishes a reported scenario from an 
 
 The regression suite replays all ten synthetic input/observed-output fixtures through the real handler to verify prompt delivery, role-separated context, one provider call per explicit send and unchanged output processing. These fixed flawed outputs deliberately remain accepted where the existing validator accepts them: passing this suite is not a claim that the quality defects are fixed. Full exact-head CI and independent real browser retesting remain required; sentence count is still a generation instruction, not an enforced validator guarantee.
 
+## Explicit history-access denial false positive
+
+The DEV validator's history-keyword gate used to turn clear replies such as “我是AI。我无法访问你之前的对话内容。” into the neutral acknowledgement because it matched “你之前” without distinguishing an access denial from a claim to know historical content. A narrow DEV-only exception now accepts a complete, explicitly worded inability-to-access or lack-of-knowledge statement, optionally preceded by a plain AI identity clause. It matches the whole candidate, not a removable clause: additional historical details, retention/deletion claims, invented feelings, quoted statements or negated negations do not qualify. The other factual, length and question checks remain in force, and ordinary-chat behavior is unchanged.
+
+This corrects a deterministically reproduced false positive without changing prompts, provider calls, retries, cleaning, context or saving. It does not establish what caused the live C1 acknowledgement because that original provider text was not collected. It also does not solve the observed causal-inference failure, broaden the exception to arbitrary denial wording, or make model answers reliably grounded. Hermetic actual-handler and validator regressions cover accepted denials, mixed unsafe claims and ordinary behavior; future bounded browser QA is still needed after authorized deployment.
+
 ## Latency scope
 
 - DEV has no artificial 3-second `deepReadyAt` floor. Completed output is eligible for the next existing 100ms publication poll; this does not imply a 3-second saving when provider work takes longer.
