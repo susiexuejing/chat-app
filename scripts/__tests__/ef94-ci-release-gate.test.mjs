@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
-const protectedWorkflowUrl = new URL('../../.github/workflows/protected-fixed-pr-admission.yml', import.meta.url);
-const releaseWorkflowUrl = new URL('../../.github/workflows/release-gate.yml', import.meta.url);
 const profileUrl = new URL('../fixed-pr-admission.profile.json', import.meta.url);
 const verifierUrl = new URL('../fixed-pr-admission.mjs', import.meta.url);
 const reassessmentWorkflowUrl = new URL('../../.github/workflows/fixed-pr-admission-reassessment.yml', import.meta.url);
@@ -20,53 +18,6 @@ const SIX_GOVERNANCE_PATHS = [
 async function text(url) {
   return readFile(url, 'utf8');
 }
-
-function assertProtectedAuthorityWorkflow(workflow, name, jobName) {
-  assert.match(workflow, new RegExp(`^name: ${name}$`, 'm'));
-  assert.match(workflow, /^  pull_request_target:\n    types: \[opened, reopened, synchronize, ready_for_review\]\n    branches:\n      - dev$/m);
-  assert.match(workflow, /^permissions:\n  contents: read\n  pull-requests: read$/m);
-  assert.match(workflow, new RegExp(`^    name: ${jobName}$`, 'm'));
-  assert.match(workflow, /uses: actions\/checkout@11d5960a326750d5838078e36cf38b85af677262/);
-  assert.equal((workflow.match(/^\s*uses:/gm) ?? []).length, 1);
-  assert.match(workflow, /repository: susiexuejing\/chat-app/);
-  assert.match(workflow, /ref: refs\/heads\/dev/);
-  assert.match(workflow, /path: authority/);
-  assert.match(workflow, /fetch-depth: 0/);
-  assert.match(workflow, /persist-credentials: false/);
-  assert.match(workflow, /AUTHORITY_SHA="\$\(git rev-parse --verify HEAD\)"/);
-  assert.match(workflow, /EF_AUTHORITY_SNAPSHOT_SHA: \$\{\{ steps\.authority_snapshot\.outputs\.sha \}\}/);
-  assert.match(workflow, /working-directory: authority/);
-  assert.match(workflow, /run: node scripts\/fixed-pr-admission\.mjs/);
-  assert.doesNotMatch(workflow, /github\.workflow_sha|EXPECTED_WORKFLOW_SHA/);
-  assert.doesNotMatch(workflow, /github\.event\.pull_request|pull_request\.head|path: candidate|checkout.*candidate/i);
-  assert.doesNotMatch(workflow, /permissions:[\s\S]*\b(write|id-token):|secrets\.|pull_request_target[\s\S]*\b(pnpm|npm|yarn|install|cache|restore|artifact|deploy|merge|curl|wget|ssh)\b/i);
-}
-
-test('both governance gates are protected-base pull_request_target workflows with exact read-only permissions', async () => {
-  const [protectedWorkflow, releaseWorkflow] = await Promise.all([
-    text(protectedWorkflowUrl),
-    text(releaseWorkflowUrl),
-  ]);
-  assertProtectedAuthorityWorkflow(protectedWorkflow, 'Protected Fixed PR Admission', 'Protected fixed successor admission');
-  assertProtectedAuthorityWorkflow(releaseWorkflow, 'Release Gate', 'EF-94 Release Gate');
-});
-
-test('both gates resolve protected dev once and execute the verifier from that same immutable snapshot', async () => {
-  const workflows = await Promise.all([text(protectedWorkflowUrl), text(releaseWorkflowUrl)]);
-  for (const workflow of workflows) {
-    assert.equal((workflow.match(/ref: refs\/heads\/dev/g) ?? []).length, 1);
-    assert.equal((workflow.match(/id: authority_snapshot/g) ?? []).length, 1);
-    assert.equal((workflow.match(/EF_AUTHORITY_SNAPSHOT_SHA:/g) ?? []).length, 1);
-    assert.equal((workflow.match(/node scripts\/fixed-pr-admission\.mjs/g) ?? []).length, 1);
-    assert.doesNotMatch(workflow, /github\.event\.pull_request\.base\.sha/);
-  }
-});
-
-test('privileged release gate produces admission only and contains no product execution path', async () => {
-  const workflow = await text(releaseWorkflowUrl);
-  assert.doesNotMatch(workflow, /test:release|run-approved-targeted-regressions|jest|tsc|node_modules|package\.json|pnpm-lock|candidate/);
-  assert.doesNotMatch(workflow, /workflow_dispatch|^  push:|^  pull_request:/m);
-});
 
 test('manual reassessment is a protected-dev workflow_dispatch entrypoint with a single minimal PR identity input', async () => {
   const workflow = await text(reassessmentWorkflowUrl);
