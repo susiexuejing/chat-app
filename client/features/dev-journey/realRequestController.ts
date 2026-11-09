@@ -114,13 +114,16 @@ export function createDevRealRequestController(options: {
       } catch {
         publish({ ...snapshot, error: '无法生成有效请求标识，请重新点击发送。' }); return false;
       }
+      const sentAt = Date.now();
       const previous = snapshot.status === 'success' && snapshot.requestId
         ? [...snapshot.completedTurns, Object.freeze({ inputText: snapshot.inputText, requestId: snapshot.requestId, sentAt: snapshot.sentAt,
           reactionText: snapshot.reactionText, companionText: snapshot.companionText, deepText: snapshot.deepText })].slice(-3)
         : snapshot.completedTurns;
       const continuation = context ? { devConversationId: context.id, afterRequestId: context.afterRequestId } : {};
       const priorExpiresAt = context?.expiresAt;
-      const priorLocalExpiresAt = context?.localExpiresAt;
+      // Receipt transit and start/auth waits count toward the disclosed local
+      // maximum. Continuations can shorten this deadline, never restart it.
+      const priorLocalExpiresAt = context?.localExpiresAt ?? sentAt + MAX_SESSION_MS;
       const runGeneration = ++generation;
       const abort = new AbortController();
       let completedText = '';
@@ -128,7 +131,7 @@ export function createDevRealRequestController(options: {
       const cancelled = new Promise<boolean>(resolve => { cancel = () => { completedText = ''; resolve(false); }; });
       active = { abort, cancel }; latestRequestId = requestId;
       const isCurrent = () => !disposed && generation === runGeneration && !abort.signal.aborted;
-      publish({ ...initial(), inputText: message, requestId, sentAt: Date.now(), completedTurns: Object.freeze(previous), status: 'starting', canSend: false });
+      publish({ ...initial(), inputText: message, requestId, sentAt, completedTurns: Object.freeze(previous), status: 'starting', canSend: false });
       let timeout: ReturnType<typeof setTimeout> | undefined;
       const run = async (): Promise<boolean> => {
         try {
@@ -141,7 +144,8 @@ export function createDevRealRequestController(options: {
             || start.remainingLifetimeMs <= 0 || start.remainingLifetimeMs > MAX_SESSION_MS
             || (continuation.devConversationId && start.devConversationId !== continuation.devConversationId)
             || (priorExpiresAt !== undefined && start.expiresAt !== priorExpiresAt)) throw new Error('dev_request_expired_or_clock_skew');
-          const localExpiresAt = Math.min(priorLocalExpiresAt ?? Infinity, Date.now() + start.remainingLifetimeMs);
+          const localExpiresAt = Math.min(priorLocalExpiresAt, Date.now() + start.remainingLifetimeMs);
+          if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
           context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
           clearTimeout(expiry);
           expiry = setTimeout(() => { if (!disposed && context?.id === start.devConversationId) end('failed', EXPIRED_MESSAGE); }, Math.max(0, localExpiresAt - Date.now()));
@@ -161,6 +165,7 @@ export function createDevRealRequestController(options: {
             onError: () => { if (isCurrent()) { terminal = true; failed = true; } },
           }, abort.signal);
           if (!isCurrent()) return false;
+          if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
           const success = terminal && !failed && !!completedText.trim();
           if (!success) { end('failed', failed ? FAILED_MESSAGE : EMPTY_MESSAGE); return false; }
           active = null;
