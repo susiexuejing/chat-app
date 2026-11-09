@@ -13,7 +13,7 @@ type Scope = { accountId: string; patternId: string };
 type CorrectionTarget = { patternId: string; version: number; name: string; understanding: string };
 type Draft =
   | { kind: 'candidate'; accountId: string; text: string; input: string; requestId: string; mode: 'new' | 'correct' | null; target: CorrectionTarget | null; choices: Pattern[] | null; readError: string }
-  | (Scope & { kind: 'mode'; name: string; understanding: string; version: number })
+  | (Scope & { kind: 'mode'; name: string; understanding: string; decision: Decision; version: number })
   | (Scope & { kind: 'practice'; cue: string; action: string; version: number })
   | (Scope & { kind: 'record'; payload: RecordPayload; version: number; operationId: string; occurredChosen: boolean })
   | (Scope & { kind: 'path'; entry: PathEntry; explanation: string; feeling: string })
@@ -24,6 +24,7 @@ type ReadState<T> = { status: 'idle' | 'loading'; data: null } | { status: 'erro
 const feelings = [ ['helped', '有帮助'], ['unchanged', '没有变化'], ['worse', '更难受'], ['not_recorded', '暂不记录'] ] as const;
 const actions = [ ['agreed', '做了约定动作'], ['other', '做了其他动作'], ['none', '没有行动'] ] as const;
 const decisionLabels: Record<Decision, string> = { candidate: '演示候选 · 待确认', confirmed: '已确认', uncertain: '暂不确定', rejected: '不符合' };
+const decisionChoices = [ ['confirmed', '符合我的体验'], ['rejected', '不符合'], ['uncertain', '还不确定'] ] as const;
 const typeLabels = { event: '事件', correction: '理解修正', practice: '练习记录', exception: '例外' };
 const clueLabels = { situation: '情境', thought: '想法', feeling: '感受', behavior: '行为', exception: '例外' };
 const errorText = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
@@ -248,7 +249,7 @@ export default function SyntheticDemoScreen() {
         }, current.mode === 'new' ? 0 : current.target!.version, current.mode === 'new' ? undefined : current.target!.patternId);
       }
       if (current.patternId !== selectedPatternId || current.accountId !== snapshot?.session) throw new Error('模式选择已变化，请重新打开后再编辑。');
-      if (current.kind === 'mode') return repo.updatePattern(current.accountId, current.patternId, { name: current.name, currentUnderstanding: current.understanding }, current.version);
+      if (current.kind === 'mode') return repo.updatePattern(current.accountId, current.patternId, { name: current.name, currentUnderstanding: current.understanding, decision: current.decision }, current.version);
       if (current.kind === 'practice') return repo.savePractice(current.accountId, current.patternId, { ifCue: current.cue, thenAction: current.action }, current.version);
       if (current.kind === 'record') {
         if (!current.occurredChosen) throw new Error('请先选择触发情境是否发生，草稿尚未保存。');
@@ -327,6 +328,9 @@ export default function SyntheticDemoScreen() {
       {current.kind === 'mode' && <>
         <Field testID="pattern-name" label="模式名称" value={current.name} maxLength={80} onChange={name => editDraft(current, { ...current, name })} />
         <Field testID="pattern-understanding" label="当前理解" value={current.understanding} maxLength={2000} multiline onChange={understanding => editDraft(current, { ...current, understanding })} />
+        <Choices<Decision> testID="pattern-decision" label="这条模式符合我的体验吗？" options={decisionChoices} value={current.decision}
+          onChange={decision => editDraft(current, { ...current, decision })} />
+        <Text className="text-sm text-stone-600">判断在保存后生效，之后仍可重新判断。只改文字会保留原判断；尚未判断的候选不会自动确认，也不必填写完整解释。</Text>
       </>}
       {current.kind === 'practice' && <>
         <Field testID="practice-cue" label="如果（触发线索）" value={current.cue} maxLength={200} onChange={cue => editDraft(current, { ...current, cue })} />
@@ -442,7 +446,7 @@ export default function SyntheticDemoScreen() {
       <Card><Text className="text-lg font-semibold text-stone-900">我的当前理解</Text>
         <Text testID="pattern-understanding-current" className="text-base text-stone-800">{!understandingExpanded && pattern.currentUnderstanding.length > 180 ? `${pattern.currentUnderstanding.slice(0, 180)}…` : pattern.currentUnderstanding || '尚未填写当前理解。'}</Text>
         {pattern.currentUnderstanding.length > 180 && <Button testID="understanding-toggle" title={understandingExpanded ? '收起理解' : '展开完整理解'} secondary onPress={() => { if (currentView()) setUnderstandingExpanded(value => !value); }} />}
-        <Button testID="pattern-edit" title="编辑名称与当前理解" secondary onPress={() => { if (currentView()) changeDraft({ kind: 'mode', ...scope, name: pattern.name, understanding: pattern.currentUnderstanding, version: pattern.version }); }} />
+        <Button testID="pattern-edit" title="编辑理解与重新判断" secondary onPress={() => { if (currentView()) changeDraft({ kind: 'mode', ...scope, name: pattern.name, understanding: pattern.currentUnderstanding, decision: pattern.decision, version: pattern.version }); }} />
         <Pressable testID="clues-toggle" accessibilityRole="button" accessibilityState={{ expanded: cluesExpanded }} onPress={() => { if (currentView()) setCluesExpanded(value => !value); }} className="py-3" style={{ minHeight: 44 }}>
           <Text className="font-medium text-green-800">{cluesExpanded ? '收起线索' : `了解更多 · 已有线索（${pattern.clues.length}）`}</Text>
         </Pressable>

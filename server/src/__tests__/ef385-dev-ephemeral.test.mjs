@@ -511,7 +511,9 @@ import './devPendingCancellation.test.mjs';
 // DEV shared visible-budget alignment uses the same existing CI entrypoint.
 import './devDeepBudget.test.mjs';
 
-// Temporary EF-385 result-category privacy, parity and real-handler contracts.
-import './ef385ValidatorDiagnostic.test.mjs';
-import './ef385DevResultDiagnostic.test.mjs';
-import './ef385DevResultIntegration.test.mjs';
+// DEV-only declarative prompt, through the actual prompt and provider request.
+import './devDeclarativePrompt.test.mjs';
+
+// Preserve normal output parity and retirement guards after the temporary diagnostic.
+import './ef385ValidatorParity.test.mjs';
+import './ef385DeepOutputRegression.test.mjs';
