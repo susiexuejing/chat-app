@@ -36,6 +36,11 @@ const ASSISTANT_LIFE_PATTERN = /(?:我(?:正|正在|在|刚|会).{0,12}(?:喝咖
 
 const HISTORY_CLAIM_PATTERN = /(?:你|用户).{0,12}(?:之前|以前|总是|每次|又|一直|还记得)|(?:之前|以前|总是|每次|又|一直|还记得).{0,12}(?:说|提到|觉得|感到|经历)/;
 
+// A complete, narrowly phrased DEV access denial is not a claim to know history.
+// Match the entire answer, optionally preceded by a plain AI identity clause;
+// never remove a denied clause and accidentally hide another historical claim.
+const DEV_HISTORY_ACCESS_DENIAL_PATTERN = /^(?:我是\s*(?:AI|人工智能)[，,。]\s*)?我?(?:(?:无法|不能)(?:访问|读取|获取|查看)你(?:之前|以前)的(?:对话|聊天)(?:内容|记录)?|(?:不知道|不清楚)你(?:之前|以前)(?:说过|聊过|提过)(?:什么|的内容))[。！!]?$/i;
+
 const OPTIONAL_INVITATION_PATTERN = /(?:如果你愿意|要是你愿意|想的话|若你愿意|愿意的话|可以不回答)/;
 
 const INFERRED_FACT_TERMS = [
@@ -78,18 +83,20 @@ function hasUnsupportedInferredFact(text: string, userMessage: string): boolean 
   return INFERRED_FACT_TERMS.some(term => text.includes(term) && !userMessage.includes(term));
 }
 
-function hasFirstTwoRoundsFactViolation(text: string, userMessage: string): boolean {
+function hasFirstTwoRoundsFactViolation(text: string, userMessage: string, devPrimaryResponse = false): boolean {
+  const hasHistoryClaim = HISTORY_CLAIM_PATTERN.test(text)
+    && !(devPrimaryResponse && DEV_HISTORY_ACCESS_DENIAL_PATTERN.test(text.trim()));
   return ASSISTANT_LIFE_PATTERN.test(text)
-    || HISTORY_CLAIM_PATTERN.test(text)
+    || hasHistoryClaim
     || hasUnsupportedInferredFact(text, userMessage);
 }
 
-function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = ''): boolean {
+function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = '', devPrimaryResponse = false): boolean {
   const trimmed = text.trim();
   const remainingVisibleBudget = FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(visiblePrefix).length;
   if (!trimmed || Array.from(trimmed).length > remainingVisibleBudget) return false;
   // Sentence cleanup may join text that did not match the raw factual gate.
-  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage)) return false;
+  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage, devPrimaryResponse)) return false;
 
   const questionCount = (trimmed.match(/[？?]/g) || []).length;
   if (questionCount > 1) return false;
@@ -116,7 +123,7 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
   const userFacts = [...(input.sameSessionUserMessages ?? []), input.userMessage].join('\n');
 
   // Preserve factual violations before sentence selection can discard or replace them.
-  if (hasFirstTwoRoundsFactViolation(input.text, userFacts)) {
+  if (hasFirstTwoRoundsFactViolation(input.text, userFacts, input.devPrimaryResponse)) {
     return firstTwoRoundsFallback(input.visiblePrefix);
   }
 
@@ -130,7 +137,7 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
       && (candidate.includes('```') || !sentences.length || !sentences.every(isUsefulDeclarativeSentence))) {
       return firstTwoRoundsFallback(input.visiblePrefix);
     }
-    return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix)
+    return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix, true)
       ? candidate
       : firstTwoRoundsFallback(input.visiblePrefix);
   }

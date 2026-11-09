@@ -543,3 +543,6 @@ import './devPrimaryReply.test.mjs';
 
 // DEV grounded-understanding task and correction-aware provider context contract.
 import './devGroundedUnderstandingPrompt.test.mjs';
+
+// DEV explicit access denials must not be mistaken for remembered history.
+import './devHistoryAccessDenial.test.mjs';
