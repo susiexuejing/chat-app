@@ -282,7 +282,8 @@ async function callDashScope(
   stream: boolean,
   maxTokens: number = 1200,
   signal?: AbortSignal,
-  devDeadlineAt?: number
+  devDeadlineAt?: number,
+  devPrimaryReply = false
 ): Promise<Response> {
   const url = `${baseUrl}/chat/completions`;
 
@@ -292,6 +293,11 @@ async function callDashScope(
     stream,
     max_tokens: maxTokens,
     temperature: 0.6,
+    // Official DashScope OpenAI-compatible option, only for the two verified
+    // model IDs on the exact known endpoint. Do not guess proxy capabilities.
+    ...(devPrimaryReply && baseUrl === 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+      && (model === 'qwen3.6-plus' || model === 'qwen3.6-plus-2026-04-02')
+      ? { enable_thinking: false } : {}),
   });
 
   // 60秒超时控制（Deep模型流式回复较慢）
@@ -384,8 +390,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       isDevEphemeral ? {
         userTurn: session.devTurn ?? 1,
         hasContext: !!session.devContext?.length,
-        // Use the exact visible prefix counted by the unchanged validator below.
-        deepMaxChars: Math.max(0, FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(`${session.reactionLayer}${session.companionLayer}`).length),
+        // DEV has no front-layer text; the full existing budget is the answer.
+        deepMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
       } : undefined);
     const deepMessages = [
       { role: 'system', content: systemPrompt },
@@ -407,7 +413,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       true,      // stream: true
       1200,      // max_tokens: 确保有足够空间输出中文回复
       session.devAbort?.signal,
-      isDevEphemeral ? session.devDeepDeadlineAt : undefined
+      isDevEphemeral ? session.devDeepDeadlineAt : undefined,
+      isDevEphemeral
     );
 
     if (!activeDevTurn(session) || (isDevEphemeral && remainingDevMs() <= 0)) {
@@ -623,6 +630,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         userTurn,
         userMessage: session.userMessage,
         sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
+        ...(isDevEphemeral ? { devPrimaryResponse: true } : {}),
         source: 'cleaned',
         visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
       }));
@@ -641,6 +649,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           userTurn,
           userMessage: session.userMessage,
           sameSessionUserMessages: isDevEphemeral ? session.devContext?.map(pair => pair.user) : undefined,
+          ...(isDevEphemeral ? { devPrimaryResponse: true } : {}),
           source: 'last-resort',
           visiblePrefix: `${session.reactionLayer}${session.companionLayer}`,
         }));
@@ -656,8 +665,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     }
 
     // 如果 content 流为空但累积了 reasoning_content（推理模型），
-    // 将 reasoning_content 作为最终内容推给前端
-    if (completedChunks.length === 0 && reasoningBuffer.trim()) {
+    // 仅保留普通聊天原行为；DEV 不能把推理字段当作最终回复。
+    if (!isDevEphemeral && completedChunks.length === 0 && reasoningBuffer.trim()) {
       completedChunks.push(validateEf41DeepOutput({
         text: reasoningBuffer.trim(),
         roleId: session.roleId,
@@ -1173,7 +1182,22 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     let deepStreaming: boolean;
     let flowContext: FlowContext | null = null;
 
-    if (normalChat) {
+    if (isDevEphemeral) {
+      // Every explicit DEV send, including greetings, uses one AI answer.
+      // No fixed front layers, inferred profile, or artificial 3-second floor.
+      emotionTag = 'general';
+      eventTag = 'general';
+      state = {};
+      keywords = [];
+      frontFlowText = '';
+      reactionLayer = '';
+      companionLayer = '';
+      reactionTimeline = undefined;
+      companionTimeline = undefined;
+      deepReadyAt = Date.now();
+      deepDone = false;
+      deepStreaming = false;
+    } else if (normalChat) {
       // normal_chat：不走情感识别，不走深度分析
       emotionTag = 'general';
       eventTag = 'general';
@@ -1204,13 +1228,8 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
 
       // 4. EmotionFlow V3: 本地秒回引擎（零百炼依赖）
       const signal = extractSignal(message);
-      if (isDevEphemeral) {
-        reactionTimeline = generateReactionTimeline(roleId, message, signal, 1);
-        companionTimeline = generateCompanionTimeline(roleId, message, signal, 1);
-      } else {
-        reactionTimeline = generateReactionTimeline(roleId, message, signal, userTurn);
-        companionTimeline = generateCompanionTimeline(roleId, message, signal, userTurn);
-      }
+      reactionTimeline = generateReactionTimeline(roleId, message, signal, userTurn);
+      companionTimeline = generateCompanionTimeline(roleId, message, signal, userTurn);
       reactionLayer = reactionTimeline[0]?.text || frontFlowText.split('。')[0] + '。';
       companionLayer = companionTimeline[0]?.text || frontFlowText;
 
@@ -1265,7 +1284,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     sessions.set(sessionId, session);
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_created',
-      providerCategory: normalChat ? 'not_reached' : undefined,
+      providerCategory: normalChat && !isDevEphemeral ? 'not_reached' : undefined,
       frontendErrorMappingCategory: 'none',
       ef45ProbeMarker,
     });
@@ -1296,7 +1315,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     });
 
     // 7. 后台异步调用百炼（normal_chat 跳过深度分析）
-    if (normalChat) {
+    if (normalChat && !isDevEphemeral) {
       console.log('[Start] Request mode selected', {
         mode: 'normal_chat',
       });
@@ -1463,8 +1482,10 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       flowRisk: session.flowContext.flowRisk || null,
     } : null,
   });
-  emit('reaction', { content: session.reactionLayer || '' });
-  emit('companion', { content: session.companionLayer || '' });
+  if (session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE) {
+    emit('reaction', { content: session.reactionLayer || '' });
+    emit('companion', { content: session.companionLayer || '' });
+  }
 
   let lastIndex = 0;
   let lastHeartbeat = Date.now();

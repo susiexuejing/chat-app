@@ -18,13 +18,6 @@ function assertAllowed(signal: AbortSignal) {
   }
 }
 
-function frontText(timeline: Array<{ text: string }> | undefined, fallback: string | undefined): string {
-  const text = Array.isArray(timeline)
-    ? timeline.map(item => typeof item?.text === 'string' ? item.text : '').filter(Boolean).join('\n\n')
-    : '';
-  return text || (typeof fallback === 'string' ? fallback : '');
-}
-
 /** Uses only the existing authenticated helpers. Never reads/persists chat history. */
 export function createDevRealRequestTransport(): DevRealRequestTransport {
   return {
@@ -54,8 +47,8 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
         devConversationId: result.devConversationId!,
         expiresAt: result.expiresAt!,
         remainingLifetimeMs: result.remainingLifetimeMs!,
-        reactionText: frontText(result.reactionTimeline, result.reactionLayer || result.frontFlowText),
-        companionText: frontText(result.companionTimeline, result.companionLayer),
+        reactionText: '',
+        companionText: '',
       };
     },
     end: requestId => endDevConversation(requestId),

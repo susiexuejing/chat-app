@@ -227,6 +227,77 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
+  it('shows thinking until the full reply completes, then saves that exact understanding only by explicit choice through practice and record', async () => {
+    const answer = '今天拍摄花草，明天整理照片，这是你说出的安排。两件事情分别对应不同的时间。';
+    let callbacks!: DevRealRequestCallbacks;
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    mockStream.mockImplementation(async (_session, next) => { callbacks = next; await pending; });
+    await mount(); await login();
+    const before = values.get(STORAGE_KEY); storage.setItem.mockClear();
+    await send('虚构场景：今天我想拍花草，明天再整理照片。');
+    expect(output()).toContain('正在思考');
+    expect(output()).not.toContain('前层即时回应'); expect(output()).not.toContain('前层陪伴回应');
+    await act(async () => { callbacks.onDeepChunk(answer.slice(0, 20)); });
+    expect(output()).not.toContain(answer.slice(0, 20));
+    expect(nodes('candidate-confirm')).toHaveLength(0);
+    expect(nodes('candidate-save')).toHaveLength(0);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(values.get(STORAGE_KEY)).toBe(before);
+    await act(async () => { callbacks.onDeepChunk(answer.slice(20)); callbacks.onDone(); finish(); });
+    expect(output()).toContain(answer); expect(output()).not.toContain('正在思考');
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(saved().patterns).toEqual([]);
+    await press('candidate-confirm');
+    expect(node('candidate-text').props.value).toBe(answer);
+    expect(node('candidate-save').props.disabled).toBe(true);
+    await press('candidate-new-choice'); await press('candidate-save');
+    const created = onlyPattern();
+    expect(created.pattern.currentUnderstanding).toBe(answer);
+    expect(created.path[0].fact).toContain('今天我想拍花草，明天再整理照片。');
+    expect(created.path[0].origin).toEqual(created.pattern.origin);
+    expect(created.practice).toBeNull(); expect(created.records).toEqual([]);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    await practice(); await press('practice-edit');
+    await type('practice-cue', '虚构线索：拍摄结束'); await type('practice-action', '给照片分组');
+    await press('practice-save'); await press('practice-activate');
+    await recordOther(); await press('record-save');
+    const completed = onlyPattern();
+    expect(completed.pattern.currentUnderstanding).toBe(answer);
+    expect(completed.records).toHaveLength(1);
+    expect(completed.path.find(entry => entry.type === 'practice')?.recordId).toBe(completed.records[0].recordId);
+    expect(completed.path.find(entry => entry.entryId === created.path[0].entryId)).toEqual(created.path[0]);
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    await act(async () => { tree.unmount(); }); mounted = false; await mount();
+    expect(onlyPattern().pattern.currentUnderstanding).toBe(answer);
+    expect(onlyPattern().records).toEqual(completed.records);
+    expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['error', 'missing terminal', 'empty completion', 'stop'] as const)(
+    '%s never publishes or saves a pending primary answer', async outcome => {
+      let callbacks!: DevRealRequestCallbacks;
+      let finish!: () => void;
+      const pending = new Promise<void>(resolve => { finish = resolve; });
+      mockStream.mockImplementation(async (_session, next) => { callbacks = next; await pending; });
+      await mount(); await login();
+      const before = values.get(STORAGE_KEY); storage.setItem.mockClear();
+      await send();
+      if (outcome !== 'empty completion') await act(async () => { callbacks.onDeepChunk('未完成的候选内容不得显示或保存'); });
+      expect(output()).toContain('正在思考');
+      expect(output()).not.toContain('未完成的候选内容不得显示或保存');
+      expect(nodes('candidate-confirm')).toHaveLength(0);
+      if (outcome === 'stop') await press('dev-stop');
+      await act(async () => {
+        if (outcome === 'error') callbacks.onError();
+        if (outcome === 'empty completion' || outcome === 'stop') callbacks.onDone();
+        finish();
+      });
+      expect(output()).not.toContain('未完成的候选内容不得显示或保存');
+      expect(nodes('candidate-confirm')).toHaveLength(0); expect(nodes('candidate-save')).toHaveLength(0);
+      expect(values.get(STORAGE_KEY)).toBe(before); expect(storage.setItem).not.toHaveBeenCalled();
+      expect(mockStart).toHaveBeenCalledTimes(1);
+    },
+  );
+
   it('a failed candidate save retains its edit and a new request clears the prior saved notice', async () => {
     await mount(); await login(); await send(); await press('candidate-confirm');
     await press('candidate-new-choice');

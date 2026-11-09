@@ -80,9 +80,9 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   for (const turn of [...state.completedTurns, state]) {
     if (!turn.requestId) continue;
     if (turn.inputText) messages.push({ id: `${turn.requestId}-user`, role: 'user', content: turn.inputText, timestamp: turn.sentAt });
-    for (const [layer, content] of [['reaction', turn.reactionText], ['companion', turn.companionText], ['deep', turn.deepText]] as const) {
-      if (content) messages.push({ id: `${turn.requestId}-${layer}`, role: 'assistant', content, responseLayer: layer, timestamp: turn.sentAt });
-    }
+    // Only a completed, server-validated answer belongs in the conversation.
+    // Never render front templates or an in-flight partial candidate.
+    if (turn.deepText) messages.push({ id: `${turn.requestId}-deep`, role: 'assistant', content: turn.deepText, responseLayer: 'deep', timestamp: turn.sentAt });
   }
   const confirm = () => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.source === 'backend-deep' && state.requestId) {
@@ -91,8 +91,8 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   };
   const statusText = state.error ?? {
     idle: '仅点击发送才会请求。同一对话可连续发送，不加载原聊天历史。',
-    starting: '正在向 DEV 服务端发送当前输入…',
-    streaming: '等待完整的后端 Deep 回复，前层回应不代表上游模型成功。',
+    starting: '正在思考',
+    streaming: '正在思考',
     success: `${DEV_REAL_REQUEST_SOURCE_NOTICE} 本轮已完成。可继续明确发送下一条，或结束对话。`,
     failed: state.error ?? '本次请求未完成。',
     stopped: '本次会话已结束，上下文已清除；未自动保存理解。',
@@ -109,6 +109,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       <Text className="text-xs text-stone-600">{DEV_REAL_REQUEST_STOP_NOTICE}</Text>
     </View>
     <MessageListView messages={messages} currentRole={role} setInputText={text => setInput(`虚构场景：${text}`)}
+      generatingLabel="正在思考"
       turnStatus={busy ? 'generating' : state.status === 'success' ? 'completed' : 'idle'}
       retryLastMessage={() => undefined} onShowIntro={() => setShowIntro(value => !value)}
       footer={<View className="px-4 pb-4 gap-3">

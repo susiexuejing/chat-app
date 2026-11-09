@@ -12,6 +12,8 @@ export interface Ef41DeepCompositionInput {
   visiblePrefix?: string;
   /** DEV only: bounded user-authored raw messages, never assistant assertions. */
   sameSessionUserMessages?: readonly string[];
+  /** Server-owned DEV primary reply: validate all sentences, do not select a supplement. */
+  devPrimaryResponse?: boolean;
 }
 
 export const EF41_DEEP_FALLBACK = '等这一团稍微松开，事情的轻重也许会慢慢显出来。';
@@ -116,6 +118,21 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
   // Preserve factual violations before sentence selection can discard or replace them.
   if (hasFirstTwoRoundsFactViolation(input.text, userFacts)) {
     return firstTwoRoundsFallback(input.visiblePrefix);
+  }
+
+  // DEV has no preceding templates. Keep the complete candidate, but require
+  // every overload sentence to pass the existing strict declarative/action gate.
+  // Do not remove an unsafe sentence and silently publish the rest as complete.
+  if (input.devPrimaryResponse) {
+    const candidate = input.text.trim();
+    const sentences = splitSentences(candidate);
+    if (shouldValidateEf41DeepOutput(input)
+      && (candidate.includes('```') || !sentences.length || !sentences.every(isUsefulDeclarativeSentence))) {
+      return firstTwoRoundsFallback(input.visiblePrefix);
+    }
+    return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix)
+      ? candidate
+      : firstTwoRoundsFallback(input.visiblePrefix);
   }
 
   const candidate = shouldValidateEf41DeepOutput(input)

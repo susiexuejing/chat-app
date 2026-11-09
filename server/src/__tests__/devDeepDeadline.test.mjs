@@ -59,11 +59,11 @@ for (const ordinary of [false, true]) for (const elapsed of [70000, 119999]) {
   });
 }
 
-for (const justInTime of [false, true]) test(`auth/front/header elapsed deducted from one 135s deadline: ${justInTime ? '134999 success' : '135000 failure'}`, async () => {
+for (const justInTime of [false, true]) test(`auth/session/header elapsed deducted from one 135s deadline: ${justInTime ? '134999 success' : '135000 failure'}`, async () => {
   const auth = deferred(), headers = deferred(), d = delayedBody();
   let h;
   h = await harness({ authWait: req => req.body?.message ? auth.promise : undefined,
-    onCall: name => { if (name === 'local.reaction') h.elapse(10000); },
+    onCall: (name, args) => { if (name === 'audit' && args[0]?.dbSessionCategory === 'session_created') h.elapse(10000); },
     provider: () => headers.promise });
   const pending = start(h); await settle();
   h.tick(20000); auth.resolve(); const r = await pending;
@@ -86,10 +86,10 @@ for (const justInTime of [false, true]) test(`auth/front/header elapsed deducted
   stream.close();
 });
 
-for (const phase of ['auth', 'front', 'prompt']) test(`expired ${phase} work never invokes provider, without a pending-auth watchdog`, async () => {
+for (const phase of ['auth', 'session', 'prompt']) test(`expired ${phase} work never invokes provider, without a pending-auth watchdog`, async () => {
   const auth = deferred(); let h;
   h = await harness({ authWait: req => phase === 'auth' && req.body?.message ? auth.promise : undefined,
-    onCall: name => { if ((phase === 'front' && name === 'local.reaction') || (phase === 'prompt' && name === 'prompt')) h.elapse(135000); } });
+    onCall: (name, args) => { if ((phase === 'session' && name === 'audit' && args[0]?.dbSessionCategory === 'session_created') || (phase === 'prompt' && name === 'prompt')) h.elapse(135000); } });
   let settled = false;
   const pending = start(h).then(r => { settled = true; return r; });
   await settle();

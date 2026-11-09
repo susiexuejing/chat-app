@@ -70,14 +70,14 @@ test('invalid request IDs never reach transport or consume a turn', async () => 
   }
 });
 
-test('success separates front layers and Deep, sending only allowlisted current input', async () => {
+test('success omits front layers and sends only allowlisted current input', async () => {
   const { controller, calls } = setup();
   assert.equal(await controller.send('  current input  '), true);
   assert.deepEqual(JSON.parse(JSON.stringify(calls.start[0][0])), { roleId: 'clever-fox', message: 'current input', requestId: 'request-1' });
   assert.equal(calls.start[0][1], calls.stream[0][2]);
   assert.deepEqual(JSON.parse(JSON.stringify(controller.getSnapshot())), {
     status: 'success', inputText: 'current input', requestId: 'request-1', sentAt: controller.getSnapshot().sentAt,
-    reactionText: 'front reaction', companionText: 'front companion', deepText: 'backend Deep',
+    reactionText: '', companionText: '', deepText: 'backend Deep',
     completedTurns: [], error: null, canSend: true, source: 'backend-deep',
   });
   assert.equal(await controller.send('explicit second turn'), true);
@@ -294,4 +294,43 @@ test('explicit clock/expiry rejection is safe and never regenerated or retried',
   assert.equal(await controller.send('one'), false);
   assert.match(controller.getSnapshot().error, /时钟/); assert.equal(calls.uuid, 1);
   assert.equal(await controller.send('retry'), false); assert.equal(calls.uuid, 1);
+});
+
+
+test('pending chunks stay private until both a successful terminal and transport completion', async () => {
+  const pending = deferred(); let callbacks;
+  const { controller } = setup({ stream: async (_s, c) => { callbacks = c; await pending.promise; } });
+  const notifications = [];
+  controller.subscribe(() => notifications.push(controller.getSnapshot()));
+  const result = controller.send('fictional current input'); await flush();
+  callbacks.onDeepChunk('first complete sentence.');
+  callbacks.onDeepChunk(' second complete sentence.');
+  for (const state of notifications) {
+    assert.equal(state.deepText, ''); assert.equal(state.source, null);
+    assert.equal(state.reactionText, ''); assert.equal(state.companionText, '');
+  }
+  assert.equal(controller.getSnapshot().status, 'streaming');
+  callbacks.onDone();
+  assert.equal(controller.getSnapshot().deepText, '', 'terminal callback alone does not complete a pending transport');
+  pending.resolve(); assert.equal(await result, true);
+  assert.equal(controller.getSnapshot().deepText, 'first complete sentence. second complete sentence.');
+  assert.equal(notifications.filter(state => state.deepText).length, 1, 'publish the entire completed answer once');
+  controller.dispose();
+});
+
+for (const finish of ['error', 'throw', 'no-terminal', 'stop', 'reset']) test(`pending primary reply is never exposed after ${finish}`, async () => {
+  const pending = deferred(); let callbacks;
+  const { controller } = setup({ stream: async (_s, c) => { callbacks = c; await pending.promise; } });
+  const notifications = [];
+  controller.subscribe(() => notifications.push(controller.getSnapshot()));
+  const result = controller.send('fictional input'); await flush();
+  callbacks.onDeepChunk('must never appear as a completed answer');
+  if (finish === 'error') callbacks.onError();
+  if (finish === 'stop') controller.stop();
+  if (finish === 'reset') controller.reset();
+  if (finish === 'throw') { callbacks.onDone(); pending.reject(new Error('late transport failure')); }
+  else pending.resolve();
+  assert.equal(await result, false);
+  for (const state of notifications) { assert.equal(state.deepText, ''); assert.equal(state.source, null); }
+  controller.dispose();
 });

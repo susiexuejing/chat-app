@@ -28,10 +28,12 @@ export interface MessageListViewProps {
   onShowIntro: () => void;
   /** Additional UI stays inside the original message scroll area. */
   footer?: React.ReactNode;
+  /** DEV can label its primary-answer wait without changing ordinary chat. */
+  generatingLabel?: string;
 }
 
 export function MessageListView({
-  messages, currentRole, setInputText, turnStatus, retryLastMessage, onShowIntro, footer,
+  messages, currentRole, setInputText, turnStatus, retryLastMessage, onShowIntro, footer, generatingLabel,
 }: MessageListViewProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   
@@ -167,7 +169,7 @@ export function MessageListView({
           <View className="bg-gray-100 dark:bg-gray-800 px-4 py-3 rounded-2xl rounded-bl-md flex-row items-center">
             <ActivityIndicator size="small" color={currentRole?.themeColor} className="mr-2" />
             <Text className="text-gray-500 dark:text-gray-400 text-sm">
-              {currentRole?.name} 正在思考中...
+              {generatingLabel ?? `${currentRole?.name ?? ''} 正在思考中...`}
             </Text>
           </View>
         </View>
