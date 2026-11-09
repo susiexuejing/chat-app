@@ -85,7 +85,7 @@ test('actual provider assembly handles the internal no-prefix boundary with budg
   // prefix is an injected internal boundary, not a normally generated front layer.
   await start(h, body({ message: '你好' })); assert.equal(h.providerRequests.length, 0);
   Object.assign(h.sessions[0], { reactionLayer: '', companionLayer: '', userMessage: input });
-  await h.startDeepAnalysis(h.sessions[0]); await settle();
+  await h.startDeepAnalysis(h.sessions[0], 1, h.now() + 135000); await settle();
   assertRequest(h, '', 120); assert.deepEqual(plain(h.sessions[0].deepChunks), [reflection]);
 });
 

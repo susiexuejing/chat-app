@@ -45,6 +45,7 @@ export async function harness(options = {}) {
   const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey }, cwd: () => '/mock-server' };
   const tracked = (name, fn = () => undefined) => (...args) => {
     calls.push({ name, args });
+    options.onCall?.(name, args);
     return fn(...args);
   };
   const timer = (fn, delay, repeat) => {
@@ -58,11 +59,11 @@ export async function harness(options = {}) {
       const next = [...timers].filter(([, t]) => t.due <= target).sort((a, b) => a[1].due - b[1].due)[0];
       if (!next) break;
       const [id, t] = next;
-      now = t.due;
+      now = Math.max(now, t.due);
       if (t.repeat) t.due += t.delay; else timers.delete(id);
       t.fn();
     }
-    now = target;
+    now = Math.max(now, target);
   }
   const app = {
     use() {},
@@ -156,6 +157,11 @@ export async function harness(options = {}) {
 
   const context = vm.createContext({
     process: processMock, AbortController, TextDecoder,
+    JSON: Object.assign(Object.create(JSON), { stringify: (...args) => {
+      const result = JSON.stringify(...args);
+      options.onSerialize?.(args[0]);
+      return result;
+    } }),
     Date: class extends Date { static now() { return now; } },
     setInterval: (fn, ms) => timer(fn, ms, true), clearInterval: id => timers.delete(id),
     setTimeout: (fn, ms) => timer(fn, ms, false), clearTimeout: id => timers.delete(id),
@@ -236,7 +242,7 @@ export async function harness(options = {}) {
       json(value) { this.body = value; this.ended = true; return this; },
       on(name, fn) { events.set(name, fn); },
       setHeader(key, value) { this.headers[key] = value; },
-      write(value) { this.writes.push(value); },
+      write(value) { this.writes.push(value); options.onWrite?.(value); },
       end() { this.ended = true; events.get('close')?.(); },
     };
     const handler = routes.get(`${method} ${path}`);
@@ -244,7 +250,7 @@ export async function harness(options = {}) {
     else await handler(req, res);
     return { req, res, close: () => events.get('close')?.(), events: () => res.writes.filter(x => x.startsWith('data: ')).map(x => JSON.parse(x.slice(6))) };
   }
-  return { now: () => now, calls, logs, sessions: observedSessions, providerRequests, routes, tick, request, process: processMock,
+  return { now: () => now, calls, logs, sessions: observedSessions, providerRequests, routes, tick, elapse: ms => { now += ms; }, request, process: processMock,
     mode: modeModule.namespace, startDeepAnalysis: module.namespace.startDeepAnalysis, profile,
     identityCalls: () => calls.filter(({ name }) => /^(neural\.|flow\.|change\.|ltu\.|evolution\.|fs\.|turn\.|conversation\.)/.test(name)),
   };
