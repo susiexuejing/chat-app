@@ -540,3 +540,6 @@ import './devDeepDeadline.test.mjs';
 
 // DEV primary answer completeness, safety and supported latency option.
 import './devPrimaryReply.test.mjs';
+
+// DEV grounded-understanding task and correction-aware provider context contract.
+import './devGroundedUnderstandingPrompt.test.mjs';
