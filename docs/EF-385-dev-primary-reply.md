@@ -38,6 +38,14 @@ The DEV validator's history-keyword gate used to turn clear replies such as “�
 
 This corrects a deterministically reproduced false positive without changing prompts, provider calls, retries, cleaning, context or saving. It does not establish what caused the live C1 acknowledgement because that original provider text was not collected. It also does not solve the observed causal-inference failure, broaden the exception to arbitrary denial wording, or make model answers reliably grounded. Hermetic actual-handler and validator regressions cover accepted denials, mixed unsafe claims and ordinary behavior; future bounded browser QA is still needed after authorized deployment.
 
+### Recorded C1 identity and scope variant (2026-11-10)
+
+The separately frozen experiment on PR179 captured this exact provider reply: “我是 AI 角色「聪明狐狸」，并非真人。我无法访问你之前的对话内容，本次交流仅基于当前消息，不涉及任何过往记录。” The real cleaner preserved all 56 code points, but the validator returned “我听到了。” The prior complete-answer exception did not include the role identity or current-context scope clauses. This establishes that new sample's failure; it does not retroactively identify the earlier unrecorded live reply.
+
+The exception now uses finite identity, access-denial and optional context-scope clauses, still anchored to the entire candidate. Only the literal quoted role label “聪明狐狸” is supported, and only when the server-provided role ID is `clever-fox`; arbitrary names or quoted text do not qualify. Optional “并非真人” / “不是真人” and an explicit scope limited to current messages are accepted with bounded clause separators. All new scope clauses require no prior `sameSessionUserMessages`, matching the observed fresh-context case; this includes wording about messages provided in this conversation. Existing plain identity-plus-denial behavior remains unchanged with prior context. These role/context boundaries were narrowed during candidate review, rather than treating scope wording as a general factual inference. A trailing or inserted statement about remembered history, storage, deletion, training, feelings or real-life activity makes the whole exception fail. Other fact, length, question and overload gates still apply, and the server-owned DEV flag remains mandatory.
+
+The existing backend CI entrypoint imports `devHistoryAccessDenial.test.mjs`. Its offline cases replay the saved raw reply through the real cleaner and validator, assert one mocked generation call and no reviewer, compare ordinary behavior, and cover valid clause variations plus unsafe combinations across punctuation and newlines. No experiment is rerun and no live provider request is made. No reviewer integration, general causality fix, prompt, provider, retry, storage or UI change is included.
+
 ## Latency scope
 
 - DEV has no artificial 3-second `deepReadyAt` floor. Completed output is eligible for the next existing 100ms publication poll; this does not imply a 3-second saving when provider work takes longer.
