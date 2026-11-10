@@ -74,7 +74,7 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       // Protocol/HTTP/auth failures are terminal. Only transport loss or an
       // explicitly recoverable technical event may offer manual recovery.
       const transportFailure = (error: Error) => fail(
-        /^(HTTP |Unsupported stream event:|anonymous_|auth|dev_)/i.test(error?.message ?? '') ? 'terminal' : 'transport');
+        /^(?:HTTP |Unsupported stream event:|anonymous_|auth|dev_)/i.test(error?.message ?? '') ? 'terminal' : 'transport');
       try { await chatStream(sessionId, {
         onChunk: serialized => {
           if (signal.aborted || terminal) return;

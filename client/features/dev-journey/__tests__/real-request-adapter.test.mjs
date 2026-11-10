@@ -141,12 +141,12 @@ test('unsupported negotiated contract fails without additional request', async (
 for (const negotiated of [true, false]) for (const recoverable of [true, false]) test(`technical error recoverability requires negotiated contract=${negotiated}, recoverable=${recoverable}`, async () => {
   const { module } = await setup('DEV', [{ eventType: 'error', payload: { recoverable, recoveryAction: 'retry_turn' } }]);
   const reasons = [];
-  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() {}, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) },
+  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() { return undefined; }, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) },
     new AbortController().signal, { retryContract: negotiated ? 'dev-manual-retry-v1' : undefined, devConversationId: 'c', requestId: 'r' });
   assert.deepEqual(reasons, [negotiated && recoverable ? 'retry_turn' : 'terminal']);
 });
 test('EOF is transport loss rather than false successful fallback', async () => {
   const { module } = await setup(); const reasons = [];
-  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() {}, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) }, new AbortController().signal);
+  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() { return undefined; }, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) }, new AbortController().signal);
   assert.deepEqual(reasons, ['transport']);
 });

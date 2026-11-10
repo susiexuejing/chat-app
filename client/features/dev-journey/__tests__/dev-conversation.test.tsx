@@ -21,7 +21,7 @@ const mockDiscard = jest.fn();
 const mockControllers: DevRealRequestController[] = [];
 let mockRequestIdFailure: 'throw' | 'invalid' | null = null;
 const RECEIPT = { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000 };
-jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }), { virtual: true });
+jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }));
 const DEEP_REPLY = '测试后端 Deep 内容：可以先确认眼前的需要。';
 const INPUT = '虚构场景：今天的安排有些乱。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
@@ -41,7 +41,7 @@ jest.mock('react-native', () => {
 jest.mock('@expo/vector-icons', () => ({
   FontAwesome6: (props: any) => require('react').createElement('Icon', props),
   Ionicons: (props: any) => require('react').createElement('Icon', props),
-}), { virtual: true });
+}));
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
