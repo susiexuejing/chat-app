@@ -4,7 +4,7 @@ import { loadTsModule } from './moduleHarness.mjs';
 
 const source = new URL('../realRequestAdapter.ts', import.meta.url);
 const controllerModule = await loadTsModule(new URL('../realRequestController.ts', import.meta.url), {});
-async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1') {
+async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1', devReplyContract) {
   const calls = { start: [], stream: [], uuid: 0 };
   const module = await loadTsModule(source, {
     'expo-crypto': { randomUUID: () => `uuid-${++calls.uuid}` },
@@ -13,7 +13,7 @@ async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1
       endDevConversation: async () => undefined,
       chatStart: async (...args) => {
         calls.start.push(args);
-        return { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
+        return { devReplyContract, devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000, requestMode: receipt, sessionId: 's', reactionLayer: 'fixed front', companionLayer: 'fixed companion' };
       },
       chatStream: async (...args) => {
         calls.stream.push(args);
@@ -52,7 +52,7 @@ test('adapter allowlists fields and uses only existing helpers with the same sig
   const result = await transport.start({ roleId: 'unexpected', message: 'current text', requestId: 'id',
     accountId: 'synthetic-account', conversationId: 'old-conversation', history: ['private history'],
     patterns: ['pattern'], practice: 'practice', path: 'path', }, signal);
-  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined]);
+  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1']);
   assert.equal(result.reactionText, '');
   assert.equal(result.companionText, '');
   const deep = []; let done = 0, failed = 0;
@@ -112,4 +112,28 @@ test('missing or wrong isolation receipt cannot start SSE or report success', as
     assert.equal(controller.getSnapshot().status, 'failed');
     assert.equal(calls.start.length, 1); assert.equal(calls.stream.length, 0);
   }
+});
+
+const contract = 'dev-reply-practice-v1';
+const resultEnvelope = () => ({ contract, reply: 'reply', practiceCandidate: { ifCue: 'cue', thenAction: 'action' },
+  source: { sessionId: 's', devConversationId: 'dev-conversation', requestId: 'id' } });
+for (const [name, result, expectedSuccess] of [
+  ['valid', resultEnvelope(), true], ['missing', undefined, false],
+  ['cross session', { ...resultEnvelope(), source: { ...resultEnvelope().source, sessionId: 'other' } }, false],
+  ['cross conversation', { ...resultEnvelope(), source: { ...resultEnvelope().source, devConversationId: 'other' } }, false],
+  ['cross request', { ...resultEnvelope(), source: { ...resultEnvelope().source, requestId: 'other' } }, false],
+]) test(`adapter negotiated terminal ${name}`, async () => {
+  const { module } = await setup('DEV', [{ eventType: 'deep.delta', content: 'reply' },
+    { eventType: 'turn.completed', payload: { practiceReply: result } }], 'dev-ephemeral-v1', contract);
+  const transport = module.createDevRealRequestTransport(); const signal = new AbortController().signal;
+  const start = await transport.start({ message: 'current text', requestId: 'id' }, signal); assert.equal(start.devReplyContract, contract);
+  let done = 0, error = 0;
+  await transport.stream(start.sessionId, { onDeepChunk() {}, onDone: r => { done++; assert.equal(r.contract, contract); }, onError: () => error++ }, signal,
+    { contract, devConversationId: 'dev-conversation', requestId: 'id' });
+  assert.equal(done, expectedSuccess ? 1 : 0); assert.equal(error, expectedSuccess ? 0 : 1);
+});
+test('unsupported negotiated contract fails without additional request', async () => {
+  const { module, calls } = await setup('DEV', [], 'dev-ephemeral-v1', 'unknown');
+  await assert.rejects(module.createDevRealRequestTransport().start({ message: 'text', requestId: 'id' }, new AbortController().signal));
+  assert.equal(calls.start.length, 1); assert.equal(calls.stream.length, 0);
 });

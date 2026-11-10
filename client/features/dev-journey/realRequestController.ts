@@ -1,3 +1,12 @@
+export interface DevPracticeCandidate {
+  readonly ifCue: string; readonly thenAction: string;
+  readonly source: { readonly sessionId: string; readonly devConversationId: string; readonly requestId: string };
+}
+export interface DevPracticeReply {
+  readonly contract: 'dev-reply-practice-v1'; readonly reply: string;
+  readonly practiceCandidate: { readonly ifCue: string; readonly thenAction: string } | null;
+  readonly source: DevPracticeCandidate['source'];
+}
 /** Explicit same-session DEV turns. No network, storage or React imports. */
 export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'stopped';
 export interface DevCompletedTurn {
@@ -5,6 +14,7 @@ export interface DevCompletedTurn {
   readonly reactionText: string; readonly companionText: string; readonly deepText: string;
 }
 export interface DevRealRequestSnapshot {
+  readonly practiceCandidate?: DevPracticeCandidate | null;
   readonly status: DevRealRequestStatus;
   readonly inputText: string;
   readonly requestId: string | null;
@@ -23,17 +33,18 @@ export interface DevRealRequestInput {
   devConversationId?: string; afterRequestId?: string;
 }
 export interface DevRealRequestStart {
+  devReplyContract?: 'dev-reply-practice-v1';
   sessionId: string; devConversationId: string; expiresAt: number; remainingLifetimeMs: number;
   reactionText: string; companionText: string;
 }
 export interface DevRealRequestCallbacks {
   onDeepChunk: (text: string) => void;
-  onDone: () => void;
+  onDone: (reply?: DevPracticeReply) => void;
   onError: () => void;
 }
 export interface DevRealRequestTransport {
   start: (input: DevRealRequestInput, signal: AbortSignal) => Promise<DevRealRequestStart>;
-  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal) => Promise<void>;
+  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal, expected?: { contract?: 'dev-reply-practice-v1'; devConversationId: string; requestId: string }) => Promise<void>;
   /** Best effort authenticated cleanup, never a model send or automatic retry. */
   end: (requestId: string) => Promise<void>;
 }
@@ -69,7 +80,7 @@ export function createDevRealRequestController(options: {
   let expiry: ReturnType<typeof setTimeout> | undefined;
   const initial = (): DevRealRequestSnapshot => Object.freeze({
     status: 'idle', inputText: '', requestId: null, sentAt: 0, reactionText: '', companionText: '', deepText: '',
-    completedTurns: Object.freeze([]), error: null, canSend: enabled && !disposed, source: null,
+    completedTurns: Object.freeze([]), error: null, canSend: enabled && !disposed, source: null, practiceCandidate: null,
   });
   let snapshot = initial();
   function publish(next: DevRealRequestSnapshot) {
@@ -154,6 +165,7 @@ export function createDevRealRequestController(options: {
           publish({ ...snapshot, status: 'streaming' });
           if (!isCurrent()) return false;
           let terminal = false, failed = false;
+          let practiceCandidate: DevPracticeCandidate | null = null;
           await transport.stream(start.sessionId, {
             onDeepChunk: content => {
               if (!isCurrent() || terminal || typeof content !== 'string') return;
@@ -161,15 +173,24 @@ export function createDevRealRequestController(options: {
               // is still required. Keep pending chunks out of UI and save state.
               completedText += content;
             },
-            onDone: () => { if (isCurrent()) terminal = true; },
+            onDone: reply => {
+              if (!isCurrent() || terminal) return;
+              terminal = true;
+              if (start.devReplyContract) {
+                if (!reply || reply.contract !== start.devReplyContract || reply.reply !== completedText
+                  || reply.source.sessionId !== start.sessionId || reply.source.devConversationId !== start.devConversationId
+                  || reply.source.requestId !== requestId) { failed = true; return; }
+                if (reply.practiceCandidate) practiceCandidate = Object.freeze({ ...reply.practiceCandidate, source: Object.freeze({ ...reply.source }) });
+              } else if (reply) failed = true;
+            },
             onError: () => { if (isCurrent()) { terminal = true; failed = true; } },
-          }, abort.signal);
+          }, abort.signal, { contract: start.devReplyContract, devConversationId: start.devConversationId, requestId });
           if (!isCurrent()) return false;
           if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
           const success = terminal && !failed && !!completedText.trim();
           if (!success) { end('failed', failed ? FAILED_MESSAGE : EMPTY_MESSAGE); return false; }
           active = null;
-          publish({ ...snapshot, deepText: completedText, source: 'backend-deep', status: 'success', error: null, canSend: true });
+          publish({ ...snapshot, deepText: completedText, practiceCandidate, source: 'backend-deep', status: 'success', error: null, canSend: true });
           return true;
         } catch (error) {
           const expired = !!error && typeof error === 'object' && 'message' in error && error.message === 'dev_request_expired_or_clock_skew';

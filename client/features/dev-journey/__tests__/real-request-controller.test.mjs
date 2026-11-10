@@ -78,7 +78,7 @@ test('success omits front layers and sends only allowlisted current input', asyn
   assert.deepEqual(JSON.parse(JSON.stringify(controller.getSnapshot())), {
     status: 'success', inputText: 'current input', requestId: 'request-1', sentAt: controller.getSnapshot().sentAt,
     reactionText: '', companionText: '', deepText: 'backend Deep',
-    completedTurns: [], error: null, canSend: true, source: 'backend-deep',
+    completedTurns: [], error: null, canSend: true, source: 'backend-deep', practiceCandidate: null,
   });
   assert.equal(await controller.send('explicit second turn'), true);
   assert.equal(calls.start.length, 2);
@@ -333,4 +333,52 @@ for (const finish of ['error', 'throw', 'no-terminal', 'stop', 'reset']) test(`p
   assert.equal(await result, false);
   for (const state of notifications) { assert.equal(state.deepText, ''); assert.equal(state.source, null); }
   controller.dispose();
+});
+
+const candidateContract = 'dev-reply-practice-v1';
+function practiceReply(requestId = 'request-1') {
+  return { contract: candidateContract, reply: 'backend Deep', practiceCandidate: { ifCue: 'cue', thenAction: 'new AI suggestion' },
+    source: { sessionId: 'backend-session', devConversationId: 'dev-conversation', requestId } };
+}
+const practiceStart = async () => ({ ...receipt, sessionId: 'backend-session', devReplyContract: candidateContract });
+for (const [name, alter] of [
+  ['missing envelope', () => undefined], ['wrong contract', r => ({ ...r, contract: 'v9' })],
+  ['wrong request', r => ({ ...r, source: { ...r.source, requestId: 'other' } })],
+  ['wrong session', r => ({ ...r, source: { ...r.source, sessionId: 'other' } })],
+  ['wrong conversation', r => ({ ...r, source: { ...r.source, devConversationId: 'other' } })],
+  ['different reply', r => ({ ...r, reply: 'different' })],
+]) test(`negotiated controller fails closed for ${name}`, async () => {
+  const { controller } = setup({ start: practiceStart, stream: async (_, cb) => { cb.onDeepChunk('backend Deep'); cb.onDone(alter(practiceReply())); } });
+  assert.equal(await controller.send('explicit user request'), false);
+  assert.equal(controller.getSnapshot().practiceCandidate, null);
+  assert.equal(controller.getSnapshot().status, 'failed'); controller.dispose();
+});
+test('candidate remains private until terminal AND stream resolution; next turn synchronously revokes it', async () => {
+  const d = deferred(); let cb; let round = 0;
+  const { controller } = setup({ start: practiceStart, stream: async (_, callbacks) => { cb = callbacks; if (++round === 1) await d.promise; } });
+  const first = controller.send('explicit request'); await flush();
+  cb.onDeepChunk('backend Deep'); assert.equal(controller.getSnapshot().practiceCandidate, null);
+  cb.onDone(practiceReply()); assert.equal(controller.getSnapshot().practiceCandidate, null);
+  d.resolve(); assert.equal(await first, true);
+  assert.equal(controller.getSnapshot().practiceCandidate.thenAction, 'new AI suggestion');
+  assert.equal(controller.getSnapshot().practiceCandidate.source.requestId, 'request-1');
+  const old = cb; const second = controller.send('continue talking');
+  assert.equal(controller.getSnapshot().practiceCandidate, null);
+  old.onDone(practiceReply()); assert.equal(controller.getSnapshot().practiceCandidate, null);
+  await second; assert.equal(controller.getSnapshot().practiceCandidate, null); controller.dispose();
+});
+for (const end of ['stop', 'reset', 'dispose']) test(`late terminal after ${end} cannot restore candidate`, async () => {
+  const d = deferred(); let cb;
+  const { controller } = setup({ start: practiceStart, stream: async (_, callbacks) => { cb = callbacks; await d.promise; } });
+  const send = controller.send('explicit request'); await flush(); controller[end]();
+  cb.onDeepChunk('backend Deep'); cb.onDone(practiceReply()); d.resolve(); await send;
+  assert.equal(controller.getSnapshot().practiceCandidate, null); controller.dispose();
+});
+test('unnegotiated server cannot inject a practice terminal', async () => {
+  const { controller } = setup({ stream: async (_, cb) => { cb.onDeepChunk('backend Deep'); cb.onDone(practiceReply()); } });
+  assert.equal(await controller.send('explicit request'), false); controller.dispose();
+});
+test('valid nullable candidate preserves completed reply', async () => {
+  const { controller } = setup({ start: practiceStart, stream: async (_, cb) => { cb.onDeepChunk('backend Deep'); cb.onDone({ ...practiceReply(), practiceCandidate: null }); } });
+  assert.equal(await controller.send('ordinary chat'), true); assert.equal(controller.getSnapshot().practiceCandidate, null); controller.dispose();
 });

@@ -4,6 +4,7 @@ import {
   createDevRealRequestController,
   DEV_REAL_REQUEST_ID_PATTERN,
   DEV_REAL_REQUEST_MAX_INPUT,
+  type DevPracticeReply,
   type DevRealRequestController,
   type DevRealRequestTransport,
 } from '@/features/dev-journey/realRequestController';
@@ -39,10 +40,13 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       const result = await chatStart(
         'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal, 'dev-ephemeral-v1',
         input.devConversationId === undefined ? undefined : { devConversationId: input.devConversationId, afterRequestId: input.afterRequestId },
+        'dev-reply-practice-v1',
       );
       assertAllowed(signal);
       if (result.requestMode !== 'dev-ephemeral-v1') throw new Error('dev_isolation_not_confirmed');
+      if (result.devReplyContract !== undefined && result.devReplyContract !== 'dev-reply-practice-v1') throw new Error('unsupported_dev_reply_contract');
       return {
+        devReplyContract: result.devReplyContract,
         sessionId: result.sessionId,
         devConversationId: result.devConversationId!,
         expiresAt: result.expiresAt!,
@@ -52,7 +56,7 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       };
     },
     end: requestId => endDevConversation(requestId),
-    stream: async (sessionId, callbacks, signal) => {
+    stream: async (sessionId, callbacks, signal, expected) => {
       assertAllowed(signal);
       let terminal = false;
       let successfulTerminal = false;
@@ -69,15 +73,21 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
             const event = JSON.parse(serialized) as {
               eventType?: string;
               content?: unknown;
+              payload?: { practiceReply?: DevPracticeReply };
             };
             if (event.eventType === 'error') {
               fail();
             } else if (event.eventType === 'deep.delta' && typeof event.content === 'string') {
               callbacks.onDeepChunk(event.content);
             } else if (event.eventType === 'turn.completed') {
+              const reply = event.payload?.practiceReply;
+              if (expected?.contract) {
+                if (!reply || reply.contract !== expected.contract || reply.source.sessionId !== sessionId
+                  || reply.source.devConversationId !== expected.devConversationId || reply.source.requestId !== expected.requestId) { fail(); return; }
+              } else if (reply) { fail(); return; }
               successfulTerminal = true;
               terminal = true;
-              callbacks.onDone();
+              callbacks.onDone(reply);
             }
             // Reaction/Companion/timeline are not Deep or proof of provider success.
           } catch {

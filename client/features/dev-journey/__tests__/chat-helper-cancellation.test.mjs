@@ -149,3 +149,38 @@ test('DEV end preserves existing authenticated CSRF options and never falls back
   assert.equal(options.keepalive, true);
   assert.deepEqual(JSON.parse(options.body), { requestMode: 'dev-ephemeral-v1', requestId: '100000_id' });
 });
+
+test('DEV practice negotiation uses only standard Accept, never expands closed body or retries old server', async () => {
+  const { api, calls } = await setup();
+  const result = await api.chatStart('clever-fox', 'current', undefined, 'request', undefined, undefined,
+    new AbortController().signal, 'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1');
+  assert.equal(result.devReplyContract, undefined); assert.equal(calls.fetch.length, 1);
+  assert.equal(calls.fetch[0][1].headers.Accept, 'application/json; dev-reply-contract=dev-reply-practice-v1');
+  assert.deepEqual(JSON.parse(calls.fetch[0][1].body), { roleId: 'clever-fox', message: 'current', requestId: 'request', requestMode: 'dev-ephemeral-v1' });
+});
+test('negotiation cannot be attached to ordinary mode', async () => {
+  const { api, calls } = await setup();
+  await assert.rejects(api.chatStart('clever-fox', 'current', undefined, 'request', undefined, undefined,
+    new AbortController().signal, undefined, undefined, 'dev-reply-practice-v1'));
+  assert.equal(calls.fetch.length, 0);
+});
+function practiceTerminal() {
+  return { schemaVersion: 1, eventType: 'turn.completed', sequence: 3, timestamp: new Date().toISOString(), payload: { status: 'completed', practiceReply: {
+    contract: 'dev-reply-practice-v1', reply: 'reply', practiceCandidate: { ifCue: 'cue', thenAction: 'action' },
+    source: { sessionId: 's', devConversationId: 'c', requestId: 'r' },
+  } } };
+}
+test('actual EF stream parser preserves strict structured terminal and accepts old terminal', async () => {
+  const { api } = await setup();
+  const r = api.parseVersionedStreamEvent(JSON.stringify(practiceTerminal())); assert.equal(r.kind, 'known'); assert.equal(r.terminal, true);
+  assert.equal(JSON.parse(r.serialized).payload.practiceReply.practiceCandidate.thenAction, 'action');
+  const old = practiceTerminal(); delete old.payload.practiceReply; assert.equal(api.parseVersionedStreamEvent(JSON.stringify(old)).kind, 'known');
+});
+for (const alter of [t => { t.payload.practiceReply.contract = 'other'; }, t => { t.payload.practiceReply.extra = 'x'; },
+  t => { t.payload.practiceReply.source.requestId = ''; }, t => { t.payload.practiceReply.practiceCandidate.ifCue = ''; },
+  t => { t.payload.practiceReply.practiceCandidate.thenAction = '😀'.repeat(101); }, t => { t.payload.extra = true; }]) {
+  test('actual EF stream parser rejects malformed practice terminal', async () => {
+    const { api } = await setup(); const t = practiceTerminal(); alter(t);
+    assert.equal(api.parseVersionedStreamEvent(JSON.stringify(t)).kind, 'rejected');
+  });
+}

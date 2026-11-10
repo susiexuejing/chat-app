@@ -1,3 +1,4 @@
+import { DEV_PRACTICE_CONTRACT, buildDevPracticeReplyContract, parseDevPracticeReply, type ValidatedPracticeReply } from './contracts/devPracticeCandidate';
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
@@ -171,6 +172,8 @@ export interface ChatSession {
   devRequestId?: string;
   devTurn?: number;
   devContext?: DevContextPair[];
+  devReplyContract?: typeof DEV_PRACTICE_CONTRACT;
+  devPracticeReply?: ValidatedPracticeReply;
   devAbort?: AbortController;
   devDeepDeadlineAt?: number; // Private result-acceptance deadline, never returned to the client.
   devStreamAttached?: boolean;
@@ -215,6 +218,7 @@ const sessions = new Map<string, ChatSession>();
 function clearDevTurn(session: ChatSession) {
   session.devAbort?.abort();
   session.devContext?.splice(0);
+  session.devPracticeReply = undefined;
   session.userMessage = '';
   session.deepChunks.length = 0;
   session.reactionLayer = '';
@@ -394,7 +398,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         deepMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
       } : undefined);
     const deepMessages = [
-      { role: 'system', content: systemPrompt },
+      { role: 'system', content: session.devReplyContract === DEV_PRACTICE_CONTRACT ? buildDevPracticeReplyContract(systemPrompt) : systemPrompt },
       ...(isDevEphemeral ? (session.devContext ?? []).flatMap(pair => [
         { role: 'user', content: pair.user }, { role: 'assistant', content: pair.assistant },
       ]) : []),
@@ -478,6 +482,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let streamReadStopped = false;
     let streamTimeout: ReturnType<typeof setTimeout> | null = null;
     let pendingSseText = '';
+    let providerCompleted = false;
+    let providerTruncated = false;
     console.log('[Deep] Stream started');
 
     // DEV body reading gets at most 120s within the original 135s deadline.
@@ -496,12 +502,18 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
       if (line.startsWith('data: ')) {
         const data = line.slice(6);
+        if (session.devReplyContract && providerCompleted && data.trim()) providerTruncated = true;
         if (data === '[DONE]') {
+          providerCompleted = true;
           return;
         }
         if (data) {
           try {
             const parsed = JSON.parse(data);
+            if (session.devReplyContract && (!parsed || typeof parsed !== 'object' || parsed.error
+              || (!Array.isArray(parsed.choices) && !Array.isArray(parsed.output?.choices)))) providerTruncated = true;
+            const finish = parsed.choices?.[0]?.finish_reason ?? parsed.output?.choices?.[0]?.finish_reason;
+            if (finish && finish !== 'stop') providerTruncated = true;
             // 优先取 content（最终回复）
             const content = parsed.choices?.[0]?.delta?.content ||
                             parsed.output?.choices?.[0]?.delta?.content || '';
@@ -534,12 +546,14 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
               }
             }
           } catch {
+            if (session.devReplyContract) providerTruncated = true;
             console.log('[Deep] SSE segment parse failed', {
               code: 'provider_payload_unparseable',
             });
           }
         }
       } else if (line.trim()) {
+        if (session.devReplyContract && !line.startsWith(':')) providerTruncated = true;
         // 非标准SSE格式的日志
         console.log('[Deep] Non-SSE segment ignored', {
           segmentPresent: true,
@@ -570,6 +584,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       // Flush a trailing decoder byte sequence, but never parse an unterminated
       // SSE line: it may be a transport-truncated event.
       processCompleteSseLines(decoder.decode());
+      if (session.devReplyContract && pendingSseText.trim()) providerTruncated = true;
       pendingSseText = '';
     })();
 
@@ -622,7 +637,24 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // qwen3.6-plus 将推理过程混在 content 字段中，
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
-    const cleaned = extractFinalChineseResponse(deepContentBuffer);
+    if (session.devReplyContract === DEV_PRACTICE_CONTRACT) {
+      const result = parseDevPracticeReply(deepContentBuffer, {
+        latestUserMessage: session.userMessage, providerCompleted: providerCompleted && !providerTruncated,
+        source: { sessionId: session.sessionId, devConversationId: session.devConversationId!, requestId: session.devRequestId! },
+        replyMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
+        validateReply: text => validateEf41DeepOutput({ text, roleId: session.roleId, userTurn,
+          userMessage: session.userMessage, sameSessionUserMessages: session.devContext?.map(pair => pair.user),
+          devPrimaryResponse: true, source: 'cleaned', visiblePrefix: '',
+        }),
+      });
+      if (!result) { setSafeDeepError(session, 'deep_analysis_failure'); return; }
+      if (!activeDevTurn(session)) return;
+      checkDevDeadline();
+      session.devPracticeReply = result;
+      completedChunks.push(result.reply);
+    }
+    // Negotiated JSON never passes through free-text cleaning or last-resort slicing.
+    const cleaned = session.devReplyContract ? '' : extractFinalChineseResponse(deepContentBuffer);
     if (cleaned.trim()) {
       completedChunks.push(validateEf41DeepOutput({
         text: cleaned,
@@ -638,7 +670,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         cleanedChars: cleaned.length,
         rawChars: deepContentBuffer.length,
       });
-    } else if (deepContentBuffer.trim()) {
+    } else if (!session.devReplyContract && deepContentBuffer.trim()) {
       // 🛡️ 极兜底：清洗返回空但原始内容不为空 → 截取最后300字
       const last300 = deepContentBuffer.slice(-300).trim();
       const cjk = last300.match(/[\u4e00-\u9fff]/g);
@@ -1271,6 +1303,9 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     if (isDevEphemeral && devConversation) {
       session.devConversationId = devConversation.id;
       session.devRequestId = requestId;
+      if (req.get('accept')?.trim() === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`) {
+        session.devReplyContract = DEV_PRACTICE_CONTRACT;
+      }
       session.devTurn = userTurn;
       session.devContext = devConversation.pairs.map(pair => ({ ...pair }));
       session.devAbort = new AbortController();
@@ -1293,6 +1328,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     res.json({
       sessionId,
       ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE,
+        ...(session.devReplyContract ? { devReplyContract: session.devReplyContract } : {}),
         devConversationId: devConversation?.id, expiresAt: devConversation?.expiresAt,
         remainingLifetimeMs: Math.max(0, (devConversation?.expiresAt ?? now) - now) } : {}),
       userTurn,
@@ -1541,7 +1577,9 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       clearInterval(pollInterval);
       clearTimeout(timeout);
       emit('deep.completed', {});
-      emit('turn.completed', { status: 'completed' });
+      emit('turn.completed', { status: 'completed',
+        ...(session.devPracticeReply ? { practiceReply: session.devPracticeReply } : {}),
+      });
       sseTerminated = true;
       writeEf118RuntimeAudit({
         sseCategory: 'completed',
