@@ -158,6 +158,9 @@ test('editing existing active practice preserves activation; never invokes activ
   const f = fixture(); f.repo.savePractice(f.accountId, f.patternId, suggestion, 0); f.repo.activatePractice(f.accountId, f.patternId, 1);
   assert.equal(f.boundary.save(f.receive()).status, 'saved'); assert.equal(f.state().practice.paused, false);
   assert.equal(f.repo.snapshot().activePracticePatternId, f.patternId);
+  const reloaded = createDemoRepository({ getItem: key => f.data.get(key) ?? null, setItem() { throw Error('read-only reload'); } });
+  assert.deepEqual(reloaded.getPattern(f.accountId, f.patternId), f.state());
+  assert.equal(reloaded.snapshot().activePracticePatternId, f.patternId);
 });
 test('unconfirmed target cannot start and no pattern is invented', () => {
   const f = fixture(); f.repo.updatePattern(f.accountId, f.patternId, { decision: 'uncertain' }, 1);

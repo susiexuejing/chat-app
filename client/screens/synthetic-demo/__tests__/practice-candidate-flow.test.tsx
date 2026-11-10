@@ -14,6 +14,7 @@ const mockStart = jest.fn<Promise<DevRealRequestStart>, [DevRealRequestInput, Ab
 const mockEnd = jest.fn();
 const mockStream = jest.fn<Promise<void>, [string, DevRealRequestCallbacks, AbortSignal]>();
 const DEEP_REPLY = '这是测试传输返回的 Deep：先确认自己的需要，再选择下一步。';
+const SAVE_RECEIPT = '已保存到此浏览器中你选择的模式。保存不会开启或暂停练习。';
 const CURRENT_INPUT = '虚构场景：我准备先停下来想一想。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
   createDevRealRequestControllerForRuntime: () => mockCreateController(),
@@ -163,7 +164,12 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
     expect(storage.setItem).not.toHaveBeenCalled(); await press('practice-candidate-save');
     expect(state(a)).toEqual(beforeA); expect(state(b).path).toEqual(pathB);
     expect(state(b).practice).toMatchObject({ thenAction: '用户改写动作', paused: true, candidateOrigin: { kind: 'ai-suggestion', sessionId: 'stub-session', devConversationId: 'dev-conversation', requestId: 'stub-request-1' } });
-    expect(saved().activePracticePatternId).toBeNull(); expect(output()).toContain('已保存到你选择的模式');
+    expect(saved().activePracticePatternId).toBeNull(); expect(output()).toContain(SAVE_RECEIPT);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(storage.setItem.mock.calls[0][0]).toBe(STORAGE_KEY);
+    expect(createDemoRepository(storage).getPattern(account, b)).toEqual(state(b));
+    expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStream).toHaveBeenCalledTimes(1);
     expect(nodes('practice-candidate-card')).toHaveLength(0);
     expect(JSON.stringify(mockStart.mock.calls)).not.toMatch(/本地理解|明确模式|用户改写动作/);
   });
@@ -181,7 +187,7 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
   });
   it('failed storage write keeps edited draft and retries with no false saved status', async () => {
     await start(); await choose(); await type('practice-candidate-action', '保留这个改写'); failWrites = true;
-    await press('practice-candidate-save'); expect(output()).toContain('未能保存'); expect(output()).not.toContain('已保存到你选择的模式');
+    await press('practice-candidate-save'); expect(output()).toContain('未能保存'); expect(output()).not.toContain(SAVE_RECEIPT);
     expect(node('practice-candidate-action').props.value).toBe('保留这个改写'); expect(state(b).practice).toBeNull();
     failWrites = false; await press('practice-candidate-save'); expect(state(b).practice?.thenAction).toBe('保留这个改写');
   });
@@ -190,6 +196,7 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
     if (kind === 'pattern') repo.updatePattern(account, b, { currentUnderstanding: '较新的理解' }, 2);
     else repo.savePractice(account, b, { ifCue: '较新线索', thenAction: '较新动作' }, 0);
     const before = saved(); await press('practice-candidate-save'); expect(saved()).toEqual(before); expect(output()).toContain('未能保存');
+    expect(output()).not.toContain(SAVE_RECEIPT);
     expect(node('practice-candidate-action').props.value).toBe(offer!.thenAction);
   });
   it('overwrite warning precedes explicit save and keeps other active practice unchanged', async () => {
@@ -197,6 +204,32 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
     repo.savePractice(account, b, { ifCue: '旧 B 线索', thenAction: '旧 B 动作' }, 0); const beforeA = state(a);
     await start(); await choose(); expect(output()).toContain('保存将替换'); expect(output()).toContain('旧 B 动作');
     await press('practice-candidate-save'); expect(state(a)).toEqual(beforeA); expect(saved().activePracticePatternId).toBe(a); expect(state(b).practice?.paused).toBe(true);
+  });
+  it.each([false, true])('local save receipt never toggles existing paused=%s target or sends chat', async paused => {
+    repo.savePractice(account, b, { ifCue: '旧 B 线索', thenAction: '旧 B 动作' }, 0);
+    if (!paused) repo.activatePractice(account, b, 1);
+    const beforeA = state(a), previous = state(b).practice!;
+    storage.setItem.mockClear();
+    await start(); await choose();
+    const save = node('practice-candidate-save').props.onPress;
+    await act(async () => { save(); save(); });
+    expect(output()).toContain(SAVE_RECEIPT);
+    expect(state(a)).toEqual(beforeA);
+    expect(state(b).practice).toMatchObject({ ...offer, paused, version: previous.version + 1 });
+    expect(saved().activePracticePatternId).toBe(paused ? null : b);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(storage.setItem.mock.calls[0][0]).toBe(STORAGE_KEY);
+    expect(createDemoRepository(storage).getPattern(account, b)).toEqual(state(b));
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(mockEnd).not.toHaveBeenCalled();
+    await send('虚构场景：保存后由我继续说');
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    expect(mockStart.mock.calls[1][0]).toEqual({
+      roleId: 'clever-fox', message: '虚构场景：保存后由我继续说', requestId: 'stub-request-2',
+      devConversationId: 'dev-conversation', afterRequestId: 'stub-request-1',
+    });
+    expect(JSON.stringify(mockStart.mock.calls[1][0])).not.toMatch(/已保存|此浏览器|本地理解|明确模式|虚构触发线索|虚构的新动作|paused|pattern|practice/i);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
   });
   it('typing leaves edits intact; actual continuing send revokes old draft then displays a separate new candidate', async () => {
     await start(); await choose(); await type('practice-candidate-action', '旧编辑'); const oldSave = node('practice-candidate-save').props.onPress;

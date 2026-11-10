@@ -327,7 +327,7 @@ export default function SyntheticDemoScreen() {
       onSaved={next => {
         if (!currentView() || practiceCandidateRef.current !== expected) return;
         invalidatePractice(); setSnapshot(next);
-        setNotice({ kind: 'success', text: '已保存到你选择的模式。未自动开启练习。' });
+        setNotice({ kind: 'success', text: '已保存到此浏览器中你选择的模式。保存不会开启或暂停练习。' });
       }} />;
   }
   function discardChatDraft() {
