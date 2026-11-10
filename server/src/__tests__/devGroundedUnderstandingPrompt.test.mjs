@@ -12,7 +12,26 @@ const understandingTask = '你的任务是形成一段具体、可由用户核�
 const correctionRule = '用户最新的明确纠正或否认优先于较早的说法';
 const assistantRule = '本次会话中的 assistant 回复不是用户事实';
 
+const attributionRules = [
+  '区分用户自述与系统核验',
+  '本请求未提供本地理解、模式或练习的确认、保存、激活结果回执',
+  '不能改写成你已执行、已核验或无归属的系统成功通知',
+  '也不能因为没有回执就断言操作未发生',
+  '不补写或承认自己此前具体作过什么判断',
+  '若本次上下文确实含有对应助手原文，可以承认并纠正自己的错误',
+  '助手原文仍不能证明其中关于用户的归因成立',
+  '保留确认的对象、范围与明确程度',
+  '简短承接、含糊回应或沉默不能升格为用户明确确认',
+  '用户明确赞同某个理解时，可以按其明确对象承接',
+  '不能扩大到其他解释、练习许可或操作完成',
+  '不要为了取得确认而每轮追问',
+];
+function assertSourceAttributionContract(text) {
+  for (const rule of attributionRules) assert.ok(text.includes(rule), `missing source/confirmation rule: ${rule}`);
+}
+
 function assertUnderstandingContract(text) {
+  assertSourceAttributionContract(text);
   for (const instruction of [
     understandingTask,
     '只选最有助于理解的事实联系，不逐句复述，也不转成安慰、解释原因或行动指导',
@@ -68,6 +87,7 @@ for (const userTurn of [1, 2, 3]) test(`grounded DEV task is absent from ordinar
     null, '', null, '', userTurn, '当前输入');
   for (const instruction of [understandingTask, correctionRule, assistantRule,
     '无法访问不等于没有保存', '不同场景出现相同或不同表现', '输出前检查句数']) assert.ok(!text.includes(instruction));
+  for (const instruction of attributionRules) assert.ok(!text.includes(instruction));
   // Full ordinary byte parity across all six roles is retained in devDeepBudget.
 });
 
@@ -208,6 +228,60 @@ for (const [name, turns] of Object.entries(liveQaFixtures)) {
       assert.deepEqual(stream.events().map(event => event.eventType), ['turn.started', 'deep.delta', 'deep.completed', 'turn.completed']);
       assert.equal(stream.events()[1].content, turns[turn].answer,
         'known flawed fixture is not silently truncated, rewritten or replaced with an ACK');
+      assert.deepEqual(h.identityCalls(), []);
+      previous = started;
+    }
+  });
+}
+
+
+// EF-385 source-attribution regressions. These inspect the actual request contract
+// and role history, NOT whether a live model follows it. No storage receipt or
+// inferred confirmation is added to the request. Cases contrast evidence states.
+const attributionCases = [
+  { name: 'self-reported save is not a system receipt', inputs: ['我确认了刚才那段关于我挑书的理解，也保存了。'] },
+  { name: 'denied save remains denied', inputs: ['我还没确认，也没有保存。'] },
+  { name: 'planned save is not completion', inputs: ['我可能等下保存，现在还没决定。'] },
+  { name: 'save status question cannot acquire local state', inputs: ['你能确定刚才保存成功了吗？'] },
+  { name: 'correction without supplied prior assistant claim', inputs: ['你误解了，我不是害怕选错，只是喜欢看封面。请先纠正，不要提建议。'] },
+  { name: 'correction with actual prior assistant claim', inputs: ['我在书店挑书时反复比较封面。', '你误解了，我不是害怕选错，只是喜欢看封面。请先纠正，不要提建议。'], firstReply: '我把你的行为归因为恐惧。' },
+  { name: 'vague acknowledgement is not explicit confirmation', inputs: ['我在书店挑书时反复比较封面。', '嗯。'] },
+  { name: 'explicit limited confirmation stays distinguishable', inputs: ['我在书店挑书时反复比较封面。', '你关于我比较封面的理解符合我的意思；我没有确认其他解释，也不需要练习建议。'] },
+];
+for (const negotiated of [false, true]) for (const fixture of attributionCases) {
+  test(`source attribution reaches ${negotiated ? 'negotiated' : 'legacy'} DEV request: ${fixture.name}`, async () => {
+    const replies = fixture.inputs.map((_, index) => index === 0 && fixture.firstReply ? fixture.firstReply : '这是一段固定的传输测试内容，不代表模型实际作出的理解。');
+    let index = 0;
+    const h = await harness({ realValidator: true, provider: async () => {
+      const reply = replies[index++];
+      return providerResponse({ text: negotiated ? JSON.stringify({ contract: 'dev-reply-practice-v1', reply, practiceCandidate: null }) : reply });
+    } });
+    let previous;
+    for (let turn = 0; turn < fixture.inputs.length; turn++) {
+      const started = await h.request('POST', START, {
+        accept: negotiated ? 'application/json; dev-reply-contract=dev-reply-practice-v1' : undefined,
+        input: body({ message: fixture.inputs[turn], requestId: `${h.now()}_attribution-${turn}`,
+          ...(previous ? { devConversationId: previous.res.body.devConversationId, afterRequestId: previous.req.body.requestId } : {}),
+        }),
+      });
+      await settle();
+      assert.equal(started.res.statusCode, 200);
+      assert.equal(h.providerRequests.length, turn + 1);
+      const request = JSON.parse(h.providerRequests.at(-1).options.body);
+      assertUnderstandingContract(request.messages[0].content);
+      assert.deepEqual({ ...request, messages: undefined }, {
+        model: 'qwen3.6-plus', stream: true, temperature: 0.6, max_tokens: 1200, enable_thinking: false, messages: undefined,
+      });
+      assert.deepEqual(request.messages.slice(1), [
+        ...fixture.inputs.slice(0, turn).flatMap((content, i) => [{ role: 'user', content }, { role: 'assistant', content: replies[i] }]),
+        { role: 'user', content: fixture.inputs[turn] },
+      ], 'only supplied role history and exact input, never invented receipt/confirmation/assistant history');
+      if (negotiated) assert.ok(request.messages[0].content.includes('===== reply 原合同开始 ====='));
+      const stream = await h.request('GET', STREAM, { query: { sessionId: started.res.body.sessionId } });
+      h.tick(100); await settle();
+      assert.equal(stream.events().at(-1)?.eventType, 'turn.completed');
+      assert.equal(stream.events().find(event => event.eventType === 'deep.delta').content, replies[turn],
+        'no new rewrite/masking/validator is introduced; fixed output is not semantic acceptance');
       assert.deepEqual(h.identityCalls(), []);
       previous = started;
     }
