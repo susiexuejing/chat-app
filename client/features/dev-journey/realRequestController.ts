@@ -8,12 +8,21 @@ export interface DevPracticeReply {
   readonly source: DevPracticeCandidate['source'];
 }
 /** Explicit same-session DEV turns. No network, storage or React imports. */
-export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'recoverable' | 'stopped';
+export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'recoverable' | 'stopped' | 'safety';
+export type DevSyntheticSafetyKind = 'help' | 'emergency' | 'unknown';
+// EF369-C-CHAT-SAFETY-v0.1-20261021: explicit synthetic controls only.
+// These frozen H01/U01 outputs do not classify text or call a provider.
+export const DEV_SYNTHETIC_SAFETY_REPLIES = Object.freeze({
+  emergency: '现在先把现实安全放在前面。请尽快联系身边可信的人、当地紧急服务或危机支持。',
+  help: '这里不能确认现实安全情况。如果你担心当前安全，请联系身边可信的人、当地紧急服务或危机支持。',
+  unknown: '这里不能确认现实安全情况。如果你担心当前安全，请联系身边可信的人、当地紧急服务或危机支持。',
+});
 export interface DevCompletedTurn {
   readonly inputText: string; readonly requestId: string; readonly logicalRequestId?: string; readonly sentAt: number;
   readonly reactionText: string; readonly companionText: string; readonly deepText: string;
 }
 export interface DevRealRequestSnapshot {
+  readonly safetySupport?: string;
   readonly practiceCandidate?: DevPracticeCandidate | null;
   readonly status: DevRealRequestStatus;
   readonly inputText: string;
@@ -59,6 +68,8 @@ export interface DevRealRequestController {
   send: (text: string) => Promise<boolean>;
   retry: () => Promise<boolean>;
   stop: () => void;
+  /** Explicit fixed synthetic exit, never text classification or a model send. */
+  safety: (kind: DevSyntheticSafetyKind) => void;
   /** Explicit New Chat only. Never sends a model request. */
   reset: () => void;
   dispose: () => void;
@@ -92,18 +103,29 @@ export function createDevRealRequestController(options: {
     completedTurns: Object.freeze([]), error: null, canSend: enabled && !disposed, source: null, practiceCandidate: null, canRetry: false,
   });
   let snapshot = initial();
-  function publish(next: DevRealRequestSnapshot) {
+  function publish(next: DevRealRequestSnapshot, isolateListeners = false) {
     snapshot = Object.freeze(next);
-    listeners.forEach(listener => listener());
+    listeners.forEach(listener => {
+      if (!isolateListeners) listener();
+      else { try { listener(); } catch { /* A failed safety observer cannot prevent the other observers or cleanup. */ } }
+    });
   }
-  function invalidate() {
+  function invalidate(beforeCancel?: () => void) {
     generation += 1;
     const run = active; active = null;
     const requestIds = new Set([context?.afterRequestId, latestRequestId]);
     latestRequestId = null; retryAnchor = null; context = null;
     clearTimeout(expiry); expiry = undefined;
+    // Safety clears local presentation/candidates after revocation and before
+    // cancellation can synchronously deliver stale callbacks.
     // Revoke callbacks before abort because listeners can fire synchronously.
-    run?.cancel(); run?.abort.abort();
+    if (beforeCancel) {
+      // Only the fixed safety exit isolates each local cleanup step. A failed
+      // observer or cancellation must not skip the remaining cleanup attempts.
+      try { beforeCancel(); } catch { /* Continue cancellation/end. */ }
+      try { run?.cancel(); } catch { /* Continue abort/end. */ }
+      try { run?.abort.abort(); } catch { /* Generation is revoked; still attempt end. */ }
+    } else { run?.cancel(); run?.abort.abort(); }
     for (const requestId of requestIds) {
       if (!requestId) continue;
       try { void transport.end(requestId).catch(() => undefined); } catch { /* expiry remains the backstop */ }
@@ -146,7 +168,12 @@ export function createDevRealRequestController(options: {
     },
     send: text => attempt(text),
     retry: () => retryAnchor && snapshot.canRetry ? attempt(snapshot.inputText, retryAnchor) : Promise.resolve(false),
-    stop: () => { if (!disposed && (latestRequestId || snapshot.requestId)) end('stopped', null); },
+    stop: () => { if (!disposed && (latestRequestId || snapshot.requestId || snapshot.status === 'safety')) end('stopped', null); },
+    safety: kind => {
+      if (disposed || !enabled || !['idle', 'starting', 'streaming', 'success', 'recoverable'].includes(snapshot.status)
+        || (kind !== 'help' && kind !== 'emergency' && kind !== 'unknown')) return;
+      invalidate(() => publish({ ...initial(), status: 'safety', canSend: false, safetySupport: DEV_SYNTHETIC_SAFETY_REPLIES[kind] }, true));
+    },
     reset: () => { if (!disposed) { invalidate(); publish(initial()); } },
     dispose: () => {
       if (disposed) return;

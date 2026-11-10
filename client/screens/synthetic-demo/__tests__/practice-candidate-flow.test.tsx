@@ -151,6 +151,30 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
   function state(id = a) { return saved().patterns.find(item => item.pattern.patternId === id)!; }
   async function choose(id = b) { await press(`practice-candidate-target-${id}`); await press('practice-candidate-confirm-target'); }
   async function start() { await mount(); await send(); }
+  it.each(['help', 'emergency', 'unknown'] as const)('synthetic %s clears both unsaved editors and stale saves without changing saved patterns, practice or path', async kind => {
+    repo.savePractice(account, a, { ifCue: '已保存线索', thenAction: '已保存动作' }, 0);
+    repo.activatePractice(account, a, 1);
+    repo.saveRecord(account, a, { occurred: true, action: 'agreed', feeling: 'unchanged', note: '已保存的虚构记录' }, 2, 'saved-record');
+    storage.setItem.mockClear(); const before = values.get(STORAGE_KEY)!;
+    await start(); await choose(b); await type('practice-candidate-action', '未保存练习改写');
+    const stalePracticeSave = node('practice-candidate-save').props.onPress;
+    await press('candidate-confirm'); await type('candidate-text', '未保存理解改写'); await press('candidate-new-choice');
+    const staleUnderstandingSave = node('candidate-save').props.onPress;
+    await type('chat-input', '未发送独立草稿'); await press('dev-safety-controls');
+    const safety = node(`dev-safety-${kind}`).props.onPress;
+    await act(async () => { safety(); safety(); stalePracticeSave(); staleUnderstandingSave(); });
+    expect(nodes('dev-safety-support')).toHaveLength(1);
+    for (const id of ['practice-candidate-card', 'candidate-text', 'candidate-save', 'candidate-confirm', 'chat-input', 'chat-send', 'dev-retry']) expect(nodes(id)).toHaveLength(0);
+    for (const text of [DEEP_REPLY, CURRENT_INPUT, '未保存练习改写', '未保存理解改写', '未发送独立草稿']) expect(output()).not.toContain(text);
+    expect(values.get(STORAGE_KEY)).toBe(before); expect(storage.setItem).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(mockEnd).toHaveBeenCalledTimes(1); expect(mockEnd).toHaveBeenCalledWith('stub-request-1');
+    await press('dev-new-chat');
+    await act(async () => { stalePracticeSave(); staleUnderstandingSave(); });
+    expect(node('chat-input').props.value).toBe(''); expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(nodes('candidate-save')).toHaveLength(0); expect(values.get(STORAGE_KEY)).toBe(before);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
   it('renders no card by default or when the successful result has no candidate', async () => {
     offer = null; await mount(); expect(nodes('practice-candidate-card')).toHaveLength(0); await send();
     expect(nodes('practice-candidate-card')).toHaveLength(0); expect(storage.setItem).not.toHaveBeenCalled();
