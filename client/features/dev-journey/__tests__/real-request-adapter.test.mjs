@@ -128,7 +128,7 @@ for (const [name, result, expectedSuccess] of [
   const transport = module.createDevRealRequestTransport(); const signal = new AbortController().signal;
   const start = await transport.start({ message: 'current text', requestId: 'id' }, signal); assert.equal(start.devReplyContract, contract);
   let done = 0, error = 0;
-  await transport.stream(start.sessionId, { onDeepChunk() {}, onDone: r => { done++; assert.equal(r.contract, contract); }, onError: () => error++ }, signal,
+  await transport.stream(start.sessionId, { onDeepChunk() { return undefined; }, onDone: r => { done++; assert.equal(r.contract, contract); }, onError: () => error++ }, signal,
     { contract, devConversationId: 'dev-conversation', requestId: 'id' });
   assert.equal(done, expectedSuccess ? 1 : 0); assert.equal(error, expectedSuccess ? 0 : 1);
 });

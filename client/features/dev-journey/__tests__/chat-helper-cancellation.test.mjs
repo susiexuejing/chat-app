@@ -178,7 +178,7 @@ test('actual EF stream parser preserves strict structured terminal and accepts o
 });
 for (const alter of [t => { t.payload.practiceReply.contract = 'other'; }, t => { t.payload.practiceReply.extra = 'x'; },
   t => { t.payload.practiceReply.source.requestId = ''; }, t => { t.payload.practiceReply.practiceCandidate.ifCue = ''; },
-  t => { t.payload.practiceReply.practiceCandidate.thenAction = '😀'.repeat(101); }, t => { t.payload.extra = true; }]) {
+  t => { t.payload.practiceReply.practiceCandidate.thenAction = String.fromCodePoint(0x1f600).repeat(101); }, t => { t.payload.extra = true; }]) {
   test('actual EF stream parser rejects malformed practice terminal', async () => {
     const { api } = await setup(); const t = practiceTerminal(); alter(t);
     assert.equal(api.parseVersionedStreamEvent(JSON.stringify(t)).kind, 'rejected');
