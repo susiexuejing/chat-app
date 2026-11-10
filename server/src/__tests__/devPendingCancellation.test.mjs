@@ -118,7 +118,17 @@ for (const action of ['stop', 'reset', 'dispose', 'timeout', 'failure']) {
         if (action === 'timeout') x.timeout(); else x.controller[action]();
       }
       assert.equal(await pending, false); await x.flushEnds();
-      assertCleared(x.controller);
+      if (action === 'timeout') {
+        // Unknown start admission is not safe to retry. Preserve only already
+        // displayed content while end revokes both known server anchors.
+        const snapshot = plain(x.controller.getSnapshot());
+        assert.equal(snapshot.status, 'failed'); assert.equal(snapshot.canRetry, false); assert.equal(snapshot.canSend, false);
+        assert.equal(snapshot.inputText, NEXT); assert.equal(snapshot.deepText, '');
+        assert.equal(snapshot.completedTurns.length, 1);
+        assert.equal(snapshot.completedTurns[0].inputText, FIRST);
+        assert.equal(snapshot.completedTurns[0].deepText, REPLY);
+        assert.equal(await x.controller.retry(), false);
+      } else assertCleared(x.controller);
       const ids = x.starts.map(row => row.input.requestId);
       assert.deepEqual(x.ends, ids.map(requestId => ({ requestId, status: 200 })));
       x.auth.resolve(); await settle();
@@ -127,7 +137,8 @@ for (const action of ['stop', 'reset', 'dispose', 'timeout', 'failure']) {
       assert.equal(x.h.providerRequests.length, 1, 'no provider call for delayed start or old anchor');
       assert.equal(x.streams.length, 1, 'late start never attaches another stream');
       assert.deepEqual(x.h.identityCalls(), []);
-      x.controller.stop(); x.controller.reset(); x.controller.dispose(); x.controller.dispose();
+      x.controller.stop(); assertCleared(x.controller);
+      x.controller.reset(); x.controller.dispose(); x.controller.dispose();
       assert.equal(x.ends.length, 2, 'repeated cleanup does not re-send either end');
     });
   }

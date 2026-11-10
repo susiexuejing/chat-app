@@ -3,6 +3,7 @@
 import { readFile } from 'node:fs/promises';
 import * as nodeModule from 'node:module';
 import vm from 'node:vm';
+import { createHash } from 'node:crypto';
 
 export const MODE = 'dev-ephemeral-v1';
 export const START = '/api/v1/chat/dev-journey/start';
@@ -87,7 +88,7 @@ export async function harness(options = {}) {
     position: { cognition: 1, attribution: 1, agency: 1, abstraction: 'low' } };
   const imports = {
     'dotenv/config': {}, express: { default: express }, cors: { default: () => () => {} },
-    crypto: { default: { randomUUID: () => `run-${++sessionId}` } },
+    crypto: { default: { randomUUID: () => `run-${++sessionId}`, createHash } },
     path: { join: (...args) => args.join('/') },
     fs: {
       existsSync: tracked('fs.existsSync', () => true),
@@ -140,7 +141,11 @@ export async function harness(options = {}) {
     './contracts/streamEvents': {
       TurnEventSequencer: class { sequence = 0; next(eventType, payload) { return { eventType, ...payload, sequence: ++this.sequence }; } },
       serializeStreamEvent: event => `data: ${JSON.stringify(event)}\n\n`,
-      mapSafeStreamError: code => ({ code }),
+      mapSafeStreamError: code => options.realErrorMapping ? {
+        code: code === 'stream_timeout' ? 'STREAM_TIMEOUT' : 'DEEP_RESPONSE_FAILED',
+        message: code === 'stream_timeout' ? 'The response timed out before completion.' : 'The response could not be completed.',
+        recoverable: true, recoveryAction: 'retry_turn',
+      } : ({ code }),
     },
     './observability/ef118RuntimeAudit': { EF45_R2_PROBE_MARKER: 'mock-probe', writeEf118RuntimeAudit: tracked('audit') },
     './observability/ef45CategoryReader': { ef45CategoryReader() {}, isFixedEf45SyntheticProbe: () => false },
@@ -183,6 +188,16 @@ export async function harness(options = {}) {
       : ts.transpileModule(original, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
     return new vm.SourceTextModule(source, { context, identifier: url.href });
   }
+  if (options.realStreamContract) {
+    const { z } = nodeModule.createRequire(import.meta.url)('zod');
+    const streamModule = await sourceModule('../contracts/streamEvents.ts');
+    await streamModule.link(specifier => {
+      if (specifier !== 'zod') throw new Error(`Unexpected stream dependency: ${specifier}`);
+      return new vm.SyntheticModule(['z'], function () { this.setExport('z', z); }, { context });
+    });
+    await streamModule.evaluate();
+    imports['./contracts/streamEvents'] = streamModule.namespace;
+  }
   const practiceModule = await sourceModule('../contracts/devPracticeCandidate.ts');
   await practiceModule.link(() => { throw new Error('Unexpected practice contract dependency'); });
   await practiceModule.evaluate();
@@ -198,6 +213,8 @@ export async function harness(options = {}) {
   await validatorModule.evaluate();
   imports['./flows/ef41DeepCompositionValidator'] = {
     FIRST_TWO_ROUNDS_MAX_CHARS: validatorModule.namespace.FIRST_TWO_ROUNDS_MAX_CHARS,
+    validateEf41DeepOutputOutcome: tracked('validator', input => options.realValidator
+      ? validatorModule.namespace.validateEf41DeepOutputOutcome(input) : { text: input.text, rejected: false }),
     validateEf41DeepOutput: tracked('validator', input => options.realValidator
       ? validatorModule.namespace.validateEf41DeepOutput(input) : input.text),
   };
@@ -239,9 +256,9 @@ export async function harness(options = {}) {
   });
   await module.evaluate();
 
-  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {}, accept } = {}) {
+  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {}, accept, retryContract } = {}) {
     const events = new Map();
-    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : name.toLowerCase() === 'accept' ? accept : undefined,
+    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : name.toLowerCase() === 'accept' ? accept : name.toLowerCase() === 'x-dev-retry-contract' ? retryContract : undefined,
       on: (name, fn) => events.set(name, fn) };
     const res = {
       statusCode: 200, headers: {}, body: undefined, writes: [], ended: false,

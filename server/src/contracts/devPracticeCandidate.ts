@@ -37,7 +37,9 @@ export function parseDevPracticeReply(raw: string, options: {
   providerCompleted: boolean;
   source: PracticeSuggestionSource;
   /** Existing fact/safety validator, with its original current-turn/context inputs. */
-  validateReply: (reply: string) => string;
+  validateReply: (reply: string) => string | { text: string; rejected: boolean };
+  /** Negotiated recovery treats validator fallback as failure, never success. */
+  rejectRewrittenReply?: boolean;
   replyMaxChars: number;
 }): ValidatedPracticeReply | null {
   if (!options.providerCompleted || typeof raw !== 'string' || raw.length > 12000
@@ -68,7 +70,13 @@ export function parseDevPracticeReply(raw: string, options: {
     if (eligible) candidate = Object.freeze({ ifCue: suggestion.ifCue, thenAction: suggestion.thenAction });
   }
   let reply: string;
-  try { reply = options.validateReply(value.reply); } catch { return null; }
+  let rejected = false;
+  try {
+    const outcome = options.validateReply(value.reply);
+    reply = typeof outcome === 'string' ? outcome : outcome.text;
+    rejected = typeof outcome === 'object' && outcome.rejected;
+  } catch { return null; }
+  if (options.rejectRewrittenReply && (rejected || reply !== value.reply.trim())) return null;
   if (!text(reply, options.replyMaxChars)) return null;
   // A fact/safety rewrite means the model contract did not pass unchanged.
   // Keep the existing safe reply, but do not expose a suggestion from that output.

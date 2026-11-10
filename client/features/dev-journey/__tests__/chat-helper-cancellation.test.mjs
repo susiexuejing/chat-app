@@ -184,3 +184,77 @@ for (const alter of [t => { t.payload.practiceReply.contract = 'other'; }, t => 
     assert.equal(api.parseVersionedStreamEvent(JSON.stringify(t)).kind, 'rejected');
   });
 }
+
+test('manual retry uses independent fixed header, preserves original Accept and omits continuation identity', async () => {
+  const { api, calls } = await setup();
+  await api.chatStart('clever-fox', 'same', undefined, 'new-id', undefined, undefined, undefined, 'dev-ephemeral-v1', undefined,
+    'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1', retryOfRequestId: 'old-id' });
+  const [, options] = calls.fetch[0];
+  assert.equal(options.headers.Accept, 'application/json; dev-reply-contract=dev-reply-practice-v1');
+  assert.equal(options.headers['X-Dev-Retry-Contract'], 'dev-manual-retry-v1');
+  assert.deepEqual(JSON.parse(options.body), { roleId: 'clever-fox', message: 'same', requestId: 'new-id', requestMode: 'dev-ephemeral-v1', retryOfRequestId: 'old-id' });
+});
+for (const state of ['pending', 'unknown', null]) test(`retry 409 ${state} is typed only for exact safe pending header; body never read`, async () => {
+  let reads = 0;
+  const { api } = await setup({ fetch: async () => ({ ok: false, status: 409, headers: { get: key => key === 'X-Dev-Retry-State' ? state : null }, json: () => { reads++; throw new Error('private'); } }) });
+  await assert.rejects(api.chatStart('clever-fox', 'same', undefined, 'new-id', undefined, undefined, undefined, 'dev-ephemeral-v1', undefined,
+    'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1', retryOfRequestId: 'old-id' }), error => {
+      assert.equal(error.code === 'dev_retry_pending', state === 'pending'); assert.equal(error.message.includes('private'), false); return true;
+    });
+  assert.equal(reads, 0);
+});
+test('manual retry cannot combine caller continuation and retry anchor', async () => {
+  const { api, calls } = await setup();
+  await assert.rejects(api.chatStart('clever-fox', 'same', undefined, 'new-id', undefined, undefined, undefined, 'dev-ephemeral-v1',
+    { devConversationId: 'conv', afterRequestId: 'old' }, 'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1', retryOfRequestId: 'old-id' }));
+  assert.equal(calls.auth.length, 0); assert.equal(calls.fetch.length, 0);
+});
+test('start transport loss is typed unconfirmed; auth failure is not recoverable', async () => {
+  for (const failedStage of ['auth', 'fetch']) {
+    const opts = { [failedStage]: async () => { throw new Error('synthetic failure'); } };
+    const { api } = await setup(opts);
+    await assert.rejects(api.chatStart('clever-fox', 'same', undefined, 'new-id', undefined, undefined, undefined, 'dev-ephemeral-v1', undefined,
+      'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1' }), error => {
+        assert.equal(error.code === 'dev_start_unconfirmed', failedStage === 'fetch'); return true;
+      });
+  }
+});
+
+test('old server receipt without retry contract retains structured reply support but never enables Retry', async () => {
+  const { api, calls } = await setup({ fetch: async () => ({ ok: true, status: 200, json: async () => ({
+    requestMode: 'dev-ephemeral-v1', devReplyContract: 'dev-reply-practice-v1', sessionId: 's', devConversationId: 'c',
+    expiresAt: 700000, remainingLifetimeMs: 600000,
+  }) }) });
+  const { createDevRealRequestController } = await loadTsModule(new URL('../realRequestController.ts', import.meta.url), {});
+  let request = 0, fail = false;
+  const controller = createDevRealRequestController({ enabled: true, createRequestId: () => `r-${++request}`, transport: {
+    end: async () => undefined,
+    start: input => api.chatStart('clever-fox', input.message, undefined, input.requestId, undefined, undefined, undefined,
+      'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1' }),
+    stream: async (sessionId, cb, _signal, expected) => {
+      if (fail) { cb.onError('retry_turn'); return; }
+      cb.onDeepChunk('validated old server reply');
+      cb.onDone({ contract: 'dev-reply-practice-v1', reply: 'validated old server reply', practiceCandidate: null,
+        source: { sessionId, devConversationId: expected.devConversationId, requestId: expected.requestId } });
+    },
+  } });
+  try {
+    assert.equal(await controller.send('fictional first'), true);
+    assert.equal(controller.getSnapshot().deepText, 'validated old server reply');
+    assert.equal(controller.getSnapshot().source, 'backend-deep'); assert.equal(controller.getSnapshot().canRetry, false);
+    assert.equal(calls.fetch[0][1].headers.Accept, 'application/json; dev-reply-contract=dev-reply-practice-v1');
+    assert.equal(calls.fetch[0][1].headers['X-Dev-Retry-Contract'], 'dev-manual-retry-v1');
+    fail = true; assert.equal(await controller.send('fictional second'), false);
+    assert.equal(controller.getSnapshot().canRetry, false); assert.equal(await controller.retry(), false);
+    assert.equal(calls.fetch.length, 2);
+  } finally { controller.dispose(); }
+});
+test('old server preflight/transport rejection never retries with weaker negotiation or another route', async () => {
+  const { api, calls } = await setup({ fetch: async () => { throw new TypeError('mock browser fetch failed'); } });
+  await assert.rejects(api.chatStart('clever-fox', 'fictional', undefined, 'r', undefined, undefined, undefined,
+    'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1' }), { code: 'dev_start_unconfirmed' });
+  assert.equal(calls.fetch.length, 1); assert.equal(calls.auth.length, 1);
+  assert.equal(calls.fetch[0][1].headers.Accept, 'application/json; dev-reply-contract=dev-reply-practice-v1');
+  assert.equal(calls.fetch[0][1].headers['X-Dev-Retry-Contract'], 'dev-manual-retry-v1');
+  assert.ok(calls.fetch[0][0].endsWith('/api/v1/chat/dev-journey/start'));
+});

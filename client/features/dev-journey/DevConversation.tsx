@@ -6,7 +6,7 @@ import { MultimodalInputView } from '@/screens/chat/components/MultimodalInputVi
 import type { ChatMessage } from '@/screens/chat/types';
 import { createDevRealRequestControllerForRuntime } from '@/features/dev-journey/realRequestAdapter';
 import {
-  DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
+  DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_RETRY_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
   type DevPracticeCandidate, type DevRealRequestController, type DevRealRequestSnapshot,
 } from '@/features/dev-journey/realRequestController';
 
@@ -64,8 +64,11 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     const unsubscribe = instance.subscribe(() => {
       if (controller.current !== instance) return;
       const next = instance.getSnapshot();
-      if (next.status === 'starting' || next.status === 'failed' || next.status === 'stopped') {
-        practiceCallbacks.current.onPracticeInvalidate?.(); discard.current(); setInput('');
+      if (next.status === 'starting' || next.status === 'recoverable' || next.status === 'failed' || next.status === 'stopped') {
+        practiceCallbacks.current.onPracticeInvalidate?.(); discard.current();
+        // A manual retry must not consume a separate draft typed while waiting.
+        if ((next.status === 'starting' && next.logicalRequestId === next.requestId)
+          || (next.status === 'failed' && !next.preserveDraft) || next.status === 'stopped') setInput('');
       }
       setState(next);
     });
@@ -90,7 +93,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   const messages: ChatMessage[] = [];
   for (const turn of [...state.completedTurns, state]) {
     if (!turn.requestId) continue;
-    if (turn.inputText) messages.push({ id: `${turn.requestId}-user`, role: 'user', content: turn.inputText, timestamp: turn.sentAt });
+    if (turn.inputText) messages.push({ id: `${'logicalRequestId' in turn ? turn.logicalRequestId ?? turn.requestId : turn.requestId}-user`, role: 'user', content: turn.inputText, timestamp: turn.sentAt });
     // Only a completed, server-validated answer belongs in the conversation.
     // Never render front templates or an in-flight partial candidate.
     if (turn.deepText) messages.push({ id: `${turn.requestId}-deep`, role: 'assistant', content: turn.deepText, responseLayer: 'deep', timestamp: turn.sentAt });
@@ -105,6 +108,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     starting: '正在思考',
     streaming: '正在思考',
     success: `${DEV_REAL_REQUEST_SOURCE_NOTICE} 本轮已完成。可继续明确发送下一条，或结束对话。`,
+    recoverable: '刚才的回复没有完成，可以重试',
     failed: state.error ?? '本次请求未完成。',
     stopped: '本次会话已结束，上下文已清除；未自动保存理解。',
   }[state.status];
@@ -116,6 +120,11 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       <Text className="text-xs text-stone-700">{DEV_REAL_REQUEST_NOTICE} 超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。</Text>
       <Text testID="dev-request-status" accessibilityLiveRegion="polite" className="text-xs text-stone-700">{statusText}</Text>
       {showIntro && <Text className="text-sm text-stone-700">回复可供你阅读和修改，不是诊断。只有你确认保存的理解才进入本地模式与路径。</Text>}
+      {state.canRetry && <><Action id="dev-retry" title="重试" onPress={() => {
+        if (controller.current?.getSnapshot() !== state) return;
+        if (beforeSend && !beforeSend()) { leave(); return; }
+        void controller.current.retry();
+      }} /><Text className="text-xs text-stone-600">{DEV_REAL_REQUEST_RETRY_NOTICE}</Text></>}
       {busy && <Action id="dev-stop" title="停止等待" onPress={leave} />}
       <Text className="text-xs text-stone-600">{DEV_REAL_REQUEST_STOP_NOTICE}</Text>
     </View>

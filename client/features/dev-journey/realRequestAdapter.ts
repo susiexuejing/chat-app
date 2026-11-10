@@ -35,17 +35,23 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
           || typeof input.afterRequestId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(input.afterRequestId)))) {
         throw new Error('invalid_dev_context');
       }
+      if (input.retryOfRequestId !== undefined && (typeof input.retryOfRequestId !== 'string'
+        || !DEV_REAL_REQUEST_ID_PATTERN.test(input.retryOfRequestId) || input.devConversationId !== undefined)) throw new Error('invalid_dev_retry');
       // Explicit allowlist: opaque DEV continuation only. Never caller history,
       // account ID, pattern state, diagnostic marker or durable conversation ID.
       const result = await chatStart(
         'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal, 'dev-ephemeral-v1',
         input.devConversationId === undefined ? undefined : { devConversationId: input.devConversationId, afterRequestId: input.afterRequestId },
         'dev-reply-practice-v1',
+        { contract: 'dev-manual-retry-v1', ...(input.retryOfRequestId ? { retryOfRequestId: input.retryOfRequestId } : {}) },
       );
       assertAllowed(signal);
       if (result.requestMode !== 'dev-ephemeral-v1') throw new Error('dev_isolation_not_confirmed');
       if (result.devReplyContract !== undefined && result.devReplyContract !== 'dev-reply-practice-v1') throw new Error('unsupported_dev_reply_contract');
+      if (result.devRetryContract !== undefined && (result.devRetryContract !== 'dev-manual-retry-v1'
+        || result.devReplyContract !== 'dev-reply-practice-v1')) throw new Error('unsupported_dev_retry_contract');
       return {
+        devRetryContract: result.devRetryContract,
         devReplyContract: result.devReplyContract,
         sessionId: result.sessionId,
         devConversationId: result.devConversationId!,
@@ -60,12 +66,16 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       assertAllowed(signal);
       let terminal = false;
       let successfulTerminal = false;
-      const fail = () => {
+      const fail = (reason: 'retry_turn' | 'transport' | 'terminal' = 'terminal') => {
         if (terminal || signal.aborted) return;
         terminal = true;
-        callbacks.onError();
+        callbacks.onError(reason);
       };
-      await chatStream(sessionId, {
+      // Protocol/HTTP/auth failures are terminal. Only transport loss or an
+      // explicitly recoverable technical event may offer manual recovery.
+      const transportFailure = (error: Error) => fail(
+        /^(?:HTTP |Unsupported stream event:|anonymous_|auth|dev_)/i.test(error?.message ?? '') ? 'terminal' : 'transport');
+      try { await chatStream(sessionId, {
         onChunk: serialized => {
           if (signal.aborted || terminal) return;
           try {
@@ -73,10 +83,11 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
             const event = JSON.parse(serialized) as {
               eventType?: string;
               content?: unknown;
-              payload?: { practiceReply?: DevPracticeReply };
+              payload?: { practiceReply?: DevPracticeReply; recoverable?: boolean; recoveryAction?: string };
             };
             if (event.eventType === 'error') {
-              fail();
+              fail(expected?.retryContract === 'dev-manual-retry-v1' && event.payload?.recoverable === true
+                && event.payload?.recoveryAction === 'retry_turn' ? 'retry_turn' : 'terminal');
             } else if (event.eventType === 'deep.delta' && typeof event.content === 'string') {
               callbacks.onDeepChunk(event.content);
             } else if (event.eventType === 'turn.completed') {
@@ -94,12 +105,12 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
             fail();
           }
         },
-        onError: fail,
+        onError: transportFailure,
         // EOF/[DONE] alone is insufficient: require the versioned turn terminal.
-        onDone: () => { if (!successfulTerminal) fail(); },
-      }, undefined, signal);
+        onDone: () => { if (!successfulTerminal) fail('transport'); },
+      }, undefined, signal); } catch (error) { transportFailure(error as Error); }
       assertAllowed(signal);
-      if (!terminal) fail();
+      if (!terminal) fail('transport');
     },
   };
 }
