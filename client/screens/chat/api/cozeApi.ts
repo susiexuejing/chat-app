@@ -454,6 +454,21 @@ function diagnosticHeader(marker?: string): Record<string, string> {
   return marker ? { [EF45_ONE_SHOT_DIAGNOSTIC_HEADER]: marker } : {};
 }
 
+function normalizeChatStartBoundary(value: unknown): string {
+  // Match only fixed server categories; never log or propagate arbitrary headers.
+  switch (value) {
+    case 'anonymous_auth':
+    case 'request_validation':
+    case 'conversation_ownership':
+    case 'runtime_profile':
+    case 'flow_preparation':
+    case 'session_create':
+      return value;
+    default:
+      return 'unknown';
+  }
+}
+
 /** DEV-only capability: the opaque marker is kept only by the caller. */
 export async function armEf45OneShotDiagnostic(): Promise<string | null> {
   const BASE = getBackendUrl();
@@ -544,7 +559,7 @@ export async function chatStart(
       if (requestMode === 'dev-ephemeral-v1' && response.status === 410) throw new Error('dev_request_expired_or_clock_skew');
       // Never read or propagate an HTTP error body into the client error path.
       // The caller maps this opaque failure to a safe local status.
-      const boundary = response.headers?.get?.('X-EF235-Chat-Start-Boundary') || 'unknown';
+      const boundary = normalizeChatStartBoundary(response.headers?.get?.('X-EF235-Chat-Start-Boundary'));
       console.warn('[EF-235] Chat start HTTP failure', { httpStatus, boundary });
       throw new Error(boundary === 'unknown'
         ? 'chat_start_request_failed'
