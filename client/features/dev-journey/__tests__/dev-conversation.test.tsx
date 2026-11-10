@@ -120,11 +120,43 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     await act(async () => { tree.unmount(); }); mounted = false;
   }
   function output() { return JSON.stringify(tree.toJSON()); }
+  function expectVisibleDisclosure() {
+    const visible = tree.root.findAll(item => typeof item.type === 'string' && (item.type as string) === 'Text')
+      .map(item => item.children.filter(child => typeof child === 'string').join('')).join('\n');
+    expect(visible).toContain('小狐狸是 AI 陪伴者，不是人类或治疗师，不提供诊断或治疗。');
+    expect(visible).toContain(DEV_REAL_REQUEST_NOTICE);
+    expect(visible).toContain('超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。');
+    expect(visible).toContain(DEV_REAL_REQUEST_STOP_NOTICE);
+  }
   function expectNoCandidate() {
     expect(nodes('candidate-confirm')).toHaveLength(0);
     expect(nodes('candidate-edit')).toHaveLength(0);
     expect(mockConfirm).not.toHaveBeenCalled();
   }
+
+  it('identifies AI, nonhuman and non-therapist before any send without opening the intro', async () => {
+    await mount();
+    expectVisibleDisclosure();
+    expect(output()).not.toContain('回复可供你阅读和修改，不是诊断。');
+    expect(node('chat-send').props.disabled).toBe(true);
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockStream).not.toHaveBeenCalled();
+    expectNoCandidate();
+  });
+
+  it.each(['end', 'new chat', 'reset key', 'remount'] as const)('keeps the disclosure visible after %s without dispatching an unsent draft', async action => {
+    await mount();
+    await type(INPUT);
+    if (action === 'end') await press('dev-end-chat');
+    else if (action === 'new chat') await press('dev-new-chat');
+    else if (action === 'reset key') await update(1);
+    else { await unmount(); await mount(); }
+    expectVisibleDisclosure();
+    expect(node('chat-input').props.value).toBe('');
+    expect(mockStart).not.toHaveBeenCalled();
+    expect(mockStream).not.toHaveBeenCalled();
+    expectNoCandidate();
+  });
 
   it('StrictMode cleanup retires deferred initialization and only the current controller accepts an explicit send', async () => {
     await act(async () => { tree = renderer.create(<React.StrictMode>{element()}</React.StrictMode>); });

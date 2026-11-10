@@ -117,7 +117,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       <View className="flex-row items-center justify-between"><Text className="text-xl font-semibold text-stone-900">EmotionFlow</Text>
         <View className="flex-row gap-2"><Action id="dev-end-chat" title="结束对话" onPress={leave} />
         <Action id="dev-new-chat" title="新对话" onPress={reset} /></View></View>
-      <Text className="text-xs text-stone-700">{DEV_REAL_REQUEST_NOTICE} 超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。</Text>
+      <Text className="text-xs text-stone-700">小狐狸是 AI 陪伴者，不是人类或治疗师，不提供诊断或治疗。{DEV_REAL_REQUEST_NOTICE} 超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。</Text>
       <Text testID="dev-request-status" accessibilityLiveRegion="polite" className="text-xs text-stone-700">{statusText}</Text>
       {showIntro && <Text className="text-sm text-stone-700">回复可供你阅读和修改，不是诊断。只有你确认保存的理解才进入本地模式与路径。</Text>}
       {state.canRetry && <><Action id="dev-retry" title="重试" onPress={() => {
