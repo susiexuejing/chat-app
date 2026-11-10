@@ -183,6 +183,10 @@ export async function harness(options = {}) {
       : ts.transpileModule(original, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
     return new vm.SourceTextModule(source, { context, identifier: url.href });
   }
+  const practiceModule = await sourceModule('../contracts/devPracticeCandidate.ts');
+  await practiceModule.link(() => { throw new Error('Unexpected practice contract dependency'); });
+  await practiceModule.evaluate();
+  imports['./contracts/devPracticeCandidate'] = practiceModule.namespace;
   const modeModule = await sourceModule('../devEphemeralChat.ts');
   const reactionModule = await sourceModule('../flows/firstTwoRoundsReaction.ts');
   await reactionModule.link(() => { throw new Error('Unexpected reaction dependency'); });
@@ -235,9 +239,9 @@ export async function harness(options = {}) {
   });
   await module.evaluate();
 
-  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {} } = {}) {
+  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {}, accept } = {}) {
     const events = new Map();
-    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : undefined,
+    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : name.toLowerCase() === 'accept' ? accept : undefined,
       on: (name, fn) => events.set(name, fn) };
     const res = {
       statusCode: 200, headers: {}, body: undefined, writes: [], ended: false,

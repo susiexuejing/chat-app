@@ -7,7 +7,7 @@ import type { ChatMessage } from '@/screens/chat/types';
 import { createDevRealRequestControllerForRuntime } from '@/features/dev-journey/realRequestAdapter';
 import {
   DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
-  type DevRealRequestController, type DevRealRequestSnapshot,
+  type DevPracticeCandidate, type DevRealRequestController, type DevRealRequestSnapshot,
 } from '@/features/dev-journey/realRequestController';
 
 export interface DevUnderstandingDraft { text: string; input: string; requestId: string }
@@ -22,20 +22,25 @@ function Action({ id, title, onPress }: { id: string; title: string; onPress: ()
 }
 
 /** Reuses the live presentation, without mounting the live provider/history/audio effects. */
-export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, beforeSend }: {
+export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, beforeSend, onPracticeCandidate, onPracticeInvalidate }: {
   onConfirm: (draft: DevUnderstandingDraft) => void;
   onDraftDiscard: () => void;
   footer?: React.ReactNode;
   resetKey: number;
   beforeSend?: () => boolean;
+  onPracticeCandidate?: (candidate: DevPracticeCandidate) => void;
+  onPracticeInvalidate?: () => void;
 }) {
   const controller = useRef<DevRealRequestController | null>(null);
   const [state, setState] = useState(initial);
   const [input, setInput] = useState('');
   const [showIntro, setShowIntro] = useState(false);
   const discard = useRef(onDraftDiscard);
+  const practiceCallbacks = useRef({ onPracticeCandidate, onPracticeInvalidate });
+  useLayoutEffect(() => { practiceCallbacks.current = { onPracticeCandidate, onPracticeInvalidate }; }, [onPracticeCandidate, onPracticeInvalidate]);
   useLayoutEffect(() => { discard.current = onDraftDiscard; }, [onDraftDiscard]);
   const leave = useCallback(() => {
+    practiceCallbacks.current.onPracticeInvalidate?.();
     const instance = controller.current;
     const before = instance?.getSnapshot();
     instance?.stop();
@@ -60,15 +65,21 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       if (controller.current !== instance) return;
       const next = instance.getSnapshot();
       if (next.status === 'starting' || next.status === 'failed' || next.status === 'stopped') {
-        discard.current(); setInput('');
+        practiceCallbacks.current.onPracticeInvalidate?.(); discard.current(); setInput('');
       }
       setState(next);
     });
-    return () => { unsubscribe(); instance.dispose(); controller.current = null; };
+    return () => { practiceCallbacks.current.onPracticeInvalidate?.(); unsubscribe(); instance.dispose(); controller.current = null; };
   }, [resetKey]);
 
+  useLayoutEffect(() => {
+    if (controller.current?.getSnapshot() === state && state.status === 'success' && state.practiceCandidate) {
+      practiceCallbacks.current.onPracticeCandidate?.(state.practiceCandidate);
+    }
+  }, [state]);
+
   const busy = state.status === 'starting' || state.status === 'streaming';
-  function reset() { onDraftDiscard(); controller.current?.reset(); setInput(''); }
+  function reset() { practiceCallbacks.current.onPracticeInvalidate?.(); onDraftDiscard(); controller.current?.reset(); setInput(''); }
   function send() {
     if (!input.trim() || controller.current?.getSnapshot() !== state || !state.canSend) return;
     if (beforeSend && !beforeSend()) { leave(); return; }

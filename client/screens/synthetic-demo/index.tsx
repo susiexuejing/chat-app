@@ -6,6 +6,8 @@ import {
   DEMO_NUMBER, STORAGE_KEY, LEGACY_STORAGE_KEY, createDemoRepository,
   type Decision, type DemoRepository, type Pattern, type PatternState, type PathEntry, type RecordPayload, type Snapshot,
 } from '@/features/synthetic-demo/repository';
+import { PracticeCandidateCard, type PracticeCandidateCardHandle } from '@/features/dev-journey/PracticeCandidateCard';
+import type { DevPracticeCandidate } from '@/features/dev-journey/realRequestController';
 import { DevConversation, type DevUnderstandingDraft } from '@/features/dev-journey/DevConversation';
 
 type Page = 'chat' | 'me' | 'patterns' | 'detail' | 'practice' | 'checkin';
@@ -79,6 +81,16 @@ export default function SyntheticDemoScreen() {
   const [enteredCode, setEnteredCode] = useState('');
   const [chatGeneration, setChatGeneration] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const accountSession = useRef<object>({});
+  const practiceCard = useRef<PracticeCandidateCardHandle | null>(null);
+  const practiceCandidateRef = useRef<DevPracticeCandidate | null>(null);
+  const lastPracticeReceipt = useRef<string | null>(null);
+  const [practiceCandidate, setPracticeCandidate] = useState<DevPracticeCandidate | null>(null);
+  const invalidatePractice = useCallback(() => {
+    practiceCard.current?.invalidate();
+    practiceCandidateRef.current = null;
+    setPracticeCandidate(null);
+  }, []);
   // Only the current successful check-in can show the worse follow-up.
   const [savedWorseRecord, setSavedWorseRecord] = useState<Scope | null>(null);
   // Both scope and exact draft identity are checked synchronously. A queued
@@ -90,6 +102,7 @@ export default function SyntheticDemoScreen() {
   const initialize = useCallback(() => {
     if (!mounted.current) return;
     setInitialError('');
+    invalidatePractice(); accountSession.current = {};
     try {
       if (Platform.OS !== 'web' || typeof window === 'undefined') {
         throw new Error('此 DEV 演示仅支持网页浏览器的本地存储。当前环境不可用，不会连接真实聊天。');
@@ -103,7 +116,7 @@ export default function SyntheticDemoScreen() {
       setSnapshot(null);
       setInitialError(errorText(error, '本地演示无法初始化。'));
     }
-  }, []);
+  }, [invalidatePractice]);
   useEffect(() => {
     let active = true;
     mounted.current = true;
@@ -117,6 +130,7 @@ export default function SyntheticDemoScreen() {
     return () => {
       active = false;
       mounted.current = false;
+      practiceCard.current?.invalidate(); practiceCandidateRef.current = null; accountSession.current = {};
       navigation.current += 1;
       repository.current?.cancelCode();
       repository.current = null;
@@ -138,6 +152,7 @@ export default function SyntheticDemoScreen() {
       } catch { /* Corrupt/replaced account data fails closed. */ }
       if (!mounted.current) return;
       repository.current?.cancelCode();
+      invalidatePractice(); accountSession.current = {};
       draftRef.current = null; setDraft(null); setNotice(null); setSavedWorseRecord(null);
       navigation.current += 1; setViewToken(navigation.current); setChatGeneration(value => value + 1);
       setCode(''); setEnteredCode(''); setPage('chat');
@@ -147,7 +162,7 @@ export default function SyntheticDemoScreen() {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [initialize]);
+  }, [initialize, invalidatePractice]);
 
   function currentView() { return mounted.current && navigation.current === viewToken; }
   function beforeChatSend() {
@@ -160,7 +175,7 @@ export default function SyntheticDemoScreen() {
     setNotice({ kind: 'error', text: CHAT_STORAGE_RESET_NOTICE });
     return false;
   }
-  function invalidateView() { navigation.current += 1; setViewToken(navigation.current); }
+  function invalidateView() { invalidatePractice(); navigation.current += 1; setViewToken(navigation.current); }
   function changeDraft(next: Draft | null) {
     setNotice(null);
     draftRef.current = next;
@@ -227,6 +242,7 @@ export default function SyntheticDemoScreen() {
       }
       if (page === 'patterns') setList({ status: 'ready', data: next.patterns });
       if (next.session !== snapshot?.session) {
+        accountSession.current = {}; lastPracticeReceipt.current = null;
         setPage('chat');
         setSelectedPatternId(null);
         setList({ status: 'idle', data: null });
@@ -290,6 +306,29 @@ export default function SyntheticDemoScreen() {
   function retryCandidate(previous: Extract<Draft, { kind: 'candidate' }>) {
     if (!currentView() || draftRef.current !== previous) return;
     candidate({ text: previous.text, input: previous.input, requestId: previous.requestId });
+  }
+  function receivePracticeCandidate(result: DevPracticeCandidate) {
+    if (!currentView() || page !== 'chat' || !snapshot?.session || !repository.current || practiceCandidateRef.current) return;
+    const identity = JSON.stringify(result.source);
+    if (lastPracticeReceipt.current === identity) return;
+    try {
+      const fresh = repository.current.snapshot();
+      if (fresh.session !== snapshot.session || fresh.revision !== snapshot.revision) return;
+      lastPracticeReceipt.current = identity;
+      practiceCandidateRef.current = result; setPracticeCandidate(result);
+    } catch { invalidatePractice(); }
+  }
+  function renderPracticeCandidate() {
+    if (!practiceCandidate || !repository.current || !snapshot?.session) return null;
+    const expected = practiceCandidate;
+    return <PracticeCandidateCard key={JSON.stringify(expected.source)} ref={practiceCard} candidate={expected}
+      repository={repository.current} accountId={snapshot.session} accountSession={accountSession.current}
+      onDismiss={() => { if (practiceCandidateRef.current === expected) invalidatePractice(); }}
+      onSaved={next => {
+        if (!currentView() || practiceCandidateRef.current !== expected) return;
+        invalidatePractice(); setSnapshot(next);
+        setNotice({ kind: 'success', text: '已保存到你选择的模式。未自动开启练习。' });
+      }} />;
   }
   function discardChatDraft() {
     if (!currentView()) return;
@@ -418,7 +457,7 @@ export default function SyntheticDemoScreen() {
         <Button testID="login" title="登录演示账号" onPress={() => write(repo => repo.login(enteredCode), '已进入虚构演示账号。')} />
       </>}
     </Card>;
-    if (page === 'chat') return <DevConversation beforeSend={beforeChatSend} resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} footer={renderDraft()} />;
+    if (page === 'chat') return <DevConversation beforeSend={beforeChatSend} resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} onPracticeCandidate={receivePracticeCandidate} onPracticeInvalidate={invalidatePractice} footer={<>{renderPracticeCandidate()}{renderDraft()}</>} />;
     if (page === 'me') return <>
       <Text className="text-2xl font-semibold text-stone-900">我的</Text>
       <Card><Text className="text-lg font-semibold text-stone-900">我的模式</Text><Text className="text-stone-600">查看自己确认的理解、各自的练习和路径。</Text>
@@ -426,7 +465,7 @@ export default function SyntheticDemoScreen() {
       <Card><Text className="text-lg font-semibold text-stone-900">账户信息</Text><Text className="text-stone-600">虚构账号 · {DEMO_NUMBER}</Text><Text className="text-sm text-stone-600">仅保存在这个浏览器。退出后重新登录同一个演示账号可以继续查看已保存内容。</Text>
         <Button testID="logout" title="退出演示账号" secondary onPress={() => {
           if (!currentView()) return;
-          changeDraft(null); repository.current?.cancelCode(); setChatGeneration(value => value + 1); setCode(''); setEnteredCode('');
+          invalidatePractice(); accountSession.current = {}; changeDraft(null); repository.current?.cancelCode(); setChatGeneration(value => value + 1); setCode(''); setEnteredCode('');
           write(repo => repo.logout(), '已退出，未保存草稿已丢弃。');
         }} /></Card>
     </>;
@@ -476,6 +515,7 @@ export default function SyntheticDemoScreen() {
       <Button testID="practice-back" title="返回模式详情" secondary onPress={() => navigate('detail', pattern.patternId)} />
       <Card><Text className="text-sm text-orange-800">{pattern.name}</Text><Text className="text-2xl font-semibold text-stone-900">我的练习</Text>
         {practice ? <><Text className="text-stone-800">如果：{practice.ifCue}</Text><Text className="text-stone-800">那么：{practice.thenAction}</Text></> : <Text className="text-stone-700">请自行填写一个触发线索与动作。</Text>}
+        {practice?.candidateOrigin && <Text testID="practice-suggestion-source" className="text-sm text-stone-600">来源：AI 建议 · 经你编辑或核对后明确保存</Text>}
         <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已确认 · 进行中'}</Text>
         <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green onPress={() => { if (currentView()) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
         {practice && <><Button testID="record-open" title="记录这一次" green disabled={practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />

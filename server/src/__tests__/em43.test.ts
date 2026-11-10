@@ -298,13 +298,27 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
   test('production Deep composition receives role, raw message, real turn, and all output sources', () => {
     const source = readFileSync(new URL('../index.ts', import.meta.url), 'utf8');
 
-    expect((source.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(3);
-    expect((source.match(/roleId: session\.roleId/g) || [])).toHaveLength(3);
-    expect((source.match(/userMessage: session\.userMessage/g) || [])).toHaveLength(3);
-    expect((source.match(/\n\s*userTurn,/g) || []).length).toBeGreaterThanOrEqual(3);
-    expect(source).toContain("source: 'cleaned'");
-    expect(source).toContain("source: 'last-resort'");
-    expect(source).toContain("source: 'reasoning'");
+    // Preserve all three legacy output validators. The negotiated JSON reply
+    // has its own fourth validation boundary; it must not replace any of them.
+    const start = source.indexOf('    if (session.devReplyContract === DEV_PRACTICE_CONTRACT) {');
+    const end = source.indexOf('    // Negotiated JSON never passes through', start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const negotiated = source.slice(start, end);
+    const legacy = source.slice(0, start) + source.slice(end);
+    expect((legacy.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(3);
+    expect((legacy.match(/roleId: session\.roleId/g) || [])).toHaveLength(3);
+    expect((legacy.match(/userMessage: session\.userMessage/g) || [])).toHaveLength(3);
+    expect((legacy.match(/\n\s*userTurn,/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(legacy).toContain("source: 'cleaned'");
+    expect(legacy).toContain("source: 'last-resort'");
+    expect(legacy).toContain("source: 'reasoning'");
+    expect((negotiated.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(1);
+    expect(negotiated).toContain('roleId: session.roleId, userTurn');
+    expect(negotiated).toContain('userMessage: session.userMessage');
+    expect(negotiated).toContain('sameSessionUserMessages: session.devContext?.map(pair => pair.user)');
+    expect(negotiated).toContain('devPrimaryResponse: true');
+    expect(negotiated).toContain('providerCompleted: providerCompleted && !providerTruncated');
   });
 });
 

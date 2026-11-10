@@ -10,6 +10,13 @@ const flowContextSchema = z.object({
   flowRisk: z.string().nullable(),
 }).strict();
 
+const practiceReplySchema = z.object({
+  contract: z.literal('dev-reply-practice-v1'),
+  reply: z.string().min(1),
+  practiceCandidate: z.object({ ifCue: z.string().min(1).max(200), thenAction: z.string().min(1).max(200) }).strict().nullable(),
+  source: z.object({ sessionId: z.string().min(1), devConversationId: z.string().min(1), requestId: z.string().min(1) }).strict(),
+}).strict();
+
 export const streamPayloadSchemas = {
   'turn.started': z.object({
     sessionId: z.string().min(1),
@@ -22,7 +29,7 @@ export const streamPayloadSchemas = {
   companion: z.object({ content: z.string() }).strict(),
   'deep.delta': z.object({ content: z.string().min(1) }).strict(),
   'deep.completed': z.object({}).strict(),
-  'turn.completed': z.object({ status: z.literal('completed') }).strict(),
+  'turn.completed': z.object({ status: z.literal('completed'), practiceReply: practiceReplySchema.optional() }).strict(),
   error: z.object({
     code: z.enum(['DEEP_RESPONSE_FAILED', 'STREAM_TIMEOUT']),
     message: z.string().min(1),

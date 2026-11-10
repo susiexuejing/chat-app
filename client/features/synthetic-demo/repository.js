@@ -37,6 +37,8 @@ const keys = (x, allowed) => plain(x) && Object.keys(x).every(k => allowed.inclu
 function requireThat(ok, message = '内容无效，请检查后重试。') { if (!ok) throw Error(message); }
 const owned = (x, patternId) => plain(x) && x.accountId === ACCOUNT_ID && x.patternId === patternId;
 const validOrigin = x => keys(x, ['input','requestId']) && text(x.input,1000) && typeof x.requestId === 'string' && /^[\w-]{1,100}$/.test(x.requestId);
+const validCandidateOrigin = x => keys(x, ['kind','sessionId','devConversationId','requestId']) && x.kind === 'ai-suggestion'
+  && ['sessionId','devConversationId','requestId'].every(key => typeof x[key] === 'string' && /^[\w-]{1,100}$/.test(x[key]));
 const marked = (x, patternId) => owned(x,patternId) && x.schemaVersion === 1 && ['synthetic','dev-api-test'].includes(x.demoSource)
   && (x.origin === undefined || (x.demoSource === 'dev-api-test' && validOrigin(x.origin)));
 function validPayload(x) {
@@ -53,7 +55,7 @@ function validateState(s, accountId, legacy = false) {
   // Read only factual, explicitly attributed clues. Nothing infers or seeds them.
   requireThat(Array.isArray(p.clues) && p.clues.every(c => keys(c,['schemaVersion','demoSource','origin','accountId','patternId','clueId','kind','fact','source','userConfirmed']) && marked(c,id) && text(c.clueId,150) && ['situation','thought','feeling','behavior','exception'].includes(c.kind) && text(c.fact,2000) && (c.source === undefined || c.source === null || text(c.source,200,true)) && (c.userConfirmed === undefined || c.userConfirmed === null || typeof c.userConfirmed === 'boolean')));
   requireThat(new Set(p.clues.map(c=>c.clueId)).size === p.clues.length);
-  requireThat(q === null || (owned(q,id) && text(q.practiceId,150) && (!legacy || q.practiceId === PRACTICE_ID) && (q.demoSource === undefined || ['synthetic','dev-api-test'].includes(q.demoSource)) && (q.origin === undefined || (q.demoSource === 'dev-api-test' && validOrigin(q.origin))) && text(q.name,80) && text(q.ifCue,200) && text(q.thenAction,200) && q.confirmed === true && typeof q.paused === 'boolean' && version(q.version)));
+  requireThat(q === null || (owned(q,id) && text(q.practiceId,150) && (!legacy || q.practiceId === PRACTICE_ID) && (q.demoSource === undefined || ['synthetic','dev-api-test'].includes(q.demoSource)) && (q.origin === undefined || (q.demoSource === 'dev-api-test' && validOrigin(q.origin))) && (q.candidateOrigin === undefined || validCandidateOrigin(q.candidateOrigin)) && text(q.name,80) && text(q.ifCue,200) && text(q.thenAction,200) && q.confirmed === true && typeof q.paused === 'boolean' && version(q.version)));
   requireThat(Array.isArray(s.records) && Array.isArray(s.path) && (!s.records.length || !!q));
   requireThat(s.records.every(r => marked(r,id) && r.practiceId === q.practiceId && version(r.practiceVersion) && r.practiceVersion <= q.version && text(r.recordId,150) && text(r.operationId,100) && stamp(r.createdAt) && validPayload(r)));
   requireThat(new Set(s.records.map(r=>r.recordId)).size === s.records.length && new Set(s.records.map(r=>r.operationId)).size === s.records.length);
@@ -209,10 +211,10 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       correction(d,s,s.pattern.currentUnderstanding,next.currentUnderstanding,at); s.pattern = next; return write(d);
     },
     savePractice(accountId,patternId,patch,expectedVersion) {
-      requireThat(keys(patch,['ifCue','thenAction']) && text(patch.ifCue,200) && text(patch.thenAction,200));
+      requireThat(keys(patch,['ifCue','thenAction','candidateOrigin']) && (patch.candidateOrigin === undefined || validCandidateOrigin(patch.candidateOrigin)) && text(patch.ifCue,200) && text(patch.thenAction,200));
       const d = authorized(accountId), s = selected(d,patternId);
       requireThat(s.pattern.decision === 'confirmed','请先确认这条模式。'); matches(s.practice?.version ?? 0,expectedVersion);
-      s.practice = {demoSource:s.pattern.demoSource,...(s.pattern.origin ? {origin:clone(s.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId,practiceId:s.practice?.practiceId ?? 'practice-'+patternId,name:s.practice?.name ?? '我确认的小练习',ifCue:patch.ifCue.trim(),thenAction:patch.thenAction.trim(),confirmed:true,paused:s.practice?.paused ?? true,version:expectedVersion+1};
+      s.practice = {...(patch.candidateOrigin ? {candidateOrigin:clone(patch.candidateOrigin)} : {}),demoSource:s.pattern.demoSource,...(s.pattern.origin ? {origin:clone(s.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId,practiceId:s.practice?.practiceId ?? 'practice-'+patternId,name:s.practice?.name ?? '我确认的小练习',ifCue:patch.ifCue.trim(),thenAction:patch.thenAction.trim(),confirmed:true,paused:s.practice?.paused ?? true,version:expectedVersion+1};
       return write(d);
     },
     pausePractice(accountId,patternId,expectedVersion) {

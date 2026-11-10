@@ -109,6 +109,16 @@ function rejectStreamEvent(message: string): VersionedStreamParseResult {
   return { kind: 'rejected', error: new Error(`Unsupported stream event: ${message}`) };
 }
 
+function validDevPracticeReply(value: unknown): boolean {
+  if (!isRecord(value) || !hasExactKeys(value, ['contract', 'reply', 'practiceCandidate', 'source'])
+    || value.contract !== 'dev-reply-practice-v1' || typeof value.reply !== 'string' || !value.reply.trim()
+    || !isRecord(value.source) || !hasExactKeys(value.source, ['sessionId', 'devConversationId', 'requestId'])
+    || !Object.values(value.source).every(id => typeof id === 'string' && /^[\w-]{1,100}$/.test(id))) return false;
+  const c = value.practiceCandidate;
+  return c === null || (isRecord(c) && hasExactKeys(c, ['ifCue', 'thenAction'])
+    && [c.ifCue, c.thenAction].every(text => typeof text === 'string' && !!text.trim() && text.length <= 200));
+}
+
 function normalizeKnownStreamEvent(
   eventType: KnownStreamEventType,
   envelope: StreamRecord,
@@ -153,7 +163,8 @@ function normalizeKnownStreamEvent(
     case 'deep.completed':
       return Object.keys(payload).length === 0 ? { ...base, type: 'deep', done: true } : null;
     case 'turn.completed':
-      return payload.status === 'completed' && Object.keys(payload).length === 1
+      return payload.status === 'completed' && (Object.keys(payload).length === 1
+        || (hasExactKeys(payload, ['status', 'practiceReply']) && validDevPracticeReply(payload.practiceReply)))
         ? { ...base, type: 'turn.completed' } : null;
     case 'error':
       return (payload.code === 'DEEP_RESPONSE_FAILED' || payload.code === 'STREAM_TIMEOUT')
@@ -419,6 +430,7 @@ export interface FlowContext {
 }
 
 export interface ChatStartResponse {
+  devReplyContract?: 'dev-reply-practice-v1';
   requestMode?: 'dev-ephemeral-v1';
   devConversationId?: string;
   expiresAt?: number;
@@ -485,6 +497,7 @@ export async function chatStart(
   signal?: AbortSignal,
   requestMode?: 'dev-ephemeral-v1',
   devContext?: { devConversationId: string; afterRequestId?: string },
+  devReplyContract?: 'dev-reply-practice-v1',
 ): Promise<ChatStartResponse> {
   throwIfChatAborted(signal);
   if (requestMode !== undefined && (requestMode !== 'dev-ephemeral-v1' || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || conversationId !== undefined)) {
@@ -492,6 +505,7 @@ export async function chatStart(
   }
   if (devContext && (requestMode !== 'dev-ephemeral-v1' || !/^[\w-]{1,100}$/.test(devContext.devConversationId)
     || typeof devContext.afterRequestId !== 'string' || !/^[\w-]{1,100}$/.test(devContext.afterRequestId))) throw new Error('invalid_dev_context');
+  if (devReplyContract !== undefined && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1')) throw new Error('invalid_dev_reply_contract');
   const BASE = getBackendUrl();
   const startPath = requestMode === 'dev-ephemeral-v1' ? '/api/v1/chat/dev-journey/start' : '/api/v1/chat/start';
   const startedAt = Date.now();
@@ -504,7 +518,8 @@ export async function chatStart(
       method: 'POST',
       signal,
       credentials: auth.credentials,
-      headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker) },
+      headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker),
+        ...(devReplyContract ? { Accept: `application/json; dev-reply-contract=${devReplyContract}` } : {}) },
       // An empty value marks a local-only turn while canonical persistence is
       // unavailable. Omit it so the authenticated runtime path does not
       // attempt durable-conversation ownership validation.

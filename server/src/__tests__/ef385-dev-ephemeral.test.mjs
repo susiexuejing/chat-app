@@ -546,3 +546,6 @@ import './devGroundedUnderstandingPrompt.test.mjs';
 
 // DEV explicit access denials must not be mistaken for remembered history.
 import './devHistoryAccessDenial.test.mjs';
+
+// Explicitly negotiated DEV practice candidates, through the same provider/SSE path.
+import './devPracticeCandidate.test.mjs';
