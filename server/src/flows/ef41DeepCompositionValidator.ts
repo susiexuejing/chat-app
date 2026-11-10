@@ -37,9 +37,17 @@ const ASSISTANT_LIFE_PATTERN = /(?:我(?:正|正在|在|刚|会).{0,12}(?:喝咖
 const HISTORY_CLAIM_PATTERN = /(?:你|用户).{0,12}(?:之前|以前|总是|每次|又|一直|还记得)|(?:之前|以前|总是|每次|又|一直|还记得).{0,12}(?:说|提到|觉得|感到|经历)/;
 
 // A complete, narrowly phrased DEV access denial is not a claim to know history.
-// Match the entire answer, optionally preceded by a plain AI identity clause;
-// never remove a denied clause and accidentally hide another historical claim.
-const DEV_HISTORY_ACCESS_DENIAL_PATTERN = /^(?:我是\s*(?:AI|人工智能)[，,。]\s*)?我?(?:(?:无法|不能)(?:访问|读取|获取|查看)你(?:之前|以前)的(?:对话|聊天)(?:内容|记录)?|(?:不知道|不清楚)你(?:之前|以前)(?:说过|聊过|提过)(?:什么|的内容))[。！!]?$/i;
+// Match the entire answer using only finite identity, denial and scope clauses.
+// The role label is literal, not arbitrary quoted text. Never remove a denied
+// clause or accept an extra statement about history, retention or training.
+const DEV_DENIAL_SEPARATOR = String.raw`[，,。；;\n]\s*`;
+const DEV_DENIAL_IDENTITY = String.raw`我是\s*(?:AI|人工智能)(?:\s*(?<role>角色(?:「聪明狐狸」|“聪明狐狸”|"聪明狐狸")))?(?:${DEV_DENIAL_SEPARATOR}(?:并非|不是)真人)?`;
+const DEV_DENIAL_ACCESS = String.raw`我?(?:(?:无法|不能)(?:访问|读取|获取|查看)你(?:之前|以前)的(?:对话|聊天)(?:内容|记录)?|(?:不知道|不清楚)你(?:之前|以前)(?:说过|聊过|提过)(?:什么|的内容))`;
+const DEV_DENIAL_SCOPE = String.raw`(?:本次(?:交流|对话)|当前回复)仅基于(?:当前消息|本次对话中提供的消息)(?:${DEV_DENIAL_SEPARATOR}不涉及任何(?:过往|历史)记录)?`;
+const DEV_HISTORY_ACCESS_DENIAL_PATTERN = new RegExp(
+  String.raw`^(?:${DEV_DENIAL_IDENTITY}${DEV_DENIAL_SEPARATOR})?${DEV_DENIAL_ACCESS}(?:${DEV_DENIAL_SEPARATOR}(?<scope>${DEV_DENIAL_SCOPE}))?[。！!]?$`,
+  'i',
+);
 
 const OPTIONAL_INVITATION_PATTERN = /(?:如果你愿意|要是你愿意|想的话|若你愿意|愿意的话|可以不回答)/;
 
@@ -83,20 +91,30 @@ function hasUnsupportedInferredFact(text: string, userMessage: string): boolean 
   return INFERRED_FACT_TERMS.some(term => text.includes(term) && !userMessage.includes(term));
 }
 
-function hasFirstTwoRoundsFactViolation(text: string, userMessage: string, devPrimaryResponse = false): boolean {
+function isDevHistoryAccessDenial(text: string, input?: Ef41DeepCompositionInput): boolean {
+  if (!input?.devPrimaryResponse) return false;
+  const match = DEV_HISTORY_ACCESS_DENIAL_PATTERN.exec(text.trim());
+  if (!match) return false;
+  if (match.groups?.role && input.roleId !== 'clever-fox') return false;
+  // Keep the new scope exception limited to the observed fresh-context case.
+  // Do not infer what scope wording means when prior messages are supplied.
+  return !(match.groups?.scope && input.sameSessionUserMessages?.length);
+}
+
+function hasFirstTwoRoundsFactViolation(text: string, userMessage: string, input?: Ef41DeepCompositionInput): boolean {
   const hasHistoryClaim = HISTORY_CLAIM_PATTERN.test(text)
-    && !(devPrimaryResponse && DEV_HISTORY_ACCESS_DENIAL_PATTERN.test(text.trim()));
+    && !isDevHistoryAccessDenial(text, input);
   return ASSISTANT_LIFE_PATTERN.test(text)
     || hasHistoryClaim
     || hasUnsupportedInferredFact(text, userMessage);
 }
 
-function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = '', devPrimaryResponse = false): boolean {
+function isSafeFirstTwoRoundsOutput(text: string, userMessage: string, visiblePrefix = '', input?: Ef41DeepCompositionInput): boolean {
   const trimmed = text.trim();
   const remainingVisibleBudget = FIRST_TWO_ROUNDS_MAX_CHARS - Array.from(visiblePrefix).length;
   if (!trimmed || Array.from(trimmed).length > remainingVisibleBudget) return false;
   // Sentence cleanup may join text that did not match the raw factual gate.
-  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage, devPrimaryResponse)) return false;
+  if (hasFirstTwoRoundsFactViolation(trimmed, userMessage, input)) return false;
 
   const questionCount = (trimmed.match(/[？?]/g) || []).length;
   if (questionCount > 1) return false;
@@ -123,7 +141,7 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
   const userFacts = [...(input.sameSessionUserMessages ?? []), input.userMessage].join('\n');
 
   // Preserve factual violations before sentence selection can discard or replace them.
-  if (hasFirstTwoRoundsFactViolation(input.text, userFacts, input.devPrimaryResponse)) {
+  if (hasFirstTwoRoundsFactViolation(input.text, userFacts, input)) {
     return firstTwoRoundsFallback(input.visiblePrefix);
   }
 
@@ -137,7 +155,7 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
       && (candidate.includes('```') || !sentences.length || !sentences.every(isUsefulDeclarativeSentence))) {
       return firstTwoRoundsFallback(input.visiblePrefix);
     }
-    return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix, true)
+    return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix, input)
       ? candidate
       : firstTwoRoundsFallback(input.visiblePrefix);
   }
