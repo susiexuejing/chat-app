@@ -79,6 +79,8 @@ export default function SyntheticDemoScreen() {
   const [enteredCode, setEnteredCode] = useState('');
   const [chatGeneration, setChatGeneration] = useState(0);
   const [draft, setDraft] = useState<Draft | null>(null);
+  // Only the current successful check-in can show the worse follow-up.
+  const [savedWorseRecord, setSavedWorseRecord] = useState<Scope | null>(null);
   // Both scope and exact draft identity are checked synchronously. A queued
   // callback cannot revive a dismissed draft, target a newer one, or cross pages.
   const draftRef = useRef<Draft | null>(null);
@@ -136,7 +138,7 @@ export default function SyntheticDemoScreen() {
       } catch { /* Corrupt/replaced account data fails closed. */ }
       if (!mounted.current) return;
       repository.current?.cancelCode();
-      draftRef.current = null; setDraft(null); setNotice(null);
+      draftRef.current = null; setDraft(null); setNotice(null); setSavedWorseRecord(null);
       navigation.current += 1; setViewToken(navigation.current); setChatGeneration(value => value + 1);
       setCode(''); setEnteredCode(''); setPage('chat');
       setSelectedPatternId(null); setList({ status: 'idle', data: null }); setDetail({ status: 'idle', data: null });
@@ -196,6 +198,7 @@ export default function SyntheticDemoScreen() {
     changeDraft(null);
     invalidateView();
     setPage(next);
+    setSavedWorseRecord(null);
     setSelectedPatternId(patternId);
     setDetail({ status: 'idle', data: null });
     setList({ status: 'idle', data: null });
@@ -209,7 +212,7 @@ export default function SyntheticDemoScreen() {
   }
   function retryList() { if (currentView()) { changeDraft(null); invalidateView(); loadList(); } }
   function retryDetail() { if (currentView() && selectedPatternId) { changeDraft(null); invalidateView(); loadDetail(selectedPatternId); } }
-  function write(operation: (repo: DemoRepository) => Snapshot, message: string) {
+  function write(operation: (repo: DemoRepository) => Snapshot, message: string, onSuccess?: () => void) {
     if (!currentView() || writing.current || !repository.current) return;
     setNotice(null);
     writing.current = true;
@@ -232,6 +235,7 @@ export default function SyntheticDemoScreen() {
         setCode(''); setEnteredCode('');
       }
       setNotice({ kind: 'success', text: message });
+      onSuccess?.();
     } catch (error) {
       // Keep exact scope, versions and operationId for a safe retry, not old success.
       setNotice({ kind: 'error', text: errorText(error, '保存失败，草稿已保留。') });
@@ -256,7 +260,10 @@ export default function SyntheticDemoScreen() {
         return repo.saveRecord(current.accountId, current.patternId, current.payload, current.version, current.operationId);
       }
       return repo.updatePath(current.accountId, current.patternId, current.entry.entryId, { explanation: current.explanation, feeling: current.feeling }, current.entry.version);
-    }, '已保存到此浏览器的演示空间。');
+    }, '已保存到此浏览器的演示空间。', () => {
+      if (current.kind === 'record') setSavedWorseRecord(current.payload.feeling === 'worse'
+        ? { accountId: current.accountId, patternId: current.patternId } : null);
+    });
   }
   function startRecord() {
     if (!currentView() || detail.status !== 'ready' || !snapshot?.session || !selectedPatternId) return;
@@ -344,6 +351,10 @@ export default function SyntheticDemoScreen() {
           <Choices testID="record-action" label="行动情况" options={actions} value={current.payload.action} onChange={action => editDraft(current, { ...current, payload: { ...current.payload, action, feeling: null } })} />
           {(current.payload.action === 'agreed' || current.payload.action === 'other') && <Choices testID="record-feeling" label="行动后的感受" options={feelings} value={current.payload.feeling} onChange={feeling => editDraft(current, { ...current, payload: { ...current.payload, feeling } })} />}
         </> : <Text className="text-stone-600">未发生也可以保存，不会被标记为失败或例外。</Text>)}
+        {current.payload.feeling === 'worse' && <View testID="record-worse-guidance" className="gap-3 rounded-xl bg-orange-50 p-4">
+          <Text className="text-stone-800">如果练习让你更难受，可以先停下来，不必继续重复。保存这次记录后，你可以选择暂停或调整练习；也可以不保存，直接前往练习页。</Text>
+          <Button testID="record-worse-leave" title="不保存本次记录，去调整或暂停" secondary onPress={() => { if (draftRef.current === current) navigate('practice', current.patternId); }} />
+        </View>}
         <Field testID="record-note" label="补充说明（可选，仅填写虚构内容）" value={current.payload.note ?? ''} maxLength={200} multiline onChange={note => editDraft(current, { ...current, payload: { ...current.payload, note } })} />
       </>}
       {current.kind === 'path' && <>
@@ -475,8 +486,24 @@ export default function SyntheticDemoScreen() {
         </>}
       </Card>{renderDraft()}
     </>;
-    return <><Button testID="record-back" title="返回练习 · 丢弃草稿" secondary onPress={() => navigate('practice', pattern.patternId)} />
-      {draft ? renderDraft() : <Card><Text className="text-stone-800">本次编辑已结束。</Text><Button title="记录新的一次" green onPress={startRecord} /><Button testID="path-open" title="查看这个模式的路径" secondary onPress={() => navigate('detail', pattern.patternId)} /></Card>}
+    const showWorseFollowup = savedWorseRecord?.accountId === scope.accountId && savedWorseRecord.patternId === scope.patternId;
+    return <><Button testID="record-back" title={draft ? '返回练习 · 丢弃草稿' : '返回练习'} secondary onPress={() => navigate('practice', pattern.patternId)} />
+      {draft ? renderDraft() : <Card>
+        {showWorseFollowup ? <View testID="record-worse-followup" className="gap-3">
+          <Text className="text-stone-800">这次记录已保存。如果练习让你更难受，可以先暂停，或调整动作，不必继续重复。</Text>
+          {practice && <>
+            {!practice.paused ? <Button testID="record-worse-pause" title="暂停这个练习" secondary onPress={() => {
+              if (currentView()) write(repo => repo.pausePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已暂停。');
+            }} /> : <Text testID="record-worse-paused" className="text-stone-700">这个模式的练习已暂停。</Text>}
+            <Button testID="record-worse-edit" title="调整这个练习" secondary onPress={() => {
+              if (!currentView()) return;
+              navigate('practice', pattern.patternId);
+              changeDraft({ kind: 'practice', ...scope, cue: practice.ifCue, action: practice.thenAction, version: practice.version });
+            }} />
+          </>}
+        </View> : <><Text className="text-stone-800">本次编辑已结束。</Text><Button testID="record-new" title="记录新的一次" green onPress={startRecord} /></>}
+        <Button testID="path-open" title="查看这个模式的路径" secondary onPress={() => navigate('detail', pattern.patternId)} />
+      </Card>}
     </>;
   }
 
