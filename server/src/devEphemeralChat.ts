@@ -1,5 +1,6 @@
 import type { NeuralProfile } from './flows/neuralProfileManager';
 
+export const DEV_MANUAL_RETRY_CONTRACT = 'dev-manual-retry-v1' as const;
 export const DEV_EPHEMERAL_REQUEST_MODE = 'dev-ephemeral-v1' as const;
 export const DEV_EPHEMERAL_START_PATH = '/api/v1/chat/dev-journey/start';
 export const DEV_EPHEMERAL_END_PATH = '/api/v1/chat/dev-journey/end';
@@ -23,10 +24,15 @@ export function isFreshDevRequestId(requestId: unknown, now: number): boolean {
 }
 
 /** Closed request contract. No caller-supplied identity, history or settings. */
-export function isValidDevEphemeralRequest(body: unknown): boolean {
+export function isValidDevEphemeralRequest(body: unknown, recoveryNegotiated = false): boolean {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
   const input = body as Record<string, unknown>;
   const allowed = ['requestMode', 'roleId', 'message', 'requestId', 'devConversationId', 'afterRequestId'];
+  if (recoveryNegotiated) allowed.push('retryOfRequestId');
+  const isRetry = Object.hasOwn(input, 'retryOfRequestId');
+  if (isRetry && (!recoveryNegotiated || !safeId(input.retryOfRequestId)
+    || input.retryOfRequestId === input.requestId
+    || Object.hasOwn(input, 'devConversationId') || Object.hasOwn(input, 'afterRequestId'))) return false;
   return Object.keys(input).every(key => allowed.includes(key))
     && input.requestMode === DEV_EPHEMERAL_REQUEST_MODE
     && input.roleId === 'clever-fox'
@@ -46,6 +52,29 @@ export function isValidDevEphemeralEnd(body: unknown): body is { requestMode: st
     && input.requestMode === DEV_EPHEMERAL_REQUEST_MODE && safeId(input.requestId);
 }
 
+export interface DevRetryResult {
+  reply: string;
+  practiceCandidate: { ifCue: string; thenAction: string } | null;
+}
+export interface DevRetryAttempt {
+  headRequestId: string;
+  inputDigest: string;
+  logicalAnchorRequestId: string | null;
+  state: 'pending' | 'failed' | 'completed';
+  result?: DevRetryResult;
+}
+// Copy only the validated bounded result, never arbitrary provider fields or aliases.
+function copyResult(result: DevRetryResult): DevRetryResult {
+  return { reply: result.reply, practiceCandidate: result.practiceCandidate === null ? null
+    : { ifCue: result.practiceCandidate.ifCue, thenAction: result.practiceCandidate.thenAction } };
+}
+function validResult(result: DevRetryResult | undefined, assistant: string): result is DevRetryResult {
+  if (!result || result.reply !== assistant || !assistant.trim() || assistant.length > DEV_CONTEXT_MAX_CHARS) return false;
+  const candidate = result.practiceCandidate;
+  return candidate === null || (!!candidate && typeof candidate.ifCue === 'string'
+    && !!candidate.ifCue.trim() && candidate.ifCue.length <= 200
+    && typeof candidate.thenAction === 'string' && !!candidate.thenAction.trim() && candidate.thenAction.length <= 200);
+}
 export interface DevContextPair { user: string; assistant: string }
 export interface DevConversation {
   id: string;
@@ -55,6 +84,7 @@ export interface DevConversation {
   pendingRequestId: string | null;
   lastCompletedRequestId: string | null;
   pairs: DevContextPair[];
+  retry?: DevRetryAttempt;
 }
 
 /** Process-memory only. Contains no profile, storage, model, or account-import API. */
@@ -76,6 +106,7 @@ export function createDevConversationStore(options: {
     conversation.pairs.length = 0;
     conversation.pendingRequestId = null;
     conversation.lastCompletedRequestId = null;
+    delete conversation.retry;
     // Replay indexes retain no content and never grant access after deletion.
     options.onInvalidate(id);
   }
@@ -99,14 +130,48 @@ export function createDevConversationStore(options: {
     sweep,
     invalidate,
     find,
-    begin(owner: string, requestId: string, receivedAt: number, id?: string, afterRequestId?: string):
-      { ok: true; conversation: DevConversation } | { ok: false; status: number } {
+    readable(id: string, owner: string, requestId: string): boolean {
+      const conversation = find(id, owner);
+      return !!conversation && (conversation.retry ? conversation.retry.headRequestId === requestId
+        : conversation.pendingRequestId === requestId || conversation.lastCompletedRequestId === requestId);
+    },
+    begin(owner: string, requestId: string, receivedAt: number, id?: string, afterRequestId?: string,
+      retry?: { inputDigest: string; retryOfRequestId?: string }):
+      { ok: true; conversation: DevConversation; replay?: DevRetryResult; supersededRequestId?: string }
+      | { ok: false; status: number; pending?: true } {
       sweep();
       const now = options.now();
       if (!isFreshDevRequestId(requestId, now) || now - receivedAt >= DEV_CONVERSATION_TTL_MS) return { ok: false, status: 410 };
       if (requests.has(key(owner, requestId))) return { ok: false, status: 409 };
+      if (retry && !/^[a-f0-9]{64}$/.test(retry.inputDigest)) return { ok: false, status: 400 };
+      if (retry?.retryOfRequestId !== undefined) {
+        if (id !== undefined || afterRequestId !== undefined || !safeId(retry.retryOfRequestId)
+          || retry.retryOfRequestId === requestId) return { ok: false, status: 400 };
+        const original = requests.get(key(owner, retry.retryOfRequestId));
+        const conversation = original?.conversationId ? find(original.conversationId, owner) : undefined;
+        if (!conversation) return { ok: false, status: 404 };
+        const attempt = conversation.retry;
+        if (!attempt || attempt.headRequestId !== retry.retryOfRequestId || attempt.inputDigest !== retry.inputDigest) {
+          return { ok: false, status: 409 };
+        }
+        // A pending retry is only a probe: do not consume its ID or alter any state.
+        if (attempt.state === 'pending') return { ok: false, status: 409, pending: true };
+        if (attempt.state === 'completed' && !attempt.result) return { ok: false, status: 409 };
+        if (!reserve(owner, requestId, conversation.id,
+          Math.max(conversation.expiresAt, issuedAt(requestId) + DEV_CONVERSATION_TTL_MS))) return { ok: false, status: 429 };
+        const supersededRequestId = attempt.headRequestId;
+        attempt.headRequestId = requestId;
+        if (attempt.state === 'completed') {
+          conversation.lastCompletedRequestId = requestId;
+          return { ok: true, conversation, replay: copyResult(attempt.result!), supersededRequestId };
+        }
+        attempt.state = 'pending';
+        conversation.pendingRequestId = requestId;
+        return { ok: true, conversation, supersededRequestId };
+      }
       let conversation = id ? find(id, owner) : undefined;
       if (id && !conversation) return { ok: false, status: 404 };
+      if (conversation && (!!conversation.retry !== !!retry || conversation.retry?.state === 'failed')) return { ok: false, status: 409 };
       if (conversation && (conversation.pendingRequestId || !afterRequestId || afterRequestId !== conversation.lastCompletedRequestId)) {
         return { ok: false, status: 409 };
       }
@@ -125,13 +190,17 @@ export function createDevConversationStore(options: {
         };
         expiryTimers.set(target.id, setTimeout(expire, Math.max(0, expiresAt - now)));
       }
+      if (retry) conversation.retry = { headRequestId: requestId, inputDigest: retry.inputDigest,
+        logicalAnchorRequestId: conversation.lastCompletedRequestId, state: 'pending' };
       conversation.turn += 1;
       conversation.pendingRequestId = requestId;
       return { ok: true, conversation };
     },
-    complete(id: string, owner: string, requestId: string, user: string, assistant: string): boolean {
+    complete(id: string, owner: string, requestId: string, user: string, assistant: string, result?: DevRetryResult): boolean {
       const conversation = find(id, owner);
       if (!conversation || conversation.pendingRequestId !== requestId || !assistant.trim()) return false;
+      if (conversation.retry && (conversation.retry.headRequestId !== requestId || conversation.retry.state !== 'pending'
+        || !validResult(result, assistant) || user.length + assistant.length > DEV_CONTEXT_MAX_CHARS)) return false;
       const pair = { user, assistant };
       // Whole raw pairs only, no summaries or truncation that changes their meaning.
       if (user.length + assistant.length <= DEV_CONTEXT_MAX_CHARS) conversation.pairs.push(pair);
@@ -141,6 +210,19 @@ export function createDevConversationStore(options: {
       }
       conversation.pendingRequestId = null;
       conversation.lastCompletedRequestId = requestId;
+      if (conversation.retry) {
+        conversation.retry.state = 'completed';
+        conversation.retry.result = copyResult(result!);
+      }
+      return true;
+    },
+    fail(id: string, owner: string, requestId: string): boolean {
+      const conversation = find(id, owner);
+      if (!conversation?.retry || conversation.pendingRequestId !== requestId
+        || conversation.retry.headRequestId !== requestId || conversation.retry.state !== 'pending') return false;
+      conversation.pendingRequestId = null;
+      conversation.retry.state = 'failed';
+      delete conversation.retry.result;
       return true;
     },
     end(owner: string, requestId: string): boolean {

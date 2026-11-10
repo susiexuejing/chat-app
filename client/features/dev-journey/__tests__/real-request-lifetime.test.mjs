@@ -245,8 +245,9 @@ test('a stuck first start still fails at the existing 165-second request deadlin
   x.advanceTo(FIRST_SEND + 164_999); assert.equal(x.controller.getSnapshot().status, 'starting');
   x.advanceTo(FIRST_SEND + 165_000); assert.equal(await sent, false);
   assert.equal(x.controller.getSnapshot().status, 'failed');
-  assert.equal(x.controller.getSnapshot().inputText, ''); assert.equal(x.controller.getSnapshot().canSend, false);
+  assert.equal(x.controller.getSnapshot().inputText, 'Fictional pending first start.'); assert.equal(x.controller.getSnapshot().canSend, false);
   assert.equal(x.starts[0].signal.aborted, true); assert.deepEqual(x.ends, ['request-1']);
   x.starts[0].resolve(receipt()); await flush();
-  assert.equal(x.streams.length, 0); assert.equal(x.timers.size, 0);
+  assert.equal(x.streams.length, 0); assert.equal(x.timers.size, 1);
+  x.advanceTo(EXPIRES_AT); assertExpired(x);
 });

@@ -135,14 +135,19 @@ function firstTwoRoundsFallback(visiblePrefix = ''): string {
  * The EF-41 confused-overload variant keeps its stricter one-sentence rule.
  * Later turns are returned byte-for-byte.
  */
-export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
-  if (!isFirstTwoRounds(input)) return input.text;
+export interface Ef41DeepValidationOutcome { text: string; rejected: boolean }
+
+/** Same gates as the legacy string API, with explicit fallback provenance. */
+export function validateEf41DeepOutputOutcome(input: Ef41DeepCompositionInput): Ef41DeepValidationOutcome {
+  const accepted = (text: string): Ef41DeepValidationOutcome => ({ text, rejected: false });
+  const rejected = (): Ef41DeepValidationOutcome => ({ text: firstTwoRoundsFallback(input.visiblePrefix), rejected: true });
+  if (!isFirstTwoRounds(input)) return accepted(input.text);
 
   const userFacts = [...(input.sameSessionUserMessages ?? []), input.userMessage].join('\n');
 
   // Preserve factual violations before sentence selection can discard or replace them.
   if (hasFirstTwoRoundsFactViolation(input.text, userFacts, input)) {
-    return firstTwoRoundsFallback(input.visiblePrefix);
+    return rejected();
   }
 
   // DEV has no preceding templates. Keep the complete candidate, but require
@@ -153,11 +158,11 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
     const sentences = splitSentences(candidate);
     if (shouldValidateEf41DeepOutput(input)
       && (candidate.includes('```') || !sentences.length || !sentences.every(isUsefulDeclarativeSentence))) {
-      return firstTwoRoundsFallback(input.visiblePrefix);
+      return rejected();
     }
     return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix, input)
-      ? candidate
-      : firstTwoRoundsFallback(input.visiblePrefix);
+      ? accepted(candidate)
+      : rejected();
   }
 
   const candidate = shouldValidateEf41DeepOutput(input)
@@ -165,8 +170,13 @@ export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string 
     : input.text.trim();
 
   return isSafeFirstTwoRoundsOutput(candidate, userFacts, input.visiblePrefix)
-    ? candidate
-    : firstTwoRoundsFallback(input.visiblePrefix);
+    ? accepted(candidate)
+    : rejected();
+}
+
+/** Preserve every existing caller's byte-for-byte string result. */
+export function validateEf41DeepOutput(input: Ef41DeepCompositionInput): string {
+  return validateEf41DeepOutputOutcome(input).text;
 }
 
 // EF57

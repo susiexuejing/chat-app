@@ -76,7 +76,7 @@ test('success omits front layers and sends only allowlisted current input', asyn
   assert.deepEqual(JSON.parse(JSON.stringify(calls.start[0][0])), { roleId: 'clever-fox', message: 'current input', requestId: 'request-1' });
   assert.equal(calls.start[0][1], calls.stream[0][2]);
   assert.deepEqual(JSON.parse(JSON.stringify(controller.getSnapshot())), {
-    status: 'success', inputText: 'current input', requestId: 'request-1', sentAt: controller.getSnapshot().sentAt,
+    status: 'success', inputText: 'current input', requestId: 'request-1', logicalRequestId: 'request-1', canRetry: false, sentAt: controller.getSnapshot().sentAt,
     reactionText: '', companionText: '', deepText: 'backend Deep',
     completedTurns: [], error: null, canSend: true, source: 'backend-deep', practiceCandidate: null,
   });
@@ -208,7 +208,7 @@ test('late callbacks after completed send cannot mutate its snapshot', async () 
 test('deadline aborts a stuck start without retry and rejects late completion', async () => {
   let fireDeadline, timerCleared = false, signal;
   const module = await loadTsModule(source, {}, {
-    setTimeout: (callback, delay) => { assert.equal(delay, 165_000); fireDeadline = callback; return 1; },
+    setTimeout: (callback, delay) => { if (delay === 165_000) fireDeadline = callback; else assert.ok(delay <= 600_000); return 1; },
     clearTimeout: () => { timerCleared = true; },
   });
   const pending = deferred(); let streams = 0;

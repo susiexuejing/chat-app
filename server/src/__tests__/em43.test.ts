@@ -313,7 +313,8 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
     expect(legacy).toContain("source: 'cleaned'");
     expect(legacy).toContain("source: 'last-resort'");
     expect(legacy).toContain("source: 'reasoning'");
-    expect((negotiated.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(1);
+    expect((negotiated.match(/validateReply: text => \(session\.devRetryContract \? validateEf41DeepOutputOutcome : validateEf41DeepOutput\)\(\{/g) || [])).toHaveLength(1);
+    expect(negotiated).toContain('rejectRewrittenReply: !!session.devRetryContract');
     expect(negotiated).toContain('roleId: session.roleId, userTurn');
     expect(negotiated).toContain('userMessage: session.userMessage');
     expect(negotiated).toContain('sameSessionUserMessages: session.devContext?.map(pair => pair.user)');

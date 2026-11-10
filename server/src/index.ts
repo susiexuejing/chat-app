@@ -16,6 +16,8 @@ import {
   createDevEphemeralProfile,
   createDevConversationStore,
   DEV_EPHEMERAL_END_PATH,
+  DEV_MANUAL_RETRY_CONTRACT,
+  type DevRetryResult,
   isValidDevEphemeralEnd,
   isFreshDevRequestId,
   type DevContextPair,
@@ -34,7 +36,7 @@ import { loadProfile, generateLTUSummary, updateProfile } from './flows/longTerm
 import { adjustWeights, getDefaultWeights, logWeightChange } from './flows/personalityEvolution';
 import type { ResponseWeights } from './flows/evolutionTypes';
 import { buildDeepSystemPrompt } from './flows/deepSystemPromptBuilder';
-import { FIRST_TWO_ROUNDS_MAX_CHARS, validateEf41DeepOutput } from './flows/ef41DeepCompositionValidator';
+import { FIRST_TWO_ROUNDS_MAX_CHARS, validateEf41DeepOutput, validateEf41DeepOutputOutcome } from './flows/ef41DeepCompositionValidator';
 import { incrementConversationTurn, incrementConversationTurnIdempotent, getConversationTurn } from './flows/conversationTurns';
 import conversationsRouter from './routes/conversations';
 import anonymousSessionsRouter from './routes/anonymousSessions';
@@ -97,8 +99,8 @@ app.use(cors({
   origin: (origin, callback) => callback(null, origin === EF75_WEB_ORIGIN),
   credentials: true,
   methods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client', 'X-EF45-One-Shot-Marker'],
-  exposedHeaders: ['X-EF45-One-Shot-Marker'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client', 'X-EF45-One-Shot-Marker', 'X-Dev-Retry-Contract'],
+  exposedHeaders: ['X-EF45-One-Shot-Marker', 'X-Dev-Retry-State'],
 }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
@@ -174,6 +176,9 @@ export interface ChatSession {
   devContext?: DevContextPair[];
   devReplyContract?: typeof DEV_PRACTICE_CONTRACT;
   devPracticeReply?: ValidatedPracticeReply;
+  devRetryContract?: typeof DEV_MANUAL_RETRY_CONTRACT;
+  devRetryableFailure?: boolean;
+  devProviderRejected?: boolean;
   devAbort?: AbortController;
   devDeepDeadlineAt?: number; // Private result-acceptance deadline, never returned to the client.
   devStreamAttached?: boolean;
@@ -207,15 +212,25 @@ type SafeDeepErrorCode =
   | 'stream_reader_missing'
   | 'deep_analysis_failure';
 
-function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode): void {
+function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode, retryable = code !== 'provider_key_missing' && !session.devProviderRejected): void {
   session.deepError = code;
-  // Failure revokes reuse even when no SSE connection was ever attached.
-  if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) endDevTurn(session);
+  if (session.requestMode !== DEV_EPHEMERAL_REQUEST_MODE) return;
+  if (session.devRetryContract && retryable && session.devConversationId && session.devRequestId
+    && devConversations.fail(session.devConversationId, session.ownerSessionId, session.devRequestId)) {
+    // Retain only a safe failure envelope until retry/end/original expiry.
+    // Revoke acceptance before abort, including synchronous late callbacks.
+    session.devRetryableFailure = true;
+    clearDevTurnContent(session);
+    session.deepStreaming = false;
+    return;
+  }
+  // Explicit safety/auth/provider rejection and legacy clients remain terminal.
+  endDevTurn(session);
 }
 
 const sessions = new Map<string, ChatSession>();
 
-function clearDevTurn(session: ChatSession) {
+function clearDevTurnContent(session: ChatSession) {
   session.devAbort?.abort();
   session.devContext?.splice(0);
   session.devPracticeReply = undefined;
@@ -229,6 +244,9 @@ function clearDevTurn(session: ChatSession) {
   session.eventTag = 'general';
   session.keywords.length = 0;
   session.flowContext = null;
+}
+function clearDevTurn(session: ChatSession) {
+  clearDevTurnContent(session);
   sessions.delete(session.sessionId);
 }
 const devConversations = createDevConversationStore({
@@ -242,6 +260,16 @@ function activeDevTurn(session: ChatSession): boolean {
   if (session.devAbort?.signal.aborted || !session.devConversationId) return false;
   const conversation = devConversations.find(session.devConversationId, session.ownerSessionId);
   return !!conversation && conversation.pendingRequestId === session.devRequestId;
+}
+function readableDevTurn(session: ChatSession): boolean {
+  if (!session.devRetryContract) return activeDevTurn(session);
+  return !!session.devConversationId && !!session.devRequestId
+    && devConversations.readable(session.devConversationId, session.ownerSessionId, session.devRequestId);
+}
+function devStreamFailure(session: ChatSession): StreamPayloadByType['error'] {
+  const error = mapSafeStreamError('deep_response_failed');
+  return session.devRetryContract && !session.devRetryableFailure
+    ? { ...error, recoverable: false, recoveryAction: 'restart_turn' } : error;
 }
 function endDevTurn(session: ChatSession) {
   if (session.devConversationId) devConversations.invalidate(session.devConversationId);
@@ -456,7 +484,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         retryable: response.status === 429 || response.status >= 500,
         statusClass: response.status >= 500 ? 'server_error' : 'client_error',
       });
-      setSafeDeepError(session, 'provider_api_error');
+      setSafeDeepError(session, 'provider_api_error', response.status === 429 || response.status >= 500);
       session.deepStreaming = false;
       return;
     }
@@ -484,6 +512,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     let pendingSseText = '';
     let providerCompleted = false;
     let providerTruncated = false;
+    let providerRefused = false;
     console.log('[Deep] Stream started');
 
     // DEV body reading gets at most 120s within the original 135s deadline.
@@ -512,7 +541,17 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
             const parsed = JSON.parse(data);
             if (session.devReplyContract && (!parsed || typeof parsed !== 'object' || parsed.error
               || (!Array.isArray(parsed.choices) && !Array.isArray(parsed.output?.choices)))) providerTruncated = true;
-            const finish = parsed.choices?.[0]?.finish_reason ?? parsed.output?.choices?.[0]?.finish_reason;
+            const choice = parsed?.choices?.[0] ?? parsed?.output?.choices?.[0];
+            const finish = choice?.finish_reason;
+            // Structured policy/error metadata only; never guess refusal from prose.
+            const errorCode = (code: unknown) => code !== undefined && code !== null
+              && code !== 0 && code !== '0' && code !== 200 && code !== '200';
+            if (session.devRetryContract && (parsed?.error || parsed?.output?.error
+              || errorCode(parsed?.code) || errorCode(parsed?.output?.code)
+              || ['content_filter', 'safety', 'refusal'].includes(finish)
+              || choice?.delta?.refusal || choice?.message?.refusal || parsed?.refusal)) {
+              providerRefused = true; session.devProviderRejected = true;
+            }
             if (finish && finish !== 'stop') providerTruncated = true;
             // 优先取 content（最终回复）
             const content = parsed.choices?.[0]?.delta?.content ||
@@ -630,6 +669,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       if (cancelRead) session.devAbort?.signal.removeEventListener('abort', cancelRead);
     }
 
+    if (providerRefused) { setSafeDeepError(session, 'deep_analysis_failure', false); return; }
     // Stage DEV validation locally. Synchronous processing can cross the
     // deadline too, so do not publish any chunks before the final guard.
     const completedChunks = isDevEphemeral ? [] : session.deepChunks;
@@ -642,7 +682,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         latestUserMessage: session.userMessage, providerCompleted: providerCompleted && !providerTruncated,
         source: { sessionId: session.sessionId, devConversationId: session.devConversationId!, requestId: session.devRequestId! },
         replyMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
-        validateReply: text => validateEf41DeepOutput({ text, roleId: session.roleId, userTurn,
+        rejectRewrittenReply: !!session.devRetryContract,
+        validateReply: text => (session.devRetryContract ? validateEf41DeepOutputOutcome : validateEf41DeepOutput)({ text, roleId: session.roleId, userTurn,
           userMessage: session.userMessage, sameSessionUserMessages: session.devContext?.map(pair => pair.user),
           devPrimaryResponse: true, source: 'cleaned', visiblePrefix: '',
         }),
@@ -717,6 +758,13 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
 
     if (!activeDevTurn(session)) return;
     checkDevDeadline();
+    if (session.devRetryContract) {
+      if (!session.devPracticeReply || !session.devConversationId || !session.devRequestId
+        || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
+          session.userMessage, session.devPracticeReply.reply, session.devPracticeReply)) {
+        setSafeDeepError(session, 'deep_analysis_failure'); return;
+      }
+    }
     if (isDevEphemeral) session.deepChunks.push(...completedChunks);
     session.deepDone = true;
     writeEf118RuntimeAudit({ providerCategory: 'stream_completed', ef45ProbeMarker });
@@ -1099,8 +1147,12 @@ function getNormalChatResponse(roleId: string): { frontFlow: string; reaction: s
 async function handleChatStart(req: express.Request, res: express.Response, isDevEphemeral = false) {
   const receivedAt = Date.now();
   let devConversation: DevConversation | undefined;
+  let devReplay: DevRetryResult | undefined;
+  const accept = req.get('accept')?.trim();
+  const retryNegotiated = isDevEphemeral && accept === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`
+    && req.get('x-dev-retry-contract')?.trim() === DEV_MANUAL_RETRY_CONTRACT;
   if (isDevEphemeral && process.env.NODE_ENV !== 'development') return res.status(404).json({ error: 'resource_not_found' });
-  if (isDevEphemeral && isValidDevEphemeralRequest(req.body) && !isFreshDevRequestId(req.body.requestId, receivedAt)) {
+  if (isDevEphemeral && isValidDevEphemeralRequest(req.body, retryNegotiated) && !isFreshDevRequestId(req.body.requestId, receivedAt)) {
     return res.status(410).json({ error: 'dev_request_expired_or_clock_skew' });
   }
   let ef235StartBoundary: 'anonymous_auth' | 'request_validation' | 'conversation_ownership' | 'runtime_profile' | 'flow_preparation' | 'session_create' = 'anonymous_auth';
@@ -1130,7 +1182,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       if (process.env.NODE_ENV !== 'development') {
         return res.status(404).json({ error: 'resource_not_found' });
       }
-      if (!isValidDevEphemeralRequest(req.body)) {
+      if (!isValidDevEphemeralRequest(req.body, retryNegotiated)) {
         return res.status(400).json({ error: 'invalid_dev_request' });
       }
     } else if (req.body && Object.prototype.hasOwnProperty.call(req.body, 'requestMode')) {
@@ -1181,9 +1233,20 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     let userTurn = 1;
     if (isDevEphemeral) {
       const begun = devConversations.begin(authenticated.session.id, requestId, receivedAt,
-        req.body.devConversationId, req.body.afterRequestId);
-      if (!begun.ok) return res.status(begun.status).json({ error: 'dev_conversation_unavailable' });
+        req.body.devConversationId, req.body.afterRequestId, retryNegotiated ? {
+          inputDigest: crypto.createHash('sha256').update(message).digest('hex'),
+          retryOfRequestId: req.body.retryOfRequestId,
+        } : undefined);
+      if (!begun.ok) {
+        if (begun.pending) res.setHeader('X-Dev-Retry-State', 'pending');
+        return res.status(begun.status).json({ error: 'dev_conversation_unavailable' });
+      }
       devConversation = begun.conversation;
+      devReplay = begun.replay;
+      // A newly admitted head revokes old streams; late work cannot mutate it.
+      if (retryNegotiated) for (const old of sessions.values()) {
+        if (old.devConversationId === devConversation.id) clearDevTurn(old);
+      }
       userTurn = devConversation.turn;
     }
     if (conversationId) {
@@ -1303,12 +1366,19 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     if (isDevEphemeral && devConversation) {
       session.devConversationId = devConversation.id;
       session.devRequestId = requestId;
-      if (req.get('accept')?.trim() === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`) {
+      if (retryNegotiated || accept === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`) {
         session.devReplyContract = DEV_PRACTICE_CONTRACT;
       }
+      if (retryNegotiated) session.devRetryContract = DEV_MANUAL_RETRY_CONTRACT;
       session.devTurn = userTurn;
       session.devContext = devConversation.pairs.map(pair => ({ ...pair }));
       session.devAbort = new AbortController();
+      if (devReplay) {
+        session.devPracticeReply = Object.freeze({ contract: DEV_PRACTICE_CONTRACT, ...devReplay,
+          source: Object.freeze({ sessionId, devConversationId: devConversation.id, requestId }) });
+        session.deepChunks.push(devReplay.reply);
+        session.deepDone = true;
+      }
       // Server-created, immutable mode survives SSE disconnects and late work.
       Object.defineProperty(session, 'requestMode', {
         value: DEV_EPHEMERAL_REQUEST_MODE,
@@ -1329,6 +1399,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       sessionId,
       ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE,
         ...(session.devReplyContract ? { devReplyContract: session.devReplyContract } : {}),
+        ...(session.devRetryContract ? { devRetryContract: session.devRetryContract } : {}),
         devConversationId: devConversation?.id, expiresAt: devConversation?.expiresAt,
         remainingLifetimeMs: Math.max(0, (devConversation?.expiresAt ?? now) - now) } : {}),
       userTurn,
@@ -1351,6 +1422,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     });
 
     // 7. 后台异步调用百炼（normal_chat 跳过深度分析）
+    if (devReplay) return; // Replay accepted output only; no provider call or duplicate context pair.
     if (normalChat && !isDevEphemeral) {
       console.log('[Start] Request mode selected', {
         mode: 'normal_chat',
@@ -1466,8 +1538,8 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   const session = sessions.get(sessionId);
   if (session && session.ownerSessionId === authenticated.session.id && session.requestMode === DEV_EPHEMERAL_REQUEST_MODE
     && session.devDeepDeadlineAt !== undefined
-    && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
-  if (!session || session.ownerSessionId !== authenticated.session.id || !activeDevTurn(session)) {
+    && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
+  if (!session || session.ownerSessionId !== authenticated.session.id || !readableDevTurn(session)) {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
     writeEf118RuntimeAudit({
       dbSessionCategory: 'session_missing',
@@ -1530,11 +1602,11 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   const pollInterval = setInterval(() => {
     // The same private deadline also gates delayed SSE publication/context save.
     if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined
-      && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
-    if (!activeDevTurn(session)) {
+      && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
+    if (!readableDevTurn(session)) {
       clearInterval(pollInterval); clearTimeout(timeout);
       sseTerminated = true;
-      emit('error', mapSafeStreamError('deep_response_failed'));
+      emit('error', devStreamFailure(session));
       res.end(); return;
     }
     const now = Date.now();
@@ -1559,18 +1631,18 @@ app.get('/api/v1/chat/stream', async (req, res) => {
 
     // 完成
     if (session.deepDone) {
-      if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE) {
+      if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && !session.devRetryContract) {
         if (!session.deepChunks.join('').trim()) {
           // Preserve the deployed empty-Deep terminal contract. The client still
           // rejects it; no conversation context/continuation survives. PR167 is separate.
           endDevTurn(session);
         } else if (!session.devConversationId || !session.devRequestId
-          || (session.devDeepDeadlineAt !== undefined && Date.now() >= session.devDeepDeadlineAt)
+          || (session.devDeepDeadlineAt !== undefined && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt)
           || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
             session.userMessage, session.deepChunks.join(''))) {
           clearInterval(pollInterval); clearTimeout(timeout);
           sseTerminated = true;
-          emit('error', mapSafeStreamError('deep_response_failed'));
+          emit('error', devStreamFailure(session));
           endDevTurn(session); res.end(); return;
         }
       }
@@ -1595,7 +1667,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     if (session.deepError && !session.deepStreaming) {
       clearInterval(pollInterval);
       clearTimeout(timeout);
-      emit('error', mapSafeStreamError('deep_response_failed'));
+      emit('error', devStreamFailure(session));
       sseTerminated = true;
       writeEf118RuntimeAudit({
         providerCategory: session.deepError === 'provider_key_missing'
@@ -1606,7 +1678,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
         ef45ProbeMarker,
       });
       recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
-      endDevTurn(session);
+      if (!session.devRetryableFailure) endDevTurn(session);
       res.end();
       return;
     }
@@ -1615,7 +1687,8 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   // 150秒超时（90秒缓存 + 60秒流式传输）
   const timeout = setTimeout(() => {
     clearInterval(pollInterval);
-    emit('error', mapSafeStreamError('stream_timeout'));
+    if (session.devRetryContract) setSafeDeepError(session, 'deep_analysis_failure');
+    emit('error', session.devRetryContract ? devStreamFailure(session) : mapSafeStreamError('stream_timeout'));
     sseTerminated = true;
     writeEf118RuntimeAudit({
       sseCategory: 'timeout',
@@ -1623,7 +1696,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       ef45ProbeMarker,
     });
     recordEf45OneShotDiagnosticCategory(sessionOneShotMarker, 'sse_completion_failed');
-    endDevTurn(session);
+    if (!session.devRetryableFailure) endDevTurn(session);
     res.end();
   }, 150000);
 
@@ -1633,7 +1706,9 @@ app.get('/api/v1/chat/stream', async (req, res) => {
     if (!sseTerminated) {
       sseTerminated = true;
       writeEf118RuntimeAudit({ sseCategory: 'client_closed', ef45ProbeMarker });
-      endDevTurn(session);
+      // A lost stream is not proof generation failed. Let the bounded original
+      // attempt finish; explicit Retry returns pending or replays its safe result.
+      if (!session.devRetryContract) endDevTurn(session);
     }
     // 保存用户神经档案
     try {

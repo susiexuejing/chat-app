@@ -52,7 +52,7 @@ test('adapter allowlists fields and uses only existing helpers with the same sig
   const result = await transport.start({ roleId: 'unexpected', message: 'current text', requestId: 'id',
     accountId: 'synthetic-account', conversationId: 'old-conversation', history: ['private history'],
     patterns: ['pattern'], practice: 'practice', path: 'path', }, signal);
-  assert.deepEqual(calls.start[0], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1']);
+  assert.deepEqual([...calls.start[0].slice(0, 10), JSON.parse(JSON.stringify(calls.start[0][10]))], ['clever-fox', 'current text', undefined, 'id', undefined, undefined, signal, 'dev-ephemeral-v1', undefined, 'dev-reply-practice-v1', { contract: 'dev-manual-retry-v1' }]);
   assert.equal(result.reactionText, '');
   assert.equal(result.companionText, '');
   const deep = []; let done = 0, failed = 0;
@@ -136,4 +136,17 @@ test('unsupported negotiated contract fails without additional request', async (
   const { module, calls } = await setup('DEV', [], 'dev-ephemeral-v1', 'unknown');
   await assert.rejects(module.createDevRealRequestTransport().start({ message: 'text', requestId: 'id' }, new AbortController().signal));
   assert.equal(calls.start.length, 1); assert.equal(calls.stream.length, 0);
+});
+
+for (const negotiated of [true, false]) for (const recoverable of [true, false]) test(`technical error recoverability requires negotiated contract=${negotiated}, recoverable=${recoverable}`, async () => {
+  const { module } = await setup('DEV', [{ eventType: 'error', payload: { recoverable, recoveryAction: 'retry_turn' } }]);
+  const reasons = [];
+  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() {}, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) },
+    new AbortController().signal, { retryContract: negotiated ? 'dev-manual-retry-v1' : undefined, devConversationId: 'c', requestId: 'r' });
+  assert.deepEqual(reasons, [negotiated && recoverable ? 'retry_turn' : 'terminal']);
+});
+test('EOF is transport loss rather than false successful fallback', async () => {
+  const { module } = await setup(); const reasons = [];
+  await module.createDevRealRequestTransport().stream('s', { onDeepChunk() {}, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) }, new AbortController().signal);
+  assert.deepEqual(reasons, ['transport']);
 });

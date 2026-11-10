@@ -549,3 +549,9 @@ import './devHistoryAccessDenial.test.mjs';
 
 // Explicitly negotiated DEV practice candidates, through the same provider/SSE path.
 import './devPracticeCandidate.test.mjs';
+
+// Manual retry: bounded owner-scoped recovery and actual validated SSE contract.
+import './devManualRetryStore.test.mjs';
+import './devManualRetry.test.mjs';
+import './devManualRetryReview.test.mjs';
+import './devManualRetryIntegration.test.mjs';

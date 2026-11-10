@@ -21,7 +21,7 @@ const mockDiscard = jest.fn();
 const mockControllers: DevRealRequestController[] = [];
 let mockRequestIdFailure: 'throw' | 'invalid' | null = null;
 const RECEIPT = { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000 };
-jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }));
+jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) => require('react').useEffect(callback, [callback]) }), { virtual: true });
 const DEEP_REPLY = '测试后端 Deep 内容：可以先确认眼前的需要。';
 const INPUT = '虚构场景：今天的安排有些乱。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
@@ -41,7 +41,7 @@ jest.mock('react-native', () => {
 jest.mock('@expo/vector-icons', () => ({
   FontAwesome6: (props: any) => require('react').createElement('Icon', props),
   Ionicons: (props: any) => require('react').createElement('Icon', props),
-}));
+}), { virtual: true });
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -420,6 +420,70 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     mockRequestIdFailure = null; await press('chat-send');
     expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStart.mock.calls[0][0].message).toBe(INPUT);
     expect(node('chat-input').props.value).toBe(''); expect(mockDiscard).toHaveBeenCalledTimes(1);
+  });
+
+  function negotiateRetry() {
+    mockStart.mockResolvedValue({ ...RECEIPT, sessionId: 'stub-session', reactionText: '', companionText: '',
+      devReplyContract: 'dev-reply-practice-v1', devRetryContract: 'dev-manual-retry-v1' });
+  }
+  it('retains one failed user bubble and independent draft through manual retry; no false candidate', async () => {
+    negotiateRetry();
+    const pending = deferred<void>(); let failed!: DevRealRequestCallbacks;
+    mockStream.mockImplementationOnce(async (_s, cb) => { failed = cb; await pending.promise; });
+    await mount(); await send(); await type('另一条尚未发送的草稿');
+    await act(async () => { failed.onDeepChunk('不应展示的片段'); failed.onError('retry_turn'); pending.resolve(); });
+    expect(output()).toContain('刚才的回复没有完成，可以重试'); expect(output()).not.toContain('不应展示的片段');
+    expect(node('chat-input').props.value).toBe('另一条尚未发送的草稿'); expectNoCandidate();
+    expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(1);
+    const success = deferred<void>(); let completed!: DevRealRequestCallbacks;
+    mockStream.mockImplementationOnce(async (_s, cb) => { completed = cb; await success.promise; });
+    await press('dev-retry'); expect(nodes('dev-retry')).toHaveLength(0);
+    expect(node('chat-input').props.value).toBe('另一条尚未发送的草稿');
+    expect(mockStart.mock.calls[1][0]).toEqual({ roleId: 'clever-fox', message: INPUT, requestId: 'stub-request-2', retryOfRequestId: 'stub-request-1' });
+    expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(1);
+    await act(async () => {
+      completed.onDeepChunk(DEEP_REPLY); completed.onDone({ contract: 'dev-reply-practice-v1', reply: DEEP_REPLY, practiceCandidate: null,
+        source: { sessionId: 'stub-session', devConversationId: RECEIPT.devConversationId, requestId: 'stub-request-2' } }); success.resolve();
+    });
+    expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(2);
+    expect(tree.root.findByType(MessageListView).props.messages[0].id).toBe('stub-request-1-user');
+    expect(nodes('candidate-confirm')).toHaveLength(1); expect(node('chat-input').props.value).toBe('另一条尚未发送的草稿');
+  });
+  it('pending409 explains no new reply started and preserves the unsent draft', async () => {
+    negotiateRetry(); mockStream.mockImplementationOnce(async (_s, cb) => { cb.onError('retry_turn'); });
+    await mount(); await send(); await type('草稿');
+    mockStart.mockRejectedValueOnce(Object.assign(new Error('safe'), { code: 'dev_retry_pending' }));
+    await press('dev-retry'); expect(output()).toContain('本次点击没有启动新的回复请求');
+    expect(node('chat-input').props.value).toBe('草稿'); expect(nodes('dev-retry')).toHaveLength(1); expectNoCandidate();
+    await press('dev-new-chat'); expect(node('chat-input').props.value).toBe(''); expect(nodes('dev-retry')).toHaveLength(0);
+  });
+  it('unconfirmed start preserves read-only bubble and unsent draft, offers no Retry, then End clears all', async () => {
+    const pending = deferred<DevRealRequestStart>(); mockStart.mockReturnValueOnce(pending.promise);
+    await mount(); await send(); await type('草稿');
+    await act(async () => { pending.reject(Object.assign(new Error('safe'), { code: 'dev_start_unconfirmed' })); });
+    expect(node('chat-input').props.value).toBe('草稿'); expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(1);
+    expect(nodes('dev-retry')).toHaveLength(0); expect(output()).toContain('暂不能重试'); expectNoCandidate();
+    await press('dev-end-chat'); expect(node('chat-input').props.value).toBe(''); expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(0);
+  });
+  it.each(['dev-end-chat', 'dev-new-chat'])('%s clears recovery and draft without another send', async id => {
+    negotiateRetry(); mockStream.mockImplementationOnce(async (_s, cb) => { cb.onError('retry_turn'); });
+    await mount(); await send(); await type('草稿'); await press(id);
+    expect(node('chat-input').props.value).toBe(''); expect(nodes('dev-retry')).toHaveLength(0);
+    expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(0); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('recoverable state expires at the original ten-minute boundary and clears independent draft', async () => {
+    negotiateRetry(); mockStream.mockImplementationOnce(async (_s, cb) => { cb.onError('retry_turn'); });
+    await mount(); await send(); await type('草稿');
+    await act(async () => { jest.advanceTimersByTime(600000); });
+    expect(node('chat-input').props.value).toBe(''); expect(nodes('dev-retry')).toHaveLength(0);
+    expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(0);
+  });
+  it('unmount invalidates a queued Retry callback and cannot send again', async () => {
+    negotiateRetry(); mockStream.mockImplementationOnce(async (_s, cb) => { cb.onError('retry_turn'); });
+    await mount(); await send(); const queued = node('dev-retry').props.onPress;
+    await unmount(); await act(async () => { queued(); });
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockControllers[0].getSnapshot().inputText).toBe('');
   });
 
 });

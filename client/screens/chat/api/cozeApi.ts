@@ -431,6 +431,7 @@ export interface FlowContext {
 
 export interface ChatStartResponse {
   devReplyContract?: 'dev-reply-practice-v1';
+  devRetryContract?: 'dev-manual-retry-v1';
   requestMode?: 'dev-ephemeral-v1';
   devConversationId?: string;
   expiresAt?: number;
@@ -498,6 +499,7 @@ export async function chatStart(
   requestMode?: 'dev-ephemeral-v1',
   devContext?: { devConversationId: string; afterRequestId?: string },
   devReplyContract?: 'dev-reply-practice-v1',
+  devRetry?: { contract: 'dev-manual-retry-v1'; retryOfRequestId?: string },
 ): Promise<ChatStartResponse> {
   throwIfChatAborted(signal);
   if (requestMode !== undefined && (requestMode !== 'dev-ephemeral-v1' || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || conversationId !== undefined)) {
@@ -506,32 +508,42 @@ export async function chatStart(
   if (devContext && (requestMode !== 'dev-ephemeral-v1' || !/^[\w-]{1,100}$/.test(devContext.devConversationId)
     || typeof devContext.afterRequestId !== 'string' || !/^[\w-]{1,100}$/.test(devContext.afterRequestId))) throw new Error('invalid_dev_context');
   if (devReplyContract !== undefined && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1')) throw new Error('invalid_dev_reply_contract');
+  if (devRetry && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1'
+    || devRetry.contract !== 'dev-manual-retry-v1' || (devRetry.retryOfRequestId !== undefined
+      && (devContext !== undefined || !/^[\w-]{1,100}$/.test(devRetry.retryOfRequestId))))) throw new Error('invalid_dev_retry');
   const BASE = getBackendUrl();
   const startPath = requestMode === 'dev-ephemeral-v1' ? '/api/v1/chat/dev-journey/start' : '/api/v1/chat/start';
   const startedAt = Date.now();
   emitEf77Trace('chat_start_started', { timestamp: startedAt, isRetry: diagnostics?.isRetry ?? false });
   let httpStatus: number | null = null;
+  let authenticationComplete = false;
   try {
     const auth = await getAnonymousRequestOptions(BASE, 'POST');
     throwIfChatAborted(signal);
+    authenticationComplete = true;
     const response = await fetch(`${BASE}${startPath}`, {
       method: 'POST',
       signal,
       credentials: auth.credentials,
       headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker),
-        ...(devReplyContract ? { Accept: `application/json; dev-reply-contract=${devReplyContract}` } : {}) },
+        ...(devReplyContract ? { Accept: `application/json; dev-reply-contract=${devReplyContract}` } : {}),
+        ...(devRetry ? { 'X-Dev-Retry-Contract': 'dev-manual-retry-v1' } : {}) },
       // An empty value marks a local-only turn while canonical persistence is
       // unavailable. Omit it so the authenticated runtime path does not
       // attempt durable-conversation ownership validation.
       body: JSON.stringify({ roleId, message, conversationId: conversationId || undefined, requestId, ...(requestMode ? { requestMode } : {}),
+        ...(devRetry?.retryOfRequestId ? { retryOfRequestId: devRetry.retryOfRequestId } : {}),
         ...(devContext ? { devConversationId: devContext.devConversationId, afterRequestId: devContext.afterRequestId } : {}) }),
     });
     throwIfChatAborted(signal);
     httpStatus = response.status;
     if (!response.ok) {
+      if (devRetry?.retryOfRequestId && response.status === 409 && response.headers?.get?.('X-Dev-Retry-State') === 'pending') {
+        throw Object.assign(new Error('dev_retry_pending'), { code: 'dev_retry_pending' });
+      }
       if (requestMode === 'dev-ephemeral-v1' && response.status === 410) throw new Error('dev_request_expired_or_clock_skew');
       // Never read or propagate an HTTP error body into the client error path.
-      // The caller maps this opaque failure to the single safe retryable prompt.
+      // The caller maps this opaque failure to a safe local status.
       const boundary = response.headers?.get?.('X-EF235-Chat-Start-Boundary') || 'unknown';
       console.warn('[EF-235] Chat start HTTP failure', { httpStatus, boundary });
       throw new Error(boundary === 'unknown'
@@ -556,6 +568,9 @@ export async function chatStart(
       errorType: getEf77ErrorType(error),
       isRetry: diagnostics?.isRetry ?? false,
     });
+    if (devRetry && authenticationComplete && !signal?.aborted && (httpStatus === null || httpStatus === 200)) {
+      throw Object.assign(new Error('dev_start_unconfirmed'), { code: 'dev_start_unconfirmed' });
+    }
     throw error;
   }
 }
@@ -814,7 +829,8 @@ export async function chatStream(
           }
         });
         sse.addEventListener('error', (error: any) => {
-          const err = new Error(error.message || 'stream error');
+          const err = new Error(typeof error.xhrStatus === 'number' && error.xhrStatus >= 400
+            ? `HTTP ${error.xhrStatus}` : error.message || 'stream error');
           settleRejected(err);
           sse.close();
         });
