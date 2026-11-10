@@ -134,6 +134,115 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(mockConfirm).not.toHaveBeenCalled();
   }
 
+  const safetyCases = [
+    ['help', '主动寻求现实帮助（合成）', '这里不能确认现实安全情况。如果你担心当前安全，请联系身边可信的人、当地紧急服务或危机支持。'],
+    ['emergency', '触发已覆盖紧急样例（合成 H01）', '现在先把现实安全放在前面。请尽快联系身边可信的人、当地紧急服务或危机支持。'],
+    ['unknown', '风险或支持范围无法判断（合成 U01）', '这里不能确认现实安全情况。如果你担心当前安全，请联系身边可信的人、当地紧急服务或危机支持。'],
+  ] as const;
+  function expectSafetyView(expected: string) {
+    expect(output()).toContain(expected);
+    expect(output()).toContain('以下是显式合成控制，不代表自动识别真实风险。');
+    expect(output()).toContain('地区、语言适用性与现实支持来源尚未核验；不提供当地号码、机构或可达性承诺。');
+    expect(output()).toContain('已中断普通回复、分析与幽默；可以停止或离开。');
+    expect(nodes('dev-safety-support')).toHaveLength(1);
+    expect(nodes('chat-input')).toHaveLength(0); expect(nodes('chat-send')).toHaveLength(0);
+    expect(nodes('dev-retry')).toHaveLength(0); expect(nodes('parent-draft')).toHaveLength(0);
+    expect(tree.root.findAllByType(MessageListView)).toHaveLength(0);
+    expectNoCandidate(); expectVisibleDisclosure();
+    expect(output()).not.toContain('没有模型或内容外发');
+  }
+
+  it('keeps original synthetic labels behind an optional separate control with no request on disclosure', async () => {
+    await mount();
+    for (const [kind] of safetyCases) expect(nodes(`dev-safety-${kind}`)).toHaveLength(0);
+    await press('dev-safety-controls');
+    expect(output()).toContain('以下是显式合成控制，不代表自动识别真实风险。');
+    for (const [kind, label] of safetyCases) expect(node(`dev-safety-${kind}`).props.accessibilityLabel).toBe(label);
+    await press('dev-safety-controls');
+    expect(mockStart).not.toHaveBeenCalled(); expect(mockStream).not.toHaveBeenCalled();
+  });
+
+  it.each(safetyCases)('%s from idle clears unsent input and does not become an ordinary assistant reply', async (kind, _label, expected) => {
+    await mount(); await type('unsent fictional draft'); await press('dev-safety-controls');
+    const staleSend = node('chat-send').props.onPress;
+    await press(`dev-safety-${kind}`); expectSafetyView(expected);
+    await act(async () => { staleSend(); });
+    expect(mockStart).not.toHaveBeenCalled(); expect(mockStream).not.toHaveBeenCalled();
+    expect(mockDiscard).toHaveBeenCalled();
+    await press('dev-new-chat');
+    expect(node('chat-input').props.value).toBe(''); expect(node('chat-send').props.disabled).toBe(true);
+    expect(nodes('dev-safety-support')).toHaveLength(0); expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  it.each(safetyCases)('%s replaces completed conversation and rejects captured confirm callbacks', async (kind, _label, expected) => {
+    await mount(); await send('first fictional input'); await send('second fictional input');
+    const staleConfirm = node('candidate-confirm').props.onPress;
+    await type('separate unsent draft'); await press('dev-safety-controls'); await press(`dev-safety-${kind}`);
+    await act(async () => { staleConfirm(); }); expectSafetyView(expected);
+    for (const text of ['first fictional input', 'second fictional input', 'separate unsent draft', DEEP_REPLY]) expect(output()).not.toContain(text);
+    expect(mockStart).toHaveBeenCalledTimes(2); expect(mockStream).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['pending start', 'pending stream', 'recoverable'] as const)('safety clears %s and forced late callbacks cannot restore conversation or retry', async phase => {
+    const pending = deferred<void>(); const start = deferred<DevRealRequestStart>(); let callbacks: DevRealRequestCallbacks | undefined;
+    if (phase === 'pending start') mockStart.mockReturnValue(start.promise);
+    else if (phase === 'pending stream') mockStream.mockImplementation(async (_session, cb) => { callbacks = cb; cb.onDeepChunk('private partial'); await pending.promise; });
+    else {
+      mockStart.mockResolvedValue({ ...RECEIPT, sessionId: 'stub-session', reactionText: '', companionText: '', devReplyContract: 'dev-reply-practice-v1', devRetryContract: 'dev-manual-retry-v1' });
+      mockStream.mockImplementation(async (_session, cb) => { callbacks = cb; cb.onError('retry_turn'); });
+    }
+    await mount(); await send(); await type('unsent draft while waiting');
+    const staleRetry = phase === 'recoverable' ? node('dev-retry').props.onPress : () => undefined;
+    await press('dev-safety-controls'); await press('dev-safety-emergency');
+    await act(async () => {
+      staleRetry(); callbacks?.onDeepChunk('late content'); callbacks?.onDone(); callbacks?.onError('terminal');
+      if (phase === 'pending stream') pending.reject(new Error('late rejected stream'));
+      start.resolve({ ...RECEIPT, sessionId: 'late-start', reactionText: '', companionText: '' });
+    });
+    expectSafetyView(safetyCases[1][2]); expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(mockStream).toHaveBeenCalledTimes(phase === 'pending start' ? 0 : 1);
+    expect(output()).not.toContain('unsent draft while waiting'); expect(output()).not.toContain(INPUT);
+    await press('dev-end-chat');
+    expect(nodes('dev-safety-support')).toHaveLength(0); expect(node('chat-input').props.value).toBe('');
+    expect(node('chat-send').props.disabled).toBe(true); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['reset key', 'remount'] as const)('explicit %s creates empty idle state after safety without sending', async action => {
+    await mount(); await send(); await press('dev-safety-controls'); await press('dev-safety-help');
+    if (action === 'reset key') await update(1); else { await unmount(); await mount(); }
+    expect(nodes('dev-safety-support')).toHaveLength(0); expect(node('chat-input').props.value).toBe('');
+    expect(nodes('candidate-confirm')).toHaveLength(0); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('a throwing draft cleanup cannot leave old conversation visible or prevent safety cancellation', async () => {
+    const pending = deferred<DevRealRequestStart>(); mockStart.mockReturnValue(pending.promise);
+    await mount(); await send(); await type('unsent draft');
+    mockDiscard.mockImplementationOnce(() => { throw new Error('synthetic editor cleanup failure'); });
+    await press('dev-safety-controls'); await press('dev-safety-emergency');
+    expectSafetyView(safetyCases[1][2]); expect(mockStart.mock.calls[0][1].aborted).toBe(true);
+    await act(async () => { pending.resolve({ ...RECEIPT, sessionId: 'late', reactionText: '', companionText: '' }); });
+    expect(mockStream).not.toHaveBeenCalled(); expectSafetyView(safetyCases[1][2]);
+  });
+
+  it('a throwing practice cleanup still discards understanding and renders the fixed support', async () => {
+    await mount(); await send(); await type('unsent draft');
+    const cleanup = jest.fn().mockImplementationOnce(() => { throw new Error('synthetic practice cleanup failure'); });
+    await act(async () => { tree.update(React.cloneElement(element(), { onPracticeInvalidate: cleanup })); });
+    mockDiscard.mockClear();
+    await press('dev-safety-controls'); await press('dev-safety-help');
+    expect(cleanup).toHaveBeenCalledTimes(1); expect(mockDiscard).toHaveBeenCalledTimes(1);
+    expectSafetyView(safetyCases[0][2]); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['new chat', 'reset key'] as const)('captured safety control cannot halt a newer conversation after %s', async action => {
+    await mount(); await press('dev-safety-controls'); const staleSafety = node('dev-safety-help').props.onPress;
+    if (action === 'new chat') await press('dev-new-chat'); else await update(1);
+    await send('new fictional conversation');
+    await act(async () => { staleSafety(); });
+    expect(nodes('dev-safety-support')).toHaveLength(0); expect(output()).toContain(DEEP_REPLY);
+    expect(nodes('candidate-confirm')).toHaveLength(1); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
   it('identifies AI, nonhuman and non-therapist before any send without opening the intro', async () => {
     await mount();
     expectVisibleDisclosure();

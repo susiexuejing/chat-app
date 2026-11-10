@@ -7,7 +7,7 @@ import type { ChatMessage } from '@/screens/chat/types';
 import { createDevRealRequestControllerForRuntime } from '@/features/dev-journey/realRequestAdapter';
 import {
   DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_RETRY_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
-  type DevPracticeCandidate, type DevRealRequestController, type DevRealRequestSnapshot,
+  type DevPracticeCandidate, type DevRealRequestController, type DevRealRequestSnapshot, type DevSyntheticSafetyKind,
 } from '@/features/dev-journey/realRequestController';
 
 export interface DevUnderstandingDraft { text: string; input: string; requestId: string }
@@ -35,6 +35,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   const [state, setState] = useState(initial);
   const [input, setInput] = useState('');
   const [showIntro, setShowIntro] = useState(false);
+  const [showSafetyControls, setShowSafetyControls] = useState(false);
   const discard = useRef(onDraftDiscard);
   const practiceCallbacks = useRef({ onPracticeCandidate, onPracticeInvalidate });
   useLayoutEffect(() => { practiceCallbacks.current = { onPracticeCandidate, onPracticeInvalidate }; }, [onPracticeCandidate, onPracticeInvalidate]);
@@ -60,10 +61,18 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       if (controller.current !== instance) return;
       setState(instance.getSnapshot());
       setInput('');
+      setShowSafetyControls(false);
     });
     const unsubscribe = instance.subscribe(() => {
       if (controller.current !== instance) return;
       const next = instance.getSnapshot();
+      if (next.status === 'safety') {
+        // Clear the visible conversation even if an editor's cleanup fails.
+        // The safety publisher isolates observers and still aborts/ends.
+        setInput(''); setState(next);
+        try { practiceCallbacks.current.onPracticeInvalidate?.(); } finally { discard.current(); }
+        return;
+      }
       if (next.status === 'starting' || next.status === 'recoverable' || next.status === 'failed' || next.status === 'stopped') {
         practiceCallbacks.current.onPracticeInvalidate?.(); discard.current();
         // A manual retry must not consume a separate draft typed while waiting.
@@ -82,7 +91,10 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   }, [state]);
 
   const busy = state.status === 'starting' || state.status === 'streaming';
-  function reset() { practiceCallbacks.current.onPracticeInvalidate?.(); onDraftDiscard(); controller.current?.reset(); setInput(''); }
+  function safety(kind: DevSyntheticSafetyKind) {
+    if (controller.current?.getSnapshot() === state) controller.current.safety(kind);
+  }
+  function reset() { practiceCallbacks.current.onPracticeInvalidate?.(); onDraftDiscard(); controller.current?.reset(); setInput(''); setShowSafetyControls(false); }
   function send() {
     if (!input.trim() || controller.current?.getSnapshot() !== state || !state.canSend) return;
     if (beforeSend && !beforeSend()) { leave(); return; }
@@ -111,6 +123,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     recoverable: '刚才的回复没有完成，可以重试',
     failed: state.error ?? '本次请求未完成。',
     stopped: '本次会话已结束，上下文已清除；未自动保存理解。',
+    safety: '已中断普通回复、分析与幽默；可以停止或离开。',
   }[state.status];
   return <View className="flex-1 bg-white dark:bg-gray-900">
     <View className="px-4 py-3 border-b border-stone-200 gap-2">
@@ -128,6 +141,21 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       {busy && <Action id="dev-stop" title="停止等待" onPress={leave} />}
       <Text className="text-xs text-stone-600">{DEV_REAL_REQUEST_STOP_NOTICE}</Text>
     </View>
+    {state.status !== 'safety' && state.status !== 'failed' && state.status !== 'stopped' && <View className="px-4 py-2 border-b border-stone-200 gap-2">
+      <Action id="dev-safety-controls" title="合成安全控制" onPress={() => setShowSafetyControls(value => !value)} />
+      {showSafetyControls && <>
+        <Text className="text-xs text-stone-600">以下是显式合成控制，不代表自动识别真实风险。</Text>
+        <Action id="dev-safety-help" title="主动寻求现实帮助（合成）" onPress={() => safety('help')} />
+        <Action id="dev-safety-emergency" title="触发已覆盖紧急样例（合成 H01）" onPress={() => safety('emergency')} />
+        <Action id="dev-safety-unknown" title="风险或支持范围无法判断（合成 U01）" onPress={() => safety('unknown')} />
+      </>}
+    </View>}
+    {state.status === 'safety' ? <View testID="dev-safety-support" accessibilityLiveRegion="polite" className="flex-1 p-4 gap-3">
+      <Text className="text-base font-semibold text-stone-900">固定合成安全支持</Text>
+      <Text className="text-sm text-stone-700">以下是显式合成控制，不代表自动识别真实风险。</Text>
+      <Text className="text-base text-stone-900">{state.safetySupport}</Text>
+      <Text className="text-sm text-stone-700">AI 不能替代紧急或专业支持。地区、语言适用性与现实支持来源尚未核验；不提供当地号码、机构或可达性承诺。</Text>
+    </View> : <>
     <MessageListView messages={messages} currentRole={role} setInputText={text => setInput(`虚构场景：${text}`)}
       generatingLabel="正在思考"
       turnStatus={busy ? 'generating' : state.status === 'success' ? 'completed' : 'idle'}
@@ -146,5 +174,6 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     <MultimodalInputView value={input} onChangeText={text => setInput(text.slice(0, 1000))} onSend={send}
       disabled={!state.canSend || !input.trim()} phase={busy ? 'responding' : state.status === 'success' ? 'done' : 'idle'}
       inputTestID="chat-input" sendTestID="chat-send" inputAccessibilityLabel="虚构场景输入" sendAccessibilityLabel="发送真实 DEV 请求" />
+    </>}
   </View>;
 }
