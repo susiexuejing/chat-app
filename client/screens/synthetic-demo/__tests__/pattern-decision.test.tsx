@@ -92,6 +92,8 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     else await press('pattern-cancel');
     const before = persisted(); storage.setItem.mockClear();
     await press('practice-open');
+    expect(output()).toContain('已保存 · 进行中');
+    expect(output()).not.toContain('已确认 · 进行中');
     expect(node('record-open').props.disabled).toBe(true);
     expect(node('record-unavailable').children.join('')).toBe(`这条模式目前是「${label}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。`);
     // An already queued or direct callback cannot bypass the disabled control.
@@ -100,6 +102,8 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
     expect(node('practice-pause').props.disabled).toBe(false);
     await press('practice-pause');
+    expect(output()).toContain('已保存 · 尚未开始或已暂停');
+    expect(output()).not.toContain('已保存 · 进行中');
     expect(state(a).practice?.paused).toBe(true); expect(persisted().activePracticePatternId).toBeNull();
     expect(state(a).pattern).toEqual(state(a, before).pattern);
     expect(state(a).records).toEqual(state(a, before).records); expect(state(a).path).toEqual(state(a, before).path);
@@ -112,6 +116,8 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     await press('practice-back'); await press('pattern-edit'); await press('pattern-decision-confirmed'); await press('pattern-save');
     const before = persisted(); storage.setItem.mockClear();
     await press('practice-open');
+    expect(output()).toContain('已保存 · 进行中');
+    expect(output()).not.toContain('已确认 · 进行中');
     expect(node('record-open').props.disabled).toBe(false); expect(nodes('record-unavailable')).toHaveLength(0);
     await act(async () => { blockedHandler(); }); expect(nodes('record-occurred-yes')).toHaveLength(0);
     await press('record-open'); await press('record-occurred-no'); await press('record-save');
@@ -119,6 +125,14 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     expect(state(a).practice).toEqual(state(a, before).practice);
     expect(persisted().activePracticePatternId).toBe(a); expect(state(b)).toEqual(state(b, before));
     expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an unsaved practice distinct without writing or claiming it is active', async () => {
+    await mount(); await detail(b); const before = persisted(); storage.setItem.mockClear();
+    await press('practice-open');
+    expect(output()).toContain('尚未保存'); expect(output()).not.toContain('已保存 · 进行中');
+    expect(output()).not.toContain('已确认 · 进行中'); expect(nodes('record-open')).toHaveLength(0);
+    expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
   });
 
   it.each([

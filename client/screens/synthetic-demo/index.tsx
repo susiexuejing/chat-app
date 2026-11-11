@@ -516,7 +516,7 @@ export default function SyntheticDemoScreen() {
       <Card><Text className="text-sm text-orange-800">{pattern.name}</Text><Text className="text-2xl font-semibold text-stone-900">我的练习</Text>
         {practice ? <><Text className="text-stone-800">如果：{practice.ifCue}</Text><Text className="text-stone-800">那么：{practice.thenAction}</Text></> : <Text className="text-stone-700">请自行填写一个触发线索与动作。</Text>}
         {practice?.candidateOrigin && <Text testID="practice-suggestion-source" className="text-sm text-stone-600">来源：AI 建议 · 经你编辑或核对后明确保存</Text>}
-        <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已确认 · 进行中'}</Text>
+        <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已保存 · 进行中'}</Text>
         <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green onPress={() => { if (currentView()) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
         {practice && <>{pattern.decision !== 'confirmed' && <Text testID="record-unavailable" className="text-sm text-stone-600">这条模式目前是「{decisionLabels[pattern.decision]}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。</Text>}
           <Button testID="record-open" title="记录这一次" green disabled={pattern.decision !== 'confirmed' || practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
