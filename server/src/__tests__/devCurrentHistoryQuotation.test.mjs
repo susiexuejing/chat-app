@@ -54,6 +54,25 @@ test('DEV prompt scopes quotation and leaves ordinary history prohibition unchan
  assert.doesNotMatch(ordinary,/本轮完整原话逐字归属/);
 });
 
+// Explicit current-message attribution is a binding claim, including when the
+// historical word sits beyond the legacy history regex's 12-character window.
+const prefixedOld = '这是虚构场景：我以前周末去过那家旧书店，今天只是路过。';
+const prefixedCorrection = '更正这个虚构场景：以前周末去那家旧书店的是朋友，我没去过；我今天只是路过。';
+test('prefixed complete quotation preserves current correction in DEV first two turns', () => {
+  for (const userTurn of [1, 2]) assert.equal(check(prefixedCorrection, quote(prefixedCorrection), { userTurn }).rejected, false);
+});
+for (const [label, text, extra] of [
+  ['old source in fresh context', quote(prefixedOld), {}],
+  ['old source in same-session context', quote(prefixedOld), { sameSessionUserMessages: [prefixedOld] }],
+  ['changed subject', quote(prefixedCorrection.replace('是朋友', '是我')), {}],
+  ['dropped negation', quote(prefixedCorrection.replace('没去过', '去过')), {}],
+  ['fiction rewritten as reality', quote(prefixedCorrection.replace('虚构', '真实')), {}],
+  ['only one current clause', quote('我今天只是路过。'), {}],
+  ['extra conclusion', quote(prefixedCorrection) + '事情已经说清楚了。', {}],
+]) test(`prefixed explicit attribution rejects ${label}`, () => {
+  for (const userTurn of [1, 2]) assert.equal(check(prefixedCorrection, text, { userTurn, ...extra }).rejected, true);
+});
+
 // Actual handler/parser/validator/stream with mocked provider only.
 const { body, harness, providerResponse, settle, START, STREAM } = await import('./devEphemeralHarness.mjs');
 for (const rejected of [false,true]) test(`negotiated route keeps current-source quote boundary, rejected=${rejected}`,async()=>{

@@ -115,6 +115,10 @@ function isDevCurrentMessageQuotation(text: string, input?: Ef41DeepCompositionI
 }
 
 function hasFirstTwoRoundsFactViolation(text: string, userMessage: string, input?: Ef41DeepCompositionInput): boolean {
+  // DEV's explicit current-message attribution must bind to the complete current
+  // input even when a longer prefix prevents the legacy history regex matching.
+  if (input?.devPrimaryResponse && text.includes('你这条消息写的是：“')
+    && !isDevCurrentMessageQuotation(text, input)) return true;
   const hasHistoryClaim = HISTORY_CLAIM_PATTERN.test(text)
     && !isDevHistoryAccessDenial(text, input)
     && !isDevCurrentMessageQuotation(text, input);
