@@ -15,6 +15,11 @@ const initial: DevRealRequestSnapshot = {
   status: 'idle', inputText: '', requestId: null, sentAt: 0, reactionText: '', companionText: '',
   deepText: '', completedTurns: [], error: null, canSend: false, source: null,
 };
+// Editor callbacks are presentation cleanup, not permission to keep a request
+// alive or skip publishing its terminal state. Do not log callback content.
+function runEditorCleanup(callback?: () => void) {
+  try { callback?.(); } catch { /* Continue controller and other local cleanup. */ }
+}
 const role = { avatar: null, name: '小狐狸', shortDesc: 'DEV · 仅用虚构场景体验', themeColor: '#D97706' };
 function Action({ id, title, onPress }: { id: string; title: string; onPress: () => void }) {
   return <Pressable testID={id} accessibilityRole="button" accessibilityLabel={title} onPress={onPress}
@@ -41,11 +46,11 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   useLayoutEffect(() => { practiceCallbacks.current = { onPracticeCandidate, onPracticeInvalidate }; }, [onPracticeCandidate, onPracticeInvalidate]);
   useLayoutEffect(() => { discard.current = onDraftDiscard; }, [onDraftDiscard]);
   const leave = useCallback(() => {
-    practiceCallbacks.current.onPracticeInvalidate?.();
+    runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate);
     const instance = controller.current;
     const before = instance?.getSnapshot();
     instance?.stop();
-    if (!instance || instance.getSnapshot() === before) discard.current();
+    if (!instance || instance.getSnapshot() === before) runEditorCleanup(discard.current);
     setInput('');
   }, []);
   useFocusEffect(useCallback(() => leave, [leave]));
@@ -70,18 +75,18 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
         // Clear the visible conversation even if an editor's cleanup fails.
         // The safety publisher isolates observers and still aborts/ends.
         setInput(''); setState(next);
-        try { practiceCallbacks.current.onPracticeInvalidate?.(); } finally { discard.current(); }
+        runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); runEditorCleanup(discard.current);
         return;
       }
       if (next.status === 'starting' || next.status === 'recoverable' || next.status === 'failed' || next.status === 'stopped') {
-        practiceCallbacks.current.onPracticeInvalidate?.(); discard.current();
+        runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); runEditorCleanup(discard.current);
         // A manual retry must not consume a separate draft typed while waiting.
         if ((next.status === 'starting' && next.logicalRequestId === next.requestId)
           || (next.status === 'failed' && !next.preserveDraft) || next.status === 'stopped') setInput('');
       }
       setState(next);
     });
-    return () => { practiceCallbacks.current.onPracticeInvalidate?.(); unsubscribe(); instance.dispose(); controller.current = null; };
+    return () => { runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); unsubscribe(); instance.dispose(); controller.current = null; };
   }, [resetKey]);
 
   useLayoutEffect(() => {
@@ -94,7 +99,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   function safety(kind: DevSyntheticSafetyKind) {
     if (controller.current?.getSnapshot() === state) controller.current.safety(kind);
   }
-  function reset() { practiceCallbacks.current.onPracticeInvalidate?.(); onDraftDiscard(); controller.current?.reset(); setInput(''); setShowSafetyControls(false); }
+  function reset() { runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); runEditorCleanup(onDraftDiscard); controller.current?.reset(); setInput(''); setShowSafetyControls(false); }
   function send() {
     if (!input.trim() || controller.current?.getSnapshot() !== state || !state.canSend) return;
     if (beforeSend && !beforeSend()) { leave(); return; }
