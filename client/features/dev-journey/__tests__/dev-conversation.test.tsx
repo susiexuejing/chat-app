@@ -18,6 +18,7 @@ const mockStart = jest.fn<Promise<DevRealRequestStart>, [DevRealRequestInput, Ab
 const mockStream = jest.fn<Promise<void>, [string, DevRealRequestCallbacks, AbortSignal]>();
 const mockConfirm = jest.fn();
 const mockDiscard = jest.fn();
+const mockEnd = jest.fn<Promise<void>, [string]>();
 const mockControllers: DevRealRequestController[] = [];
 let mockRequestIdFailure: 'throw' | 'invalid' | null = null;
 const RECEIPT = { devConversationId: 'dev-conversation', expiresAt: 700000, remainingLifetimeMs: 600000 };
@@ -62,6 +63,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
     mockCreateController.mockReset(); mockConfirm.mockReset(); mockDiscard.mockReset();
     mockControllers.splice(0); mockRequestIdFailure = null;
+    mockEnd.mockReset().mockResolvedValue(undefined);
     mockStart.mockReset().mockResolvedValue({
       ...RECEIPT, sessionId: 'stub-session', reactionText: '即时回应（不是 Deep）', companionText: '陪伴回应（不是 Deep）',
     });
@@ -71,7 +73,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     let sequence = 0;
     mockCreateController.mockImplementation(() => {
       const controller = createDevRealRequestController({
-        enabled: true, transport: { start: mockStart, stream: mockStream, end: async () => undefined },
+        enabled: true, transport: { start: mockStart, stream: mockStream, end: mockEnd },
         createRequestId: () => {
           if (mockRequestIdFailure === 'throw') throw new Error('synthetic request-ID failure');
           if (mockRequestIdFailure === 'invalid') return 'invalid request ID';
@@ -83,7 +85,11 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     });
   });
   afterEach(async () => {
-    if (mounted) await act(async () => { tree.unmount(); });
+    mockDiscard.mockReset();
+    if (mounted) {
+      await act(async () => { tree.update(element()); });
+      await act(async () => { tree.unmount(); });
+    }
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = oldAct;
     jest.clearAllTimers(); jest.useRealTimers();
   });
@@ -625,6 +631,92 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     await mount(); await send(); const queued = node('dev-retry').props.onPress;
     await unmount(); await act(async () => { queued(); });
     expect(mockStart).toHaveBeenCalledTimes(1); expect(mockControllers[0].getSnapshot().inputText).toBe('');
+  });
+
+
+  // A parent editor is not allowed to veto controller revocation or hide its
+  // new state. Faults are synthetic and transport remains hermetic.
+  async function editorFaults(practice: boolean, draft: boolean, resetKey = 0) {
+    const cleanup = jest.fn(() => { if (practice) throw new Error('synthetic practice cleanup fault'); });
+    mockDiscard.mockImplementation(() => { if (draft) throw new Error('synthetic draft cleanup fault'); });
+    await act(async () => { tree.update(React.cloneElement(element(resetKey), { onPracticeInvalidate: cleanup })); });
+    return cleanup;
+  }
+  const cleanupFaults = [['practice', true, false], ['draft', false, true], ['both', true, true]] as const;
+  const exitFaultCases = cleanupFaults.flatMap(([label, practice, draft]) =>
+    ['end', 'new chat', 'resetKey', 'unmount', 'pagehide'].map(exit => ({ label, practice, draft, exit })));
+  it.each(exitFaultCases)('$label cleanup cannot veto $exit during a pending start', async ({ practice, draft, exit }) => {
+    const pending = deferred<DevRealRequestStart>(); mockStart.mockReturnValue(pending.promise);
+    const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+    const events = new Map<string, () => void>();
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: {
+      addEventListener: (name: string, fn: () => void) => events.set(name, fn),
+      removeEventListener: (name: string) => events.delete(name),
+    } });
+    try {
+      await mount(); await send(); await type('separate unsent fictional draft');
+      const cleanup = await editorFaults(practice, draft);
+      const old = mockControllers[0]; const signal = mockStart.mock.calls[0][1];
+      if (exit === 'end') await press('dev-end-chat');
+      else if (exit === 'new chat') await press('dev-new-chat');
+      else if (exit === 'resetKey') await act(async () => { tree.update(React.cloneElement(element(1), { onPracticeInvalidate: cleanup })); });
+      else if (exit === 'unmount') await unmount();
+      else await act(async () => { events.get('pagehide')?.(); });
+      expect(cleanup).toHaveBeenCalled();
+      expect(signal.aborted).toBe(true);
+      expect(mockEnd).toHaveBeenCalledWith('stub-request-1');
+      expect(old.getSnapshot().requestId).toBeNull();
+      expect(old.getSnapshot().completedTurns).toEqual([]);
+      expect(old.getSnapshot().canRetry).toBe(false);
+      const stopped = old.getSnapshot();
+      await act(async () => { pending.resolve({ ...RECEIPT, sessionId: 'late', reactionText: '', companionText: '' }); });
+      expect(old.getSnapshot()).toBe(stopped); expect(mockStream).not.toHaveBeenCalled();
+      expect(mockStart).toHaveBeenCalledTimes(1); expect(mockConfirm).not.toHaveBeenCalled();
+      if (mounted) {
+        expect(node('chat-input').props.value).toBe(''); expectNoCandidate();
+        expect(output()).not.toContain(INPUT); expect(output()).not.toContain('separate unsent fictional draft');
+      }
+    } finally {
+      mockDiscard.mockReset();
+      if (mounted) { await act(async () => { tree.update(element()); }); await unmount(); }
+      if (previous) Object.defineProperty(globalThis, 'window', previous);
+      else delete (globalThis as any).window;
+    }
+  });
+
+  it.each(cleanupFaults)('%s cleanup cannot conceal admitted starting or recoverable states', async (_label, practice, draft) => {
+    const pending = deferred<void>(); let cb!: DevRealRequestCallbacks;
+    mockStart.mockResolvedValue({ ...RECEIPT, sessionId: 'stub-session', reactionText: '', companionText: '', devReplyContract: 'dev-reply-practice-v1', devRetryContract: 'dev-manual-retry-v1' });
+    mockStream.mockImplementation(async (_session, callbacks) => { cb = callbacks; await pending.promise; });
+    await mount(); await editorFaults(practice, draft); await send();
+    expect(node('chat-input').props.value).toBe(''); expect(output()).toContain('正在思考');
+    await type('preserved unsent fictional draft');
+    await act(async () => { cb.onError('retry_turn'); pending.resolve(); });
+    expect(mockControllers[0].getSnapshot().status).toBe('recoverable');
+    expect(nodes('dev-retry')).toHaveLength(1); expectNoCandidate();
+    expect(node('chat-input').props.value).toBe('preserved unsent fictional draft');
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockEnd).not.toHaveBeenCalled();
+  });
+
+  it.each(cleanupFaults)('%s cleanup cannot conceal terminal failure or preserve an expired completed view', async (_label, practice, draft) => {
+    await mount(); await send(); const staleConfirm = node('candidate-confirm').props.onPress;
+    await type('unsent fictional draft'); await editorFaults(practice, draft);
+    await act(async () => { jest.advanceTimersByTime(600000); staleConfirm(); });
+    expect(mockControllers[0].getSnapshot().status).toBe('failed');
+    expectNoCandidate(); expect(node('chat-input').props.value).toBe('');
+    expect(output()).not.toContain(INPUT); expect(output()).not.toContain(DEEP_REPLY);
+    expect(mockEnd).toHaveBeenCalledWith('stub-request-1'); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(cleanupFaults)('%s cleanup cannot veto stop or publish late stream content', async (_label, practice, draft) => {
+    const pending = deferred<void>(); let cb!: DevRealRequestCallbacks;
+    mockStream.mockImplementation(async (_session, callbacks) => { cb = callbacks; await pending.promise; });
+    await mount(); await send(); await editorFaults(practice, draft);
+    await press('dev-stop'); expect(mockStream.mock.calls[0][2].aborted).toBe(true);
+    await act(async () => { cb.onDeepChunk('late private content'); cb.onDone(); pending.resolve(); });
+    expect(mockControllers[0].getSnapshot().status).toBe('stopped'); expectNoCandidate();
+    expect(output()).not.toContain('late private content'); expect(output()).not.toContain(INPUT);
+    expect(mockEnd).toHaveBeenCalledWith('stub-request-1'); expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
 });
