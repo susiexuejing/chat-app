@@ -555,3 +555,6 @@ import './devManualRetryStore.test.mjs';
 import './devManualRetry.test.mjs';
 import './devManualRetryReview.test.mjs';
 import './devManualRetryIntegration.test.mjs';
+
+// Exact current-message history attribution, without semantic paraphrase exemptions.
+import './devCurrentHistoryQuotation.test.mjs';
