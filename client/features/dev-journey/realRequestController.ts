@@ -103,11 +103,12 @@ export function createDevRealRequestController(options: {
     completedTurns: Object.freeze([]), error: null, canSend: enabled && !disposed, source: null, practiceCandidate: null, canRetry: false,
   });
   let snapshot = initial();
-  function publish(next: DevRealRequestSnapshot, isolateListeners = false) {
+  function publish(next: DevRealRequestSnapshot) {
     snapshot = Object.freeze(next);
     listeners.forEach(listener => {
-      if (!isolateListeners) listener();
-      else { try { listener(); } catch { /* A failed safety observer cannot prevent the other observers or cleanup. */ } }
+      // Presentation observers cannot change a transport outcome, strand an
+      // admitted send before its deadline, or skip later cleanup observers.
+      try { listener(); } catch { /* Do not expose callback errors or content. */ }
     });
   }
   function invalidate(beforeCancel?: () => void) {
@@ -172,7 +173,7 @@ export function createDevRealRequestController(options: {
     safety: kind => {
       if (disposed || !enabled || !['idle', 'starting', 'streaming', 'success', 'recoverable'].includes(snapshot.status)
         || (kind !== 'help' && kind !== 'emergency' && kind !== 'unknown')) return;
-      invalidate(() => publish({ ...initial(), status: 'safety', canSend: false, safetySupport: DEV_SYNTHETIC_SAFETY_REPLIES[kind] }, true));
+      invalidate(() => publish({ ...initial(), status: 'safety', canSend: false, safetySupport: DEV_SYNTHETIC_SAFETY_REPLIES[kind] }));
     },
     reset: () => { if (!disposed) { invalidate(); publish(initial()); } },
     dispose: () => {

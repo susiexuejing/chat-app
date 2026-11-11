@@ -85,6 +85,43 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
   function checked(decision: Exclude<Decision, 'candidate'>) { return node(`pattern-decision-${decision}`).props.accessibilityState.checked; }
 
   it.each([
+    ['candidate', '演示候选 · 待确认'], ['rejected', '不符合'], ['uncertain', '暂不确定'],
+  ] as const)('keeps %s practice state but blocks an unsavable new record before editing', async (decision, label) => {
+    await mount(); await editor();
+    if (decision !== 'candidate') { await press(`pattern-decision-${decision}`); await press('pattern-save'); }
+    else await press('pattern-cancel');
+    const before = persisted(); storage.setItem.mockClear();
+    await press('practice-open');
+    expect(node('record-open').props.disabled).toBe(true);
+    expect(node('record-unavailable').children.join('')).toBe(`这条模式目前是「${label}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。`);
+    // An already queued or direct callback cannot bypass the disabled control.
+    await act(async () => { node('record-open').props.onPress(); });
+    expect(nodes('record-occurred-yes')).toHaveLength(0);
+    expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
+    expect(node('practice-pause').props.disabled).toBe(false);
+    await press('practice-pause');
+    expect(state(a).practice?.paused).toBe(true); expect(persisted().activePracticePatternId).toBeNull();
+    expect(state(a).pattern).toEqual(state(a, before).pattern);
+    expect(state(a).records).toEqual(state(a, before).records); expect(state(a).path).toEqual(state(a, before).path);
+    expect(state(b)).toEqual(state(b, before)); expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['rejected', 'uncertain'] as const)('allows recording after an explicit %s-to-confirmed decision without restarting the practice', async decision => {
+    await mount(); await editor(); await press(`pattern-decision-${decision}`); await press('pattern-save');
+    await press('practice-open'); const blockedHandler = node('record-open').props.onPress;
+    await press('practice-back'); await press('pattern-edit'); await press('pattern-decision-confirmed'); await press('pattern-save');
+    const before = persisted(); storage.setItem.mockClear();
+    await press('practice-open');
+    expect(node('record-open').props.disabled).toBe(false); expect(nodes('record-unavailable')).toHaveLength(0);
+    await act(async () => { blockedHandler(); }); expect(nodes('record-occurred-yes')).toHaveLength(0);
+    await press('record-open'); await press('record-occurred-no'); await press('record-save');
+    expect(state(a).records).toHaveLength(state(a, before).records.length + 1);
+    expect(state(a).practice).toEqual(state(a, before).practice);
+    expect(persisted().activePracticePatternId).toBe(a); expect(state(b)).toEqual(state(b, before));
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
     ['confirmed', '符合我的体验', '已确认'],
     ['rejected', '不符合', '不符合'],
     ['uncertain', '还不确定', '暂不确定'],
