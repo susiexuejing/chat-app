@@ -529,8 +529,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     const processSseLine = (rawLine: string): void => {
       if (!activeDevTurn(session)) return;
       const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6);
+      // Negotiated DEV accepts SSE's optional single space after the data colon.
+      // Keep ordinary/legacy parsing unchanged; never trim or rewrite the value.
+      if (line.startsWith('data: ') || (session.devReplyContract && line.startsWith('data:'))) {
+        const data = line.slice(line.startsWith('data: ') ? 6 : 5);
         if (session.devReplyContract && providerCompleted && data.trim()) providerTruncated = true;
         if (data === '[DONE]') {
           providerCompleted = true;

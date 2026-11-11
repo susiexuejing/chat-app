@@ -26,6 +26,115 @@ const end = (h, prior) => h.request('POST', '/api/v1/chat/dev-journey/end', {
   input: { requestMode: MODE, requestId: prior.req.body.requestId },
 });
 
+// A data field's optional U+0020 separator must not change reply or refusal
+// semantics. This is the existing one-JSON-value-per-line provider dialect,
+// not a replacement with a general multiline EventSource parser.
+const compactFrame = (value, space = '', eol = '\n') => `data:${space}${JSON.stringify(value)}${eol}${eol}`;
+const compactContent = (text = output(), space = '', eol = '\n') => compactFrame({ choices: [{ delta: { content: text } }] }, space, eol);
+const compactDone = (space = '', eol = '\n') => `data:${space}[DONE]${eol}${eol}`;
+function providerWire(wire, singleByteChunks = false) {
+  const bytes = new TextEncoder().encode(wire);
+  const chunks = singleByteChunks ? [...bytes].map(byte => Uint8Array.of(byte)) : [bytes];
+  let index = 0;
+  return { ok: true, status: 200, body: { getReader: () => ({ read: async () =>
+    index < chunks.length ? { done: false, value: chunks[index++] } : { done: true }, cancel: async () => {} }) } };
+}
+async function settleWire(h, wire, singleByteChunks = false) {
+  const pending = deferred();
+  const instance = await setup({ provider: () => pending.promise, ...h });
+  const first = await start(instance);
+  const open = await instance.request('GET', STREAM, { query: { sessionId: first.res.body.sessionId } });
+  pending.resolve(providerWire(wire, singleByteChunks));
+  // The byte-split transport deliberately requires more than the harness's
+  // default microtask drain, without advancing any application deadline.
+  for (let i = 0; i < 20; i++) await settle();
+  instance.tick(100); await settle();
+  return { h: instance, first, open };
+}
+for (const eol of ['\n', '\r\n']) for (const singleByteChunks of [false, true]) {
+  test(`negotiated data without separator space preserves reply: ${JSON.stringify(eol)}, byteChunks=${singleByteChunks}`, async () => {
+    const { h, first, open } = await settleWire({}, compactContent(output(), '', eol) + compactDone('', eol), singleByteChunks);
+    assert.equal(open.events().at(-1).eventType, 'turn.completed');
+    assert.equal(open.events().at(-1).payload.practiceReply.reply, answer);
+    assert.equal(open.events().at(-1).payload.practiceReply.practiceCandidate, null);
+    assert.equal(h.providerRequests.length, 1);
+    assert.deepEqual(h.identityCalls(), []);
+    const replay = await retry(h, first); const replayStream = await stream(h, replay);
+    assert.equal(replayStream.events().at(-1).payload.practiceReply.reply, answer);
+    assert.equal(h.providerRequests.length, 1, 'completed replay never generates again');
+  });
+}
+test('mixed separator styles, comments and split content preserve exact text', async () => {
+  const raw = output(); const middle = Math.floor(raw.length / 2);
+  const wire = ': keepalive\n\n' + compactContent(raw.slice(0, middle)) + compactContent(raw.slice(middle), ' ') + compactDone();
+  const { h, open } = await settleWire({}, wire);
+  assert.equal(open.events().at(-1).payload.practiceReply.reply, answer);
+  assert.equal(h.providerRequests.length, 1);
+});
+for (const metadata of [
+  { choices: [{ delta: {}, finish_reason: 'content_filter' }] },
+  { choices: [{ delta: { refusal: 'synthetic policy refusal' } }] },
+  { choices: [{ message: { refusal: 'synthetic policy refusal' } }] },
+  { refusal: 'synthetic policy refusal', choices: [] },
+  { error: { code: 'synthetic_policy_error' } },
+  { output: { error: { code: 'synthetic_error' }, choices: [] } },
+  { code: 'DataInspectionFailed', message: 'synthetic error' },
+  { output: { code: 'UnexpectedNativeFailure', message: 'synthetic error' } },
+]) test('compact structured refusal/error is terminal and cannot be retried', async () => {
+  const { h, first, open } = await settleWire({}, compactContent() + compactFrame(metadata) + compactDone(), true);
+  const last = open.events().at(-1);
+  assert.equal(last.eventType, 'error'); assert.equal(last.payload.recoverable, false);
+  assert.equal(open.events().some(e => e.eventType === 'deep.delta' || e.eventType === 'turn.completed'), false);
+  assert.equal((await retry(h, first)).res.statusCode, 404);
+  assert.equal(h.providerRequests.length, 1);
+});
+for (const [name, wire] of [
+  ['missing terminal', compactContent()],
+  ['duplicate terminal', compactContent() + compactDone() + compactDone()],
+  ['content after terminal', compactDone() + compactContent()],
+  ['malformed frame', 'data:{invalid}\n\n' + compactContent() + compactDone()],
+  ['unterminated terminal', compactContent() + 'data:[DONE]'],
+  ['unterminated tail after terminal', compactContent() + compactDone() + 'data:{'],
+  ['two spaces before terminal retain the second space', compactContent() + compactDone('  ')],
+  ['tab before terminal is not separator space', compactContent() + compactDone('\t')],
+  ['wrong field name', compactContent().replace('data:', 'database:') + compactDone()],
+  ['field name is case sensitive', compactContent().replace('data:', 'Data:') + compactDone()],
+  ['leading field whitespace', ' ' + compactContent() + compactDone()],
+  ['non-data metadata remains unsupported', 'event: message\n' + compactContent() + compactDone()],
+  ['multiline split JSON remains fail-closed', 'data:{"choices":\ndata:[{"delta":{"content":' + JSON.stringify(output()) + '}}]}\n\n' + compactDone()],
+  ['raw CR-only lines remain unsupported', compactContent(output(), '', '\r') + compactDone('', '\r')],
+]) test(`compact framing keeps strict failure: ${name}`, async () => {
+  const { h, open } = await settleWire({}, wire);
+  assert.equal(open.events().at(-1).eventType, 'error');
+  assert.equal(open.events().some(e => e.eventType === 'deep.delta' || e.eventType === 'turn.completed'), false);
+  assert.equal(h.providerRequests.length, 1);
+});
+test('no-space framing still applies existing fact validation', async () => {
+  const { h, open } = await settleWire({}, compactContent(output('你现在很焦虑。')) + compactDone());
+  assert.equal(open.events().at(-1).eventType, 'error');
+  assert.equal(open.events().at(-1).payload.recoverable, true);
+  assert.equal(open.events().some(e => e.eventType === 'deep.delta'), false);
+  assert.equal(h.providerRequests.length, 1);
+});
+test('ending while compact provider response is pending suppresses late completion', async () => {
+  const pending = deferred(); const h = await setup({ provider: () => pending.promise });
+  const first = await start(h); await end(h, first);
+  pending.resolve(providerWire(compactContent() + compactDone()));
+  await settle(); const open = await stream(h, first);
+  assert.equal(open.res.statusCode, 404);
+  assert.equal(h.sessions.some(session => session.devPracticeReply), false);
+  assert.equal(h.providerRequests.length, 1);
+});
+test('unnegotiated DEV retains its original data-space-only parser', async () => {
+  const h = await setup({ provider: async () => providerWire(compactContent(answer) + compactDone()) });
+  const first = await start(h, body({ message: input }), { accept: '', retryContract: undefined });
+  assert.equal(first.res.body.devReplyContract, undefined);
+  const open = await stream(h, first);
+  assert.equal(open.events().some(event => event.eventType === 'deep.delta'), false);
+  assert.equal(h.sessions.some(session => session.devPracticeReply), false);
+  assert.equal(h.providerRequests.length, 1);
+});
+
 test('validator fallback is recoverable before SSE, never reply or accepted context; retry preserves prior pairs exactly', async () => {
   let attempt = 0;
   const h = await setup({ provider: async () => providerResponse({ text: output(++attempt === 2 ? '你现在很焦虑。' : answer) }) });
