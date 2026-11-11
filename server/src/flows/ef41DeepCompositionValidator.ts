@@ -101,9 +101,23 @@ function isDevHistoryAccessDenial(text: string, input?: Ef41DeepCompositionInput
   return !(match.groups?.scope && input.sameSessionUserMessages?.length);
 }
 
+// This proves only what the current message says, never that a reported event
+// happened. Quote the entire current message: no substring, pronoun rewrite,
+// older-context match or appended interpretation can qualify. Keep all other
+// fact/action/length gates. Ambiguous quotation boundaries fail closed.
+function isDevCurrentMessageQuotation(text: string, input?: Ef41DeepCompositionInput): boolean {
+  if (!input?.devPrimaryResponse) return false;
+  const message = input.userMessage;
+  if (!message || message !== message.trim()
+    || /[\p{Cc}\p{Cf}\p{Pi}\p{Pf}\u2028\u2029"'`「」『』《》〈〉]/u.test(message)) return false;
+  const quotation = `你这条消息写的是：“${message}”`;
+  return text === quotation || text === `${quotation}。`;
+}
+
 function hasFirstTwoRoundsFactViolation(text: string, userMessage: string, input?: Ef41DeepCompositionInput): boolean {
   const hasHistoryClaim = HISTORY_CLAIM_PATTERN.test(text)
-    && !isDevHistoryAccessDenial(text, input);
+    && !isDevHistoryAccessDenial(text, input)
+    && !isDevCurrentMessageQuotation(text, input);
   return ASSISTANT_LIFE_PATTERN.test(text)
     || hasHistoryClaim
     || hasUnsupportedInferredFact(text, userMessage);
