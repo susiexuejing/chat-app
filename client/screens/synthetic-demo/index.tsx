@@ -284,7 +284,7 @@ export default function SyntheticDemoScreen() {
   function startRecord() {
     if (!currentView() || detail.status !== 'ready' || !snapshot?.session || !selectedPatternId) return;
     const practice = detail.data.practice;
-    if (!practice || practice.paused || snapshot.activePracticePatternId !== selectedPatternId) return;
+    if (detail.data.pattern.decision !== 'confirmed' || !practice || practice.paused || snapshot.activePracticePatternId !== selectedPatternId) return;
     navigate('checkin', selectedPatternId);
     recordSequence.current += 1;
     changeDraft({ kind: 'record', accountId: snapshot.session, patternId: selectedPatternId, occurredChosen: false, version: practice.version,
@@ -518,7 +518,8 @@ export default function SyntheticDemoScreen() {
         {practice?.candidateOrigin && <Text testID="practice-suggestion-source" className="text-sm text-stone-600">来源：AI 建议 · 经你编辑或核对后明确保存</Text>}
         <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已确认 · 进行中'}</Text>
         <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green onPress={() => { if (currentView()) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
-        {practice && <><Button testID="record-open" title="记录这一次" green disabled={practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
+        {practice && <>{pattern.decision !== 'confirmed' && <Text testID="record-unavailable" className="text-sm text-stone-600">这条模式目前是「{decisionLabels[pattern.decision]}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。</Text>}
+          <Button testID="record-open" title="记录这一次" green disabled={pattern.decision !== 'confirmed' || practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
           {!practice.paused ? <Button testID="practice-pause" title="暂停练习" secondary onPress={() => { if (currentView()) { changeDraft(null); write(repo => repo.pausePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已暂停。'); } }} />
             : <><Text className="text-sm text-stone-600">同一账户最多开启一个练习。开启这一个不会自动暂停或更改其他模式。</Text>
               {snapshot.activePracticePatternId && snapshot.activePracticePatternId !== pattern.patternId && <Text testID="practice-active-conflict" className="text-sm text-orange-800">另一个模式的练习正在进行。请返回列表，主动暂停它后再开启这里的练习。</Text>}
