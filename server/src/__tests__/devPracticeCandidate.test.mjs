@@ -145,3 +145,43 @@ for (const header of [`text/plain; dev-reply-contract=${version}`, `${accept}; d
     assert.ok((await finish(h, r)).events().some(e => e.eventType === 'turn.completed'));
   });
 }
+
+// Whitespace canonicalization is not a semantic rewrite. The negotiated retry
+// parser already admits exactly trim(); preserve an eligible draft on that path.
+for (const pad of [' ', '\n', '\r\n\t', '\u3000', '\u00a0']) {
+  test(`strict practice handoff retains eligible candidate after boundary trim ${JSON.stringify(pad)}`, () => {
+    const v = output(); v.reply = pad + reply + pad;
+    const result = parse(v, { rejectRewrittenReply: true, validateReply: text => ({ text: text.trim(), rejected: false }) });
+    assert.equal(result.reply, reply);
+    assert.equal(result.practiceCandidate.thenAction, v.practiceCandidate.thenAction);
+  });
+}
+test('strict trim does not rescue negative eligibility or an actual validator rewrite', () => {
+  for (const field of ['naturalClosing', 'smallChoiceFits', 'currentUserRequest', 'continuingExpression', 'correctionOrRefusalOrExit', 'topicChanged', 'permissionQuote', 'anchorQuote']) {
+    const v = output(); v.reply = ' ' + reply + ' ';
+    v.practiceCandidate.evidence[field] = typeof v.practiceCandidate.evidence[field] === 'boolean' ? !v.practiceCandidate.evidence[field] : 'not-current-user';
+    assert.equal(parse(v, { rejectRewrittenReply: true, validateReply: text => ({ text: text.trim(), rejected: false }) }).practiceCandidate, null);
+  }
+  assert.equal(parse({ ...output(), reply: ' ' + reply + ' ' }, {
+    rejectRewrittenReply: true, validateReply: text => ({ text: text.trim(), rejected: true }),
+  }), null);
+  assert.equal(parse({ ...output(), reply: ' ' + reply + ' ' }, {
+    rejectRewrittenReply: true, validateReply: () => ({ text: '我听到了。', rejected: false }),
+  }), null);
+});
+test('legacy non-strict trim continues suppressing candidate, no normalization scope expansion', () => {
+  const v = output(); v.reply = ' ' + reply + ' ';
+  assert.equal(parse(v, { validateReply: text => text.trim() }).practiceCandidate, null);
+});
+for (const pad of [' ', '\n\t', '\u3000']) test(`actual strict route preserves trim-only draft with real validator ${JSON.stringify(pad)}`, async () => {
+  const v = output(); v.reply = pad + reply + pad;
+  const h = await harness({ provider: async () => providerResponse({ text: JSON.stringify(v) }), realValidator: true, realStreamContract: true });
+  const r = await h.request('POST', START, { input: body({ message }), accept, retryContract: 'dev-manual-retry-v1' });
+  await settle();
+  const stream = await finish(h, r);
+  const done = stream.events().find(e => e.eventType === 'turn.completed');
+  assert.ok(done);
+  assert.equal(done.payload.practiceReply.reply, reply);
+  assert.equal(done.payload.practiceReply.practiceCandidate.thenAction, v.practiceCandidate.thenAction);
+  assert.equal(h.providerRequests.length, 1);
+});
