@@ -80,7 +80,10 @@ export function parseDevPracticeReply(raw: string, options: {
   if (!text(reply, options.replyMaxChars)) return null;
   // A fact/safety rewrite means the model contract did not pass unchanged.
   // Keep the existing safe reply, but do not expose a suggestion from that output.
-  if (reply !== value.reply) candidate = null;
+  // Strict negotiated recovery already accepts exactly the validator's trim()
+  // above. Use that same comparison here; boundary whitespace alone must not
+  // silently discard an otherwise eligible suggestion. Legacy behavior stays.
+  if (reply !== (options.rejectRewrittenReply ? value.reply.trim() : value.reply)) candidate = null;
   return Object.freeze({ contract: DEV_PRACTICE_CONTRACT, reply, practiceCandidate: candidate,
     source: Object.freeze({ ...options.source }) });
 }
