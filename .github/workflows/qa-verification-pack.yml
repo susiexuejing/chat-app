@@ -14,6 +14,7 @@ on:
         type: choice
         options:
           - ef110-code-verification
+          - ef75-identity-isolation
 
 permissions:
   contents: read
@@ -60,6 +61,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run EF-110 code verification pack
+        if: ${{ inputs.pack == 'ef110-code-verification' }}
         working-directory: server
         env:
           NODE_OPTIONS: --experimental-vm-modules
@@ -69,12 +71,33 @@ jobs:
           src/__tests__/ef110-security-sanitization.test.ts
           src/__tests__/ef102-stream-events.test.ts
 
+      - name: Run EF-75 identity and isolation verification pack
+        if: ${{ inputs.pack == 'ef75-identity-isolation' }}
+        working-directory: client
+        run: >-
+          ./node_modules/.bin/jest --runInBand --runTestsByPath
+          screens/chat/__tests__/ef75-native-secure-session.test.ts
+          screens/chat/__tests__/ef75-ownership-production-path.test.tsx
+          screens/chat/__tests__/ef75-web-cookie-session.test.ts
+
+      - name: Run EF-75 server ownership verification pack
+        if: ${{ inputs.pack == 'ef75-identity-isolation' }}
+        working-directory: server
+        env:
+          NODE_OPTIONS: --experimental-vm-modules
+        run: >-
+          ./node_modules/.bin/jest --no-cache --runInBand --runTestsByPath
+          src/__tests__/ef75-anonymous-session.test.ts
+          src/__tests__/ef75-chat-ownership.test.ts
+          src/__tests__/ef75-conversation-ownership.test.ts
+          src/__tests__/ef75-web-session-security.test.ts
+
       - name: Write verification evidence
         env:
           AUTHORIZED_SHA: ${{ inputs.authorized_sha }}
           PACK: ${{ inputs.pack }}
         run: |
-          node -e "const fs=require('fs');const v={schemaVersion:1,pack:process.env.PACK,authorizedSha:process.env.AUTHORIZED_SHA,checkedOutSha:fs.readFileSync('qa-authorized-sha.txt','utf8').trim(),lockfile:'pnpm-lock.yaml',packageManager:require('./package.json').packageManager,suites:['ef110-index-runtime-sanitization','ef110-security-sanitization','ef102-stream-events'],secretsRequired:'none',runtimeE2E:'not-executed'};if(v.authorizedSha!==v.checkedOutSha)throw new Error('identity mismatch');fs.writeFileSync('qa-verification-evidence.json',JSON.stringify(v,null,2)+'\\n')"
+          node -e "const fs=require('fs');const packs={\"ef110-code-verification\":[\"ef110-index-runtime-sanitization\",\"ef110-security-sanitization\",\"ef102-stream-events\"],\"ef75-identity-isolation\":[\"ef75-native-secure-session\",\"ef75-ownership-production-path\",\"ef75-web-cookie-session\",\"ef75-anonymous-session\",\"ef75-chat-ownership\",\"ef75-conversation-ownership\",\"ef75-web-session-security\"]};const v={schemaVersion:1,pack:process.env.PACK,authorizedSha:process.env.AUTHORIZED_SHA,checkedOutSha:fs.readFileSync('qa-authorized-sha.txt','utf8').trim(),lockfile:'pnpm-lock.yaml',packageManager:require('./package.json').packageManager,suites:packs[process.env.PACK],secretsRequired:'none',runtimeE2E:'not-executed'};if(!v.suites||v.authorizedSha!==v.checkedOutSha)throw new Error('invalid verification evidence');fs.writeFileSync('qa-verification-evidence.json',JSON.stringify(v,null,2)+'\\n')"
 
       - name: Upload QA verification evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
