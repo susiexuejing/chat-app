@@ -319,10 +319,17 @@ export default function SyntheticDemoScreen() {
     if (lastPracticeReceipt.current === identity) return;
     try {
       const fresh = repository.current.snapshot();
-      if (fresh.session !== snapshot.session || fresh.revision !== snapshot.revision) return;
+      if (fresh.session !== snapshot.session) return;
+      if (fresh.revision !== snapshot.revision) {
+        setNotice({ kind: 'error', text: '本地数据已变化，本轮 AI 练习建议未显示，也未保存。请核对本地模式后再继续。' });
+        return;
+      }
       lastPracticeReceipt.current = identity;
       practiceCandidateRef.current = result; setPracticeCandidate(result);
-    } catch { invalidatePractice(); }
+    } catch {
+      invalidatePractice();
+      setNotice({ kind: 'error', text: '未能核验本地模式，本轮 AI 练习建议未显示，也未保存。请检查本地存储后再继续。' });
+    }
   }
   function renderPracticeCandidate() {
     if (!practiceCandidate || !repository.current || !snapshot?.session) return null;
