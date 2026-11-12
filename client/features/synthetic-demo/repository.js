@@ -47,6 +47,8 @@ function validPayload(x) {
       : x.action === 'none' ? x.feeling === null
         : ['agreed', 'other'].includes(x.action) && ['helped', 'unchanged', 'worse', 'not_recorded'].includes(x.feeling));
 }
+// Optional only for pre-existing records; never infer missing history from current practice.
+const validPracticeSnapshot = x => keys(x,['ifCue','thenAction']) && text(x.ifCue,200) && text(x.thenAction,200);
 function validateState(s, accountId, legacy = false) {
   requireThat(keys(s,['pattern','practice','records','path']));
   const p = s.pattern, q = s.practice, id = p?.patternId;
@@ -57,7 +59,7 @@ function validateState(s, accountId, legacy = false) {
   requireThat(new Set(p.clues.map(c=>c.clueId)).size === p.clues.length);
   requireThat(q === null || (owned(q,id) && text(q.practiceId,150) && (!legacy || q.practiceId === PRACTICE_ID) && (q.demoSource === undefined || ['synthetic','dev-api-test'].includes(q.demoSource)) && (q.origin === undefined || (q.demoSource === 'dev-api-test' && validOrigin(q.origin))) && (q.candidateOrigin === undefined || validCandidateOrigin(q.candidateOrigin)) && text(q.name,80) && text(q.ifCue,200) && text(q.thenAction,200) && q.confirmed === true && typeof q.paused === 'boolean' && version(q.version)));
   requireThat(Array.isArray(s.records) && Array.isArray(s.path) && (!s.records.length || !!q));
-  requireThat(s.records.every(r => marked(r,id) && r.practiceId === q.practiceId && version(r.practiceVersion) && r.practiceVersion <= q.version && text(r.recordId,150) && text(r.operationId,100) && stamp(r.createdAt) && validPayload(r)));
+  requireThat(s.records.every(r => marked(r,id) && r.practiceId === q.practiceId && version(r.practiceVersion) && r.practiceVersion <= q.version && text(r.recordId,150) && text(r.operationId,100) && stamp(r.createdAt) && validPayload(r) && (r.practiceSnapshot === undefined || validPracticeSnapshot(r.practiceSnapshot))));
   requireThat(new Set(s.records.map(r=>r.recordId)).size === s.records.length && new Set(s.records.map(r=>r.operationId)).size === s.records.length);
   requireThat(s.path.every(e => marked(e,id) && text(e.entryId,150) && ['event','correction','practice','exception'].includes(e.type) && text(e.fact,2000) && text(e.source,200) && e.userConfirmed === true && typeof e.linked === 'boolean' && version(e.version) && stamp(e.createdAt) && (e.explanation === undefined || text(e.explanation,1000,true)) && (e.feeling === undefined || text(e.feeling,1000,true)) && (e.type !== 'correction' || (text(e.oldUnderstanding,2000,true) && text(e.currentUnderstanding,2000,true))) && (e.type !== 'practice' || s.records.some(r=>r.recordId === e.recordId && e.entryId === r.recordId))));
   requireThat(new Set(s.path.map(e=>e.entryId)).size === s.path.length);
@@ -242,7 +244,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       requireThat(s.pattern.decision === 'confirmed' && s.practice?.confirmed && !s.practice.paused && d.activePracticePatternId === patternId,'请先确认模式并开始练习；未开始或暂停的练习不能记录。');
       matches(s.practice.version,expectedPracticeVersion);
       const at = time(), recordId = 'record-'+(s.records.length+1), practiceSource = s.practice.demoSource ?? 'synthetic';
-      s.records.push({schemaVersion:1,demoSource:practiceSource,accountId:ACCOUNT_ID,patternId,practiceId:s.practice.practiceId,practiceVersion:expectedPracticeVersion,recordId,operationId,createdAt:at,...normalized});
+      s.records.push({schemaVersion:1,demoSource:practiceSource,accountId:ACCOUNT_ID,patternId,practiceId:s.practice.practiceId,practiceVersion:expectedPracticeVersion,practiceSnapshot:{ifCue:s.practice.ifCue,thenAction:s.practice.thenAction},recordId,operationId,createdAt:at,...normalized});
       entry(s,'practice',recordId,{demoSource:practiceSource,origin:practiceSource === 'dev-api-test' ? s.practice.origin : undefined,fact:'用户明确保存的练习记录。',source:'用户明确保存的练习记录',recordId},at);
       return write(d);
     },
