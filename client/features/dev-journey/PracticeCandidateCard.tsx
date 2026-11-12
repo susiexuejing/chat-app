@@ -4,7 +4,7 @@ import type { DemoRepository, PatternState, Snapshot } from '@/features/syntheti
 import type { DevPracticeCandidate } from '@/features/dev-journey/realRequestController';
 import { createPracticeCandidateDraftController, type PracticeCandidateScope, type PracticeCandidateDraft } from '@/features/dev-journey/practiceCandidateDraft';
 
-export interface PracticeCandidateCardHandle { invalidate(): void }
+export interface PracticeCandidateCardHandle { invalidate(): void; refreshTargets(snapshot: Snapshot): void }
 type Editor = { content: { ifCue: string; thenAction: string }; target: PatternState | null; draft: PracticeCandidateDraft | null; confirmed: boolean };
 /** Local-only explicit target selection. This component never sends patterns or parses chat text. */
 export const PracticeCandidateCard = forwardRef<PracticeCandidateCardHandle, {
@@ -19,7 +19,14 @@ export const PracticeCandidateCard = forwardRef<PracticeCandidateCardHandle, {
   const [choices, setChoices] = useState<PatternState[]>([]);
   const [boundary] = useState(() => createPracticeCandidateDraftController({ repository, getCurrentScope: () => scope.current }));
   function invalidate() { alive.current = false; scope.current = null; boundary.invalidate(); }
-  useImperativeHandle(ref, () => ({ invalidate }));
+  function refreshTargets(snapshot: Snapshot) {
+    if (!alive.current) return;
+    boundary.invalidate(); scope.current = null;
+    change({ ...editorRef.current, target: null, draft: null, confirmed: false });
+    setChoices(snapshot.session === accountId
+      ? snapshot.patterns.filter(item => item.pattern.accountId === accountId && item.pattern.decision === 'confirmed') : []);
+  }
+  useImperativeHandle(ref, () => ({ invalidate, refreshTargets }));
   useLayoutEffect(() => {
     alive.current = true;
     try { setChoices(repository.snapshot().patterns.filter(item => item.pattern.accountId === accountId && item.pattern.decision === 'confirmed')); }
