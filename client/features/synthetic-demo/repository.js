@@ -91,6 +91,11 @@ function validate(d) {
   const active = d.patterns.filter(s=>s.practice && !s.practice.paused);
   requireThat(active.length <= 1 && d.activePracticePatternId === (active[0]?.pattern.patternId ?? null));
 }
+// Target eligibility only. Save, activation and recording each still require an explicit operation.
+function canSavePracticeSuggestionTarget(pattern) {
+  return !!pattern && (pattern.decision === 'confirmed' || (pattern.decision === 'candidate'
+    && pattern.demoSource === 'dev-api-test' && validOrigin(pattern.origin)));
+}
 function createDemoRepository(storage, { now = () => Date.now(), random = () => Math.random() } = {}) {
   let challenge = null, lastCode = null, observedLegacy, seenV2 = false;
   const bases = new WeakMap();
@@ -132,11 +137,12 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
   }
   function matches(actual,expected) { requireThat(Number.isSafeInteger(expected) && actual === expected,'已存版本已变化，请重新读取并核对草稿后重试。'); }
   function time(previous) { return new Date(Math.max(now(),previous ? Date.parse(previous)+1 : 0)).toISOString(); }
+  // userConfirmed records the explicit save of this path event, not endorsement of its inference.
   function entry(s,type,entryId,extra,createdAt) {
     s.path.push({schemaVersion:1,demoSource:s.pattern.demoSource,...(s.pattern.origin ? {origin:clone(s.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId:s.pattern.patternId,entryId,type,createdAt,version:1,linked:true,userConfirmed:true,...extra});
   }
   function correction(d,s,old,next,createdAt) {
-    if (old !== next) entry(s,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source:'用户确认修改',oldUnderstanding:old,currentUnderstanding:next},createdAt);
+    if (old !== next) entry(s,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source:'用户保存修改',oldUnderstanding:old,currentUnderstanding:next},createdAt);
   }
   function newPattern(d,value,demoSource,origin,at) {
     // Revision-based IDs are unique even with a fixed clock/random source.
@@ -149,6 +155,35 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
     }
     const s = {pattern:{schemaVersion:1,demoSource,...(origin ? {origin} : {}),accountId:ACCOUNT_ID,patternId,name:'我想保留的理解',currentUnderstanding:value,decision:'confirmed',clues:[],createdAt:at,updatedAt:at,version:1},practice:null,records:[],path:[]};
     d.patterns.push(s); return s;
+  }
+  // Saving selected text and judging its fit are distinct operations.
+  function saveDevUnderstanding(accountId,payload,expectedVersion,patternId,confirm) {
+      requireThat(keys(payload,['text','input','requestId','relation']) && ['create-new','correct-current'].includes(payload.relation) && text(payload.text,2000) && validOrigin({input:payload.input,requestId:payload.requestId}));
+      const create = payload.relation === 'create-new';
+      requireThat(create ? patternId === undefined && expectedVersion === 0 : text(patternId,150),'请明确选择保存为新模式，或修正指定的已有模式。');
+      const value = payload.text.trim(), origin = {input:payload.input.trim(),requestId:payload.requestId};
+      const d = authorized(accountId), s = create ? null : selected(d,patternId);
+      // Same completed turn is idempotent account-wide, never duplicated into
+      // another pattern or reused to silently associate a different topic.
+      const previousTurn = d.patterns.find(item=>item.pattern.origin?.requestId === origin.requestId);
+      if (previousTurn) {
+        requireThat((create || previousTurn === s) && previousTurn.pattern.origin.input === origin.input && previousTurn.pattern.currentUnderstanding === value,'这次请求标识已用于不同内容或另一条模式，请重新核对。');
+        return view(d);
+      }
+      requireThat(!d.patterns.some(item=>item.path.some(e=>e.origin?.requestId === origin.requestId)),'这次请求已经保存，请查看现有路径。');
+      matches(s?.pattern.version ?? 0,expectedVersion);
+      const at = time(s?.pattern.updatedAt), source = confirm ? 'DEV 服务端 Deep 回复（可能参考本次会话前文；上游供应商/模型未核验），用户编辑确认；仅保留选中输入与理解' : 'DEV 服务端 Deep 回复（可能参考本次会话前文；上游供应商/模型未核验），用户保存发现；不新增体验判断，仅保留选中输入与文字';
+      if (s) {
+        const previous = s.pattern.currentUnderstanding;
+        Object.assign(s.pattern,{demoSource:'dev-api-test',origin,currentUnderstanding:value,decision:confirm ? 'confirmed' : ['rejected','uncertain'].includes(s.pattern.decision) ? s.pattern.decision : previous !== value ? 'candidate' : s.pattern.decision,updatedAt:at,version:s.pattern.version+1});
+        if (previous !== value) entry(s,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source,oldUnderstanding:previous,currentUnderstanding:value},at);
+        entry(s,'event','dev-input-'+(d.revision+1),{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
+      } else {
+        const created = newPattern(d,value,'dev-api-test',origin,at);
+        if (!confirm) created.pattern.decision = 'candidate';
+        entry(created,'event','evt-1',{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
+      }
+      return write(d);
   }
   const api = {
     snapshot() { return view(read()); },
@@ -176,33 +211,8 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       entry(s,'event','evt-1',{fact:'用户明确保存了一条合成理解。',source:'用户确认保存'},at);
       return write(d);
     },
-    confirmDevUnderstanding(accountId,payload,expectedVersion,patternId) {
-      requireThat(keys(payload,['text','input','requestId','relation']) && ['create-new','correct-current'].includes(payload.relation) && text(payload.text,2000) && validOrigin({input:payload.input,requestId:payload.requestId}));
-      const create = payload.relation === 'create-new';
-      requireThat(create ? patternId === undefined && expectedVersion === 0 : text(patternId,150),'请明确选择保存为新模式，或修正指定的已有模式。');
-      const value = payload.text.trim(), origin = {input:payload.input.trim(),requestId:payload.requestId};
-      const d = authorized(accountId), s = create ? null : selected(d,patternId);
-      // Same completed turn is idempotent account-wide, never duplicated into
-      // another pattern or reused to silently associate a different topic.
-      const previousTurn = d.patterns.find(item=>item.pattern.origin?.requestId === origin.requestId);
-      if (previousTurn) {
-        requireThat((create || previousTurn === s) && previousTurn.pattern.origin.input === origin.input && previousTurn.pattern.currentUnderstanding === value,'这次请求标识已用于不同内容或另一条模式，请重新核对。');
-        return view(d);
-      }
-      requireThat(!d.patterns.some(item=>item.path.some(e=>e.origin?.requestId === origin.requestId)),'这次请求已经保存，请查看现有路径。');
-      matches(s?.pattern.version ?? 0,expectedVersion);
-      const at = time(s?.pattern.updatedAt), source = 'DEV 服务端 Deep 回复（可能参考本次会话前文；上游供应商/模型未核验），用户编辑确认；仅保留选中输入与理解';
-      if (s) {
-        const previous = s.pattern.currentUnderstanding;
-        Object.assign(s.pattern,{demoSource:'dev-api-test',origin,currentUnderstanding:value,decision:'confirmed',updatedAt:at,version:s.pattern.version+1});
-        if (previous !== value) entry(s,'correction','correction-'+(d.revision+1),{fact:'用户明确保存的理解修正。',source,oldUnderstanding:previous,currentUnderstanding:value},at);
-        entry(s,'event','dev-input-'+(d.revision+1),{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
-      } else {
-        const created = newPattern(d,value,'dev-api-test',origin,at);
-        entry(created,'event','evt-1',{fact:'用户明确保存的 DEV 测试输入：'+origin.input,source},at);
-      }
-      return write(d);
-    },
+    confirmDevUnderstanding(accountId,payload,expectedVersion,patternId) { return saveDevUnderstanding(accountId,payload,expectedVersion,patternId,true); },
+    saveDevDiscovery(accountId,payload,expectedVersion,patternId) { return saveDevUnderstanding(accountId,payload,expectedVersion,patternId,false); },
     updatePattern(accountId,patternId,patch,expectedVersion) {
       requireThat(keys(patch,['name','currentUnderstanding','decision']) && Object.keys(patch).length > 0);
       if ('name' in patch) requireThat(text(patch.name,80));
@@ -210,12 +220,15 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
       if ('decision' in patch) requireThat(decisions.includes(patch.decision));
       const d = authorized(accountId), s = selected(d,patternId); matches(s.pattern.version,expectedVersion);
       const at = time(s.pattern.updatedAt), next = {...s.pattern,...patch,version:expectedVersion+1,updatedAt:at};
+      // Text edits are not an endorsement. Explicit decision is bound to caller's final text.
+      if (!('decision' in patch) && s.pattern.decision === 'confirmed'
+        && next.currentUnderstanding.trim() !== s.pattern.currentUnderstanding.trim()) next.decision = 'candidate';
       correction(d,s,s.pattern.currentUnderstanding,next.currentUnderstanding,at); s.pattern = next; return write(d);
     },
     savePractice(accountId,patternId,patch,expectedVersion) {
       requireThat(keys(patch,['ifCue','thenAction','candidateOrigin']) && (patch.candidateOrigin === undefined || validCandidateOrigin(patch.candidateOrigin)) && text(patch.ifCue,200) && text(patch.thenAction,200));
       const d = authorized(accountId), s = selected(d,patternId);
-      requireThat(s.pattern.decision === 'confirmed','请先确认这条模式。'); matches(s.practice?.version ?? 0,expectedVersion);
+      requireThat(canSavePracticeSuggestionTarget(s.pattern), '请先选择已保存的发现或已确认模式；不符合、还不确定的内容不能保存练习。'); matches(s.practice?.version ?? 0,expectedVersion);
       s.practice = {...(patch.candidateOrigin ? {candidateOrigin:clone(patch.candidateOrigin)} : {}),demoSource:s.pattern.demoSource,...(s.pattern.origin ? {origin:clone(s.pattern.origin)} : {}),accountId:ACCOUNT_ID,patternId,practiceId:s.practice?.practiceId ?? 'practice-'+patternId,name:s.practice?.name ?? '我确认的小练习',ifCue:patch.ifCue.trim(),thenAction:patch.thenAction.trim(),confirmed:true,paused:s.practice?.paused ?? true,version:expectedVersion+1};
       return write(d);
     },
@@ -227,7 +240,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
     },
     activatePractice(accountId,patternId,expectedVersion) {
       const d = authorized(accountId), s = selected(d,patternId); requireThat(s.practice,'请先确认保存练习。'); matches(s.practice.version,expectedVersion);
-      requireThat(s.pattern.decision === 'confirmed','请先确认这条模式。');
+      requireThat(canSavePracticeSuggestionTarget(s.pattern),'请先选择已保存的发现或已确认模式；不符合、还不确定的内容不能开始练习。');
       requireThat(!d.activePracticePatternId || d.activePracticePatternId === patternId,'另一条模式的练习正在进行。请先到该模式明确暂停，再开始这个练习。');
       if (!s.practice.paused) return view(d);
       s.practice.paused = false; s.practice.version++; d.activePracticePatternId = patternId; return write(d);
@@ -241,7 +254,7 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
         requireThat(previous.practiceVersion === expectedPracticeVersion && ['occurred','action','feeling','note'].every(k=>previous[k] === normalized[k]),'这次保存标识已用于另一条记录，请重新开始记录。');
         return view(d);
       }
-      requireThat(s.pattern.decision === 'confirmed' && s.practice?.confirmed && !s.practice.paused && d.activePracticePatternId === patternId,'请先确认模式并开始练习；未开始或暂停的练习不能记录。');
+      requireThat(canSavePracticeSuggestionTarget(s.pattern) && s.practice?.confirmed && !s.practice.paused && d.activePracticePatternId === patternId,'请先选择可用的已保存发现或模式并明确开始练习；未开始或暂停的练习不能记录。');
       matches(s.practice.version,expectedPracticeVersion);
       const at = time(), recordId = 'record-'+(s.records.length+1), practiceSource = s.practice.demoSource ?? 'synthetic';
       s.records.push({schemaVersion:1,demoSource:practiceSource,accountId:ACCOUNT_ID,patternId,practiceId:s.practice.practiceId,practiceVersion:expectedPracticeVersion,practiceSnapshot:{ifCue:s.practice.ifCue,thenAction:s.practice.thenAction},recordId,operationId,createdAt:at,...normalized});
@@ -257,4 +270,4 @@ function createDemoRepository(storage, { now = () => Date.now(), random = () => 
   };
   return Object.freeze(api);
 }
-module.exports = {STORAGE_KEY,LEGACY_STORAGE_KEY,DEMO_NUMBER,CHAT_INPUT,CANDIDATE,PATTERN_ID,PRACTICE_ID,PRACTICE_TEXT,createDemoRepository};
+module.exports = {STORAGE_KEY,LEGACY_STORAGE_KEY,DEMO_NUMBER,CHAT_INPUT,CANDIDATE,PATTERN_ID,PRACTICE_ID,PRACTICE_TEXT,createDemoRepository,canSavePracticeSuggestionTarget};

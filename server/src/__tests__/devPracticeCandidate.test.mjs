@@ -30,7 +30,7 @@ test('nullable candidate is a complete ordinary reply, not a missing field', () 
   assert.equal(parse({ ...output(), practiceCandidate: null }).practiceCandidate, null);
   const absent = output(); delete absent.practiceCandidate; assert.equal(parse(absent), null);
 });
-for (const field of ['naturalClosing', 'smallChoiceFits', 'currentUserRequest', 'continuingExpression', 'correctionOrRefusalOrExit', 'topicChanged']) {
+for (const field of ['smallChoiceFits', 'currentUserRequest', 'correctionOrRefusalOrExit', 'topicChanged']) {
   test(`negative semantic evidence ${field} removes candidate, leaves reply`, () => {
     const value = output(); value.practiceCandidate.evidence[field] = !value.practiceCandidate.evidence[field];
     assert.equal(parse(value).practiceCandidate, null);
@@ -157,7 +157,7 @@ for (const pad of [' ', '\n', '\r\n\t', '\u3000', '\u00a0']) {
   });
 }
 test('strict trim does not rescue negative eligibility or an actual validator rewrite', () => {
-  for (const field of ['naturalClosing', 'smallChoiceFits', 'currentUserRequest', 'continuingExpression', 'correctionOrRefusalOrExit', 'topicChanged', 'permissionQuote', 'anchorQuote']) {
+  for (const field of ['smallChoiceFits', 'currentUserRequest', 'correctionOrRefusalOrExit', 'topicChanged', 'permissionQuote', 'anchorQuote']) {
     const v = output(); v.reply = ' ' + reply + ' ';
     v.practiceCandidate.evidence[field] = typeof v.practiceCandidate.evidence[field] === 'boolean' ? !v.practiceCandidate.evidence[field] : 'not-current-user';
     assert.equal(parse(v, { rejectRewrittenReply: true, validateReply: text => ({ text: text.trim(), rejected: false }) }).practiceCandidate, null);
@@ -185,3 +185,40 @@ for (const pad of [' ', '\n\t', '\u3000']) test(`actual strict route preserves t
   assert.equal(done.payload.practiceReply.practiceCandidate.thenAction, v.practiceCandidate.thenAction);
   assert.equal(h.providerRequests.length, 1);
 });
+
+for (const naturalClosing of [false, true]) for (const continuingExpression of [false, true]) {
+ test(`explicit request does not require closure/understanding confirmation: closing=${naturalClosing}, expressing=${continuingExpression}`, () => {
+  const value = output(); Object.assign(value.practiceCandidate.evidence, { naturalClosing, continuingExpression });
+  assert.ok(parse(value)?.practiceCandidate);
+  // Observation fields cannot override any mandatory gate or provenance check.
+  for (const [field, bad] of [['currentUserRequest', false], ['smallChoiceFits', false], ['correctionOrRefusalOrExit', true], ['topicChanged', true]]) {
+   const denied = structuredClone(value); denied.practiceCandidate.evidence[field] = bad;
+   assert.equal(parse(denied).practiceCandidate, null);
+  }
+  for (const field of ['permissionQuote', 'anchorQuote']) {
+   const denied = structuredClone(value); denied.practiceCandidate.evidence[field] = 'previous turn only';
+   assert.equal(parse(denied).practiceCandidate, null);
+  }
+ });
+}
+test('legacy observation fields remain strict booleans and required', () => {
+ for (const field of ['naturalClosing', 'continuingExpression']) {
+  const missing = output(); delete missing.practiceCandidate.evidence[field]; assert.equal(parse(missing), null);
+  const wrong = output(); wrong.practiceCandidate.evidence[field] = 'true'; assert.equal(parse(wrong), null);
+ }
+});
+test('prompt separates direct requests from invitations and explicit saving', () => {
+ const prompt = contract.buildDevPracticeReplyContract('UNCHANGED_REPLY');
+ for (const line of ['不得额外要求先确认理解', '不作为本人本轮明确请求练习的额外门槛', '主动邀请不能替代用户许可', '这些操作需要用户另行显式选择', '转述别人或台词中的请求，不是用户本轮许可', '不得为满足请求而虚填 evidence']) assert.ok(prompt.includes(line));
+});
+test('actual handler carries requested candidate before natural closing without auto-save', async () => {
+ const value=output(); value.practiceCandidate.evidence.naturalClosing=false; value.practiceCandidate.evidence.continuingExpression=true;
+ const h=await harness({provider:async()=>providerResponse({text:JSON.stringify(value)}),realValidator:true});
+ const r=await start(h); const events=(await finish(h,r)).events();
+ assert.ok(events.find(e=>e.eventType==='turn.completed').practiceReply.practiceCandidate);
+ assert.equal(h.providerRequests.length,1);
+ assert.ok(!h.identityCalls().some(x=>x.name.startsWith('conversation.')));
+});
+
+// Include full client/server request-eligibility checks in the existing CI entry point.
+import './practiceEligibilityAudit.test.mjs';

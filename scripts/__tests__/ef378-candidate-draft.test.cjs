@@ -11,6 +11,12 @@ const filename = path.resolve(__dirname, '../../client/features/dev-journey/prac
 const compiled = new Module(filename, module);
 compiled.filename = filename;
 compiled.paths = Module._nodeModulePaths(path.dirname(filename));
+// Match this production alias to the real local repository; do not stub eligibility.
+// Keep resolution scoped to this compiled module, never patch Node's global loader.
+const compiledRequire = compiled.require.bind(compiled);
+compiled.require = specifier => specifier === '@/features/synthetic-demo/repository'
+  ? require('../../client/features/synthetic-demo/repository.js')
+  : compiledRequire(specifier);
 compiled._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
 }).outputText, filename);
@@ -169,4 +175,21 @@ test('unconfirmed target cannot start and no pattern is invented', () => {
 test('no live scope means no generation, receipt, draft or save', () => {
   const f = fixture(), scope = f.scope(), draft = f.receive(); f.setScope(null);
   assert.equal(f.boundary.getDraft(), null); assert.equal(f.boundary.save(draft).status, 'stale'); assert.equal(f.boundary.begin(scope), null);
+});
+
+test('real repository eligibility accepts a saved DEV discovery without endorsing it', () => {
+  const f = fixture();
+  const saved = f.repo.saveDevDiscovery(f.accountId, { text: 'Saved but unjudged discovery', input: 'Fictional input', requestId: 'discovery-request', relation: 'create-new' }, 0);
+  const target = saved.patterns.at(-1).pattern;
+  assert.equal(target.decision, 'candidate');
+  f.setScope({ ...f.scope(), patternId: target.patternId });
+  assert.equal(f.boundary.save(f.receive()).status, 'saved');
+  const state = f.repo.getPattern(f.accountId, target.patternId);
+  assert.equal(state.pattern.decision, 'candidate'); assert.equal(state.practice.paused, true);
+});
+test('real repository eligibility does not allow an unjudged synthetic target', () => {
+  const f = fixture();
+  f.repo.updatePattern(f.accountId, f.patternId, { decision: 'candidate' }, 1);
+  const before = f.raw();
+  assert.equal(f.boundary.begin(f.scope()), null); assert.equal(f.raw(), before); assert.equal(f.saveCalls(), 0);
 });

@@ -1,3 +1,4 @@
+import { canSavePracticeSuggestionTarget } from '@/features/synthetic-demo/repository';
 import React, { forwardRef, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
 import { Pressable, Text, TextInput, View } from 'react-native';
 import type { DemoRepository, PatternState, Snapshot } from '@/features/synthetic-demo/repository';
@@ -24,12 +25,12 @@ export const PracticeCandidateCard = forwardRef<PracticeCandidateCardHandle, {
     boundary.invalidate(); scope.current = null;
     change({ ...editorRef.current, target: null, draft: null, confirmed: false });
     setChoices(snapshot.session === accountId
-      ? snapshot.patterns.filter(item => item.pattern.accountId === accountId && item.pattern.decision === 'confirmed') : []);
+      ? snapshot.patterns.filter(item => item.pattern.accountId === accountId && canSavePracticeSuggestionTarget(item.pattern)) : []);
   }
   useImperativeHandle(ref, () => ({ invalidate, refreshTargets }));
   useLayoutEffect(() => {
     alive.current = true;
-    try { setChoices(repository.snapshot().patterns.filter(item => item.pattern.accountId === accountId && item.pattern.decision === 'confirmed')); }
+    try { setChoices(repository.snapshot().patterns.filter(item => item.pattern.accountId === accountId && canSavePracticeSuggestionTarget(item.pattern))); }
     catch { setError('未能读取本地模式。建议尚未保存，可继续聊天或不保存。'); }
     return invalidate;
   }, [repository, accountId, accountSession, candidate, boundary]);
@@ -65,17 +66,17 @@ export const PracticeCandidateCard = forwardRef<PracticeCandidateCardHandle, {
   const button = (id: string, title: string, onPress: () => void, disabled = false) => <Pressable key={id} testID={id} accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled }} disabled={disabled} onPress={onPress} className="rounded-xl border border-stone-300 p-3"><Text className="text-stone-800">{title}</Text></Pressable>;
   return <View testID="practice-candidate-card" className="rounded-2xl border border-orange-200 bg-white p-4 gap-3">
     <Text className="font-semibold text-stone-900">AI 建议 · 可改写的小练习</Text>
-    <Text className="text-sm text-stone-600">这不是你的事实，也没有自动匹配模式。可以改写、拒绝或不保存。继续聊天或离开会收起未保存建议。</Text>
+    <Text className="text-sm text-stone-600">这是可选择的建议，不是已发生的事实。无需先保存理解就能查看、改写或自行选择尝试，也可以拒绝或不保存。继续聊天或离开会收起未保存建议。</Text>
     <Text className="text-stone-700">如果</Text><TextInput testID="practice-candidate-cue" accessibilityLabel="建议的触发线索" value={editor.content.ifCue} maxLength={200} onChangeText={value => edit(editor, 'ifCue', value)} className="border border-stone-300 rounded-xl p-3" />
     <Text className="text-stone-700">那么</Text><TextInput testID="practice-candidate-action" accessibilityLabel="建议的小动作" value={editor.content.thenAction} maxLength={200} onChangeText={value => edit(editor, 'thenAction', value)} className="border border-stone-300 rounded-xl p-3" />
-    <Text className="text-stone-700">如果想保存，请自己选择一条已确认模式，并核对本地理解：</Text>
-    {choices.length === 0 && <Text className="text-stone-600">目前没有可选的已确认模式；这条建议尚未保存。</Text>}
+    <Text className="text-stone-700">如果想保存，请选择保存位置（已保存发现或已确认模式），核对内容；这不表示认可其中推断：</Text>
+    {choices.length === 0 && <Text className="text-stone-600">目前没有可选的已保存发现或已确认模式；仍可查看、改写或自行选择尝试，这条建议尚未保存。</Text>}
     {choices.map(item => button(`practice-candidate-target-${item.pattern.patternId}`, `${editor.target?.pattern.patternId === item.pattern.patternId ? '● ' : '○ '}${item.pattern.name}`, () => choose(editor, item.pattern.patternId)))}
     {editor.target && <View testID="practice-candidate-target-review" className="gap-2">
       <Text className="font-semibold text-stone-900">保存目标：{editor.target.pattern.name}</Text>
       <Text className="text-stone-700">本地当前理解：{editor.target.pattern.currentUnderstanding}</Text>
       {editor.target.practice && <Text className="text-orange-800">保存将替换这个模式的现有练习：如果 {editor.target.practice.ifCue}，那么 {editor.target.practice.thenAction}。其他模式不会改变。</Text>}
-      {button('practice-candidate-confirm-target', editor.confirmed ? '已核对这个模式' : '我已核对，选择这个模式', () => { if (current(editor)) change({ ...editor, confirmed: true }); })}
+      {button('practice-candidate-confirm-target', editor.confirmed ? '已核对保存位置' : '我已核对，选择此保存位置', () => { if (current(editor)) change({ ...editor, confirmed: true }); })}
     </View>}
     {!!error && <Text testID="practice-candidate-error" accessibilityLiveRegion="polite" className="text-red-800">{error}</Text>}
     {button('practice-candidate-save', editor.target?.practice ? '明确保存到此模式 · 替换现有练习' : '明确保存到此模式', () => save(editor), !editor.confirmed || !editor.draft || !editor.content.ifCue.trim() || !editor.content.thenAction.trim())}

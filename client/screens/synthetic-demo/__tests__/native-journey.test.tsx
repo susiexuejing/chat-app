@@ -142,7 +142,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     return snapshot.patterns[0];
   }
   async function confirm() {
-    await press('nav-chat'); await send(); await press('candidate-confirm');
+    await press('nav-chat'); await send(); await press('candidate-save-discovery');
     await press('candidate-new-choice'); await press('candidate-save');
   }
   async function mode() {
@@ -203,7 +203,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     });
     expect(values.get(STORAGE_KEY)).toBe(before);
     expect(saved().patterns).toEqual([]);
-    await press('candidate-edit');
+    await press('candidate-save-discovery');
     expect(node('candidate-text').props.value).toBe(DEEP_REPLY);
     expect(nodes('candidate-correction-choice')).toHaveLength(0);
     expect(node('candidate-save').props.disabled).toBe(true);
@@ -215,7 +215,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await act(async () => { save(); save(); });
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(onlyPattern().pattern).toMatchObject({
-      currentUnderstanding: '这是我编辑后愿意保留的理解。', decision: 'confirmed',
+      currentUnderstanding: '这是我编辑后愿意保留的理解。', decision: 'candidate',
       demoSource: 'dev-api-test', origin: { input: CURRENT_INPUT, requestId: 'stub-request-1' },
     });
     expect(onlyPattern().path).toHaveLength(1);
@@ -225,6 +225,37 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(onlyPattern().practice).toBeNull();
     expect(onlyPattern().records).toEqual([]);
     expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+
+  it('saving a discovery leaves experience judgment unselected in the real editor', async () => {
+    await mount(); await login(); await confirm(); await mode();
+    expect(output()).toContain('未判断'); expect(output()).toContain('DEV 回复 · 用户保存');
+    expect(output()).not.toContain('DEV 回复 · 用户确认');
+    await press('pattern-edit');
+    for (const choice of ['confirmed','rejected','uncertain']) expect(node(`pattern-decision-${choice}`).props.accessibilityState.checked).toBe(false);
+    await type('pattern-name', '仅改名字'); await press('pattern-save');
+    expect(onlyPattern().pattern.decision).toBe('candidate');
+    await press('pattern-edit'); await press('pattern-decision-confirmed'); await press('pattern-save');
+    expect(onlyPattern().pattern.decision).toBe('confirmed');
+  });
+
+  it('editing saved understanding cannot carry an old or prematurely selected endorsement to new text', async () => {
+    await mount(); await login(); await confirm(); await mode();
+    await press('pattern-edit'); await press('pattern-decision-confirmed'); await press('pattern-save');
+    await press('pattern-edit');
+    await type('pattern-name', '名称编辑不撤销认可');
+    await type('pattern-understanding', node('pattern-understanding').props.value);
+    expect(node('pattern-decision-confirmed').props.accessibilityState.checked).toBe(true);
+    await type('pattern-understanding', '改变后的理解');
+    expect(node('pattern-decision-confirmed').props.accessibilityState.checked).toBe(false);
+    await press('pattern-save'); expect(onlyPattern().pattern.decision).toBe('candidate');
+    await press('pattern-edit'); await press('pattern-decision-confirmed');
+    await type('pattern-understanding', '选择判断之后又改的理解');
+    expect(node('pattern-decision-confirmed').props.accessibilityState.checked).toBe(false);
+    await press('pattern-save'); expect(onlyPattern().pattern.decision).toBe('candidate');
+    await press('pattern-edit'); await type('pattern-understanding', '先改文字再明确认可');
+    await press('pattern-decision-confirmed'); await press('pattern-save');
+    expect(onlyPattern().pattern.decision).toBe('confirmed');
   });
 
   it('shows thinking until the full reply completes, then saves that exact understanding only by explicit choice through practice and record', async () => {
@@ -240,13 +271,13 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(output()).not.toContain('前层即时回应'); expect(output()).not.toContain('前层陪伴回应');
     await act(async () => { callbacks.onDeepChunk(answer.slice(0, 20)); });
     expect(output()).not.toContain(answer.slice(0, 20));
-    expect(nodes('candidate-confirm')).toHaveLength(0);
+    expect(nodes('candidate-save-discovery')).toHaveLength(0);
     expect(nodes('candidate-save')).toHaveLength(0);
     expect(storage.setItem).not.toHaveBeenCalled(); expect(values.get(STORAGE_KEY)).toBe(before);
     await act(async () => { callbacks.onDeepChunk(answer.slice(20)); callbacks.onDone(); finish(); });
     expect(output()).toContain(answer); expect(output()).not.toContain('正在思考');
     expect(storage.setItem).not.toHaveBeenCalled(); expect(saved().patterns).toEqual([]);
-    await press('candidate-confirm');
+    await press('candidate-save-discovery');
     expect(node('candidate-text').props.value).toBe(answer);
     expect(node('candidate-save').props.disabled).toBe(true);
     await press('candidate-new-choice'); await press('candidate-save');
@@ -284,7 +315,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
       if (outcome !== 'empty completion') await act(async () => { callbacks.onDeepChunk('未完成的候选内容不得显示或保存'); });
       expect(output()).toContain('正在思考');
       expect(output()).not.toContain('未完成的候选内容不得显示或保存');
-      expect(nodes('candidate-confirm')).toHaveLength(0);
+      expect(nodes('candidate-save-discovery')).toHaveLength(0);
       if (outcome === 'stop') await press('dev-stop');
       await act(async () => {
         if (outcome === 'error') callbacks.onError();
@@ -292,14 +323,14 @@ describe('EF-385 native journey with the real controller, views and local reposi
         finish();
       });
       expect(output()).not.toContain('未完成的候选内容不得显示或保存');
-      expect(nodes('candidate-confirm')).toHaveLength(0); expect(nodes('candidate-save')).toHaveLength(0);
+      expect(nodes('candidate-save-discovery')).toHaveLength(0); expect(nodes('candidate-save')).toHaveLength(0);
       expect(values.get(STORAGE_KEY)).toBe(before); expect(storage.setItem).not.toHaveBeenCalled();
       expect(mockStart).toHaveBeenCalledTimes(1);
     },
   );
 
   it('a failed candidate save retains its edit and a new request clears the prior saved notice', async () => {
-    await mount(); await login(); await send(); await press('candidate-confirm');
+    await mount(); await login(); await send(); await press('candidate-save-discovery');
     await press('candidate-new-choice');
     await type('candidate-text', '本地修改仍应保留');
     const before = values.get(STORAGE_KEY); failWrites = true;
@@ -336,7 +367,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await act(async () => { callbacks.onDeepChunk('已离开页面后的内容'); callbacks.onDone(); finish(); });
     await press('nav-chat');
     expect(output()).not.toContain('已离开页面后的内容');
-    expect(nodes('candidate-confirm')).toHaveLength(0);
+    expect(nodes('candidate-save-discovery')).toHaveLength(0);
     expect(nodes('candidate-save')).toHaveLength(0);
     expect(node('chat-input').props.value).toBe('');
     expect(values.get(STORAGE_KEY)).toBe(before);
@@ -353,7 +384,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await mode();
     expect(output()).toContain('旧记录');
     expect(output()).toContain('历史合成示例');
-    await press('nav-chat'); await send(); await press('candidate-confirm');
+    await press('nav-chat'); await send(); await press('candidate-save-discovery');
     expect(node('candidate-correction-choice').props.accessibilityRole).toBe('radio');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
@@ -387,7 +418,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
     });
     storage.setItem.mockClear();
     await mount(); await send('虚构场景：我想比较两个旅行目的地。');
-    await press('candidate-confirm');
+    await press('candidate-save-discovery');
     expect(node('candidate-text').props.value).toBe('虚构旅行建议：比较两个目的地的交通时间。');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
@@ -415,7 +446,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
 
   it('correction consent can be withdrawn and never carries into a reopened draft or new request', async () => {
     const before = seedSyntheticJourney(); storage.setItem.mockClear();
-    await mount(); await send(); await press('candidate-edit');
+    await mount(); await send(); await press('candidate-save-discovery');
     await press('candidate-correction-choice');
     await press(`candidate-target-${onlyPattern(before).pattern.patternId}`);
     expect(node('candidate-save').props.disabled).toBe(false);
@@ -426,11 +457,11 @@ describe('EF-385 native journey with the real controller, views and local reposi
     await act(async () => { previouslyEnabledSave(); });
     expect(saved()).toEqual(before);
     await press('candidate-correction-choice'); await press('candidate-cancel');
-    await press('candidate-confirm');
+    await press('candidate-save-discovery');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
     await press('candidate-cancel'); await press('dev-new-chat');
-    await send('虚构场景：新的一轮仍需要单独确认。'); await press('candidate-confirm');
+    await send('虚构场景：新的一轮仍需要单独确认。'); await press('candidate-save-discovery');
     expect(node('candidate-correction-choice').props.accessibilityState.checked).toBe(false);
     expect(node('candidate-save').props.disabled).toBe(true);
     await act(async () => { previouslyEnabledSave(); });
@@ -474,20 +505,24 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect([...values.keys()]).toEqual([STORAGE_KEY]);
   });
 
-  it('cancel, stop, reject, unsure and navigation never commit candidate drafts', async () => {
+  it('optional preview, cancel, end, new chat and navigation never commit discovery drafts', async () => {
     await mount(); await login();
     const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear();
-    await send(); await press('candidate-edit'); await type('candidate-text', '未保存'); await press('candidate-cancel');
-    await press('candidate-stop');
-    for (const choice of ['candidate-reject', 'candidate-unsure']) {
-      await send(); await press('candidate-edit'); await type('candidate-text', '仍然不保存');
+    await send();
+    for (const removed of ['candidate-confirm', 'candidate-edit', 'candidate-reject', 'candidate-unsure', 'candidate-stop']) expect(nodes(removed)).toHaveLength(0);
+    await press('candidate-save-discovery'); await type('candidate-text', '未保存'); await press('candidate-cancel');
+    expect(nodes('candidate-text')).toHaveLength(0);
+    expect(nodes('candidate-save-discovery')).toHaveLength(1);
+    for (const choice of ['dev-end-chat', 'dev-new-chat']) {
+      await send(); await press('candidate-save-discovery'); await type('candidate-text', '仍然不保存');
       const staleSave = node('candidate-save').props.onPress;
       await press(choice);
-      expect(nodes('candidate-confirm')).toHaveLength(0);
+      expect(nodes('candidate-save-discovery')).toHaveLength(0);
       expect(nodes('candidate-save')).toHaveLength(0);
       await act(async () => { staleSave(); });
+      if (choice === 'dev-end-chat') await press('dev-new-chat');
     }
-    await send(); await press('candidate-confirm'); await press('nav-me'); await press('nav-chat');
+    await send(); await press('candidate-save-discovery'); await press('nav-me'); await press('nav-chat');
     expect(nodes('candidate-save')).toHaveLength(0);
     expect(storage.setItem).not.toHaveBeenCalled(); expect(values.get(STORAGE_KEY)).toBe(persisted);
   });
@@ -600,10 +635,10 @@ describe('EF-385 native journey with the real controller, views and local reposi
   });
 
   it('cross-tab logout retires context and unsaved drafts but preserves previously saved patterns', async () => {
-    await mount(); await login(); await send(); await press('candidate-confirm');
+    await mount(); await login(); await send(); await press('candidate-save-discovery');
     await press('candidate-new-choice'); await press('candidate-save');
     const savedPatterns = saved().patterns;
-    await send('虚构场景：新的未保存讨论。'); await press('candidate-confirm');
+    await send('虚构场景：新的未保存讨论。'); await press('candidate-save-discovery');
     const oldValue = values.get(STORAGE_KEY)!;
     createDemoRepository(storage).logout();
     const newValue = values.get(STORAGE_KEY)!; storage.setItem.mockClear(); mockEnd.mockClear();
@@ -628,7 +663,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
   });
 
   it('passive conversation expiry discards an open editable candidate without a local write', async () => {
-    await mount(); await login(); await send(); await press('candidate-confirm'); await press('candidate-new-choice');
+    await mount(); await login(); await send(); await press('candidate-save-discovery'); await press('candidate-new-choice');
     await type('candidate-text', '未保存的编辑'); await type('chat-input', '未发送的新输入');
     const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear();
     await act(async () => { jest.advanceTimersByTime(600000); });
@@ -638,7 +673,7 @@ describe('EF-385 native journey with the real controller, views and local reposi
   });
 
   it('failed continuation request-ID preflight preserves the input and edited understanding without transport or writes', async () => {
-    await mount(); await login(); await send(); await press('candidate-confirm'); await press('candidate-new-choice');
+    await mount(); await login(); await send(); await press('candidate-save-discovery'); await press('candidate-new-choice');
     await type('candidate-text', '仍在编辑、尚未保存的理解');
     const nextInput = '虚构场景：这句话还没有发送。'; await type('chat-input', nextInput);
     const persisted = values.get(STORAGE_KEY); storage.setItem.mockClear(); failRequestId = true;

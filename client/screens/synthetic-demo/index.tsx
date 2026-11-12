@@ -3,7 +3,7 @@ import { Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'r
 import { Screen } from '@/components/Screen';
 import { useRouter } from 'expo-router';
 import {
-  DEMO_NUMBER, STORAGE_KEY, LEGACY_STORAGE_KEY, createDemoRepository,
+  DEMO_NUMBER, STORAGE_KEY, LEGACY_STORAGE_KEY, createDemoRepository, canSavePracticeSuggestionTarget,
   type Decision, type DemoRepository, type Pattern, type PatternState, type PathEntry, type RecordPayload, type Snapshot,
 } from '@/features/synthetic-demo/repository';
 import { PracticeCandidateCard, type PracticeCandidateCardHandle } from '@/features/dev-journey/PracticeCandidateCard';
@@ -15,7 +15,7 @@ type Scope = { accountId: string; patternId: string };
 type CorrectionTarget = { patternId: string; version: number; name: string; understanding: string };
 type Draft =
   | { kind: 'candidate'; accountId: string; text: string; input: string; requestId: string; mode: 'new' | 'correct' | null; target: CorrectionTarget | null; choices: Pattern[] | null; readError: string }
-  | (Scope & { kind: 'mode'; name: string; understanding: string; decision: Decision; version: number })
+  | (Scope & { kind: 'mode'; name: string; understanding: string; decision: Decision; decisionExplicit: boolean; version: number })
   | (Scope & { kind: 'practice'; cue: string; action: string; version: number })
   | (Scope & { kind: 'record'; payload: RecordPayload; version: number; operationId: string; occurredChosen: boolean })
   | (Scope & { kind: 'path'; entry: PathEntry; explanation: string; feeling: string })
@@ -25,7 +25,7 @@ const CHAT_STORAGE_RESET_NOTICE = '检测到本地演示数据或登录状态变
 type ReadState<T> = { status: 'idle' | 'loading'; data: null } | { status: 'error'; data: null; error: string } | { status: 'ready'; data: T };
 const feelings = [ ['helped', '有帮助'], ['unchanged', '没有变化'], ['worse', '更难受'], ['not_recorded', '暂不记录'] ] as const;
 const actions = [ ['agreed', '做了约定动作'], ['other', '做了其他动作'], ['none', '没有行动'] ] as const;
-const decisionLabels: Record<Decision, string> = { candidate: '演示候选 · 待确认', confirmed: '已确认', uncertain: '暂不确定', rejected: '不符合' };
+const decisionLabels: Record<Decision, string> = { candidate: '未判断', confirmed: '已确认', uncertain: '暂不确定', rejected: '不符合' };
 const decisionChoices = [ ['confirmed', '符合我的体验'], ['rejected', '不符合'], ['uncertain', '还不确定'] ] as const;
 const typeLabels = { event: '事件', correction: '理解修正', practice: '练习记录', exception: '例外' };
 const clueLabels = { situation: '情境', thought: '想法', feeling: '感受', behavior: '行为', exception: '例外' };
@@ -269,13 +269,13 @@ export default function SyntheticDemoScreen() {
     write(repo => {
       if (current.kind === 'candidate') {
         if (!current.mode || current.choices === null || (current.mode === 'correct' && !current.target)) throw new Error('请明确选择保存为新模式，或选择要修正的模式；不会自动关联。');
-        return repo.confirmDevUnderstanding(current.accountId, {
+        return repo.saveDevDiscovery(current.accountId, {
           text: current.text, input: current.input, requestId: current.requestId,
           relation: current.mode === 'new' ? 'create-new' : 'correct-current',
         }, current.mode === 'new' ? 0 : current.target!.version, current.mode === 'new' ? undefined : current.target!.patternId);
       }
       if (current.patternId !== selectedPatternId || current.accountId !== snapshot?.session) throw new Error('模式选择已变化，请重新打开后再编辑。');
-      if (current.kind === 'mode') return repo.updatePattern(current.accountId, current.patternId, { name: current.name, currentUnderstanding: current.understanding, decision: current.decision }, current.version);
+      if (current.kind === 'mode') return repo.updatePattern(current.accountId, current.patternId, { name: current.name, currentUnderstanding: current.understanding, ...(current.decisionExplicit ? { decision: current.decision } : {}) }, current.version);
       if (current.kind === 'practice') return repo.savePractice(current.accountId, current.patternId, { ifCue: current.cue, thenAction: current.action }, current.version);
       if (current.kind === 'record') {
         if (!current.occurredChosen) throw new Error('请先选择触发情境是否发生，草稿尚未保存。');
@@ -290,7 +290,7 @@ export default function SyntheticDemoScreen() {
   function startRecord() {
     if (!currentView() || detail.status !== 'ready' || !snapshot?.session || !selectedPatternId) return;
     const practice = detail.data.practice;
-    if (detail.data.pattern.decision !== 'confirmed' || !practice || practice.paused || snapshot.activePracticePatternId !== selectedPatternId) return;
+    if (!canSavePracticeSuggestionTarget(detail.data.pattern) || !practice || practice.paused || snapshot.activePracticePatternId !== selectedPatternId) return;
     navigate('checkin', selectedPatternId);
     recordSequence.current += 1;
     changeDraft({ kind: 'record', accountId: snapshot.session, patternId: selectedPatternId, occurredChosen: false, version: practice.version,
@@ -363,13 +363,15 @@ export default function SyntheticDemoScreen() {
   function renderDraft() {
     if (!draft || draft.kind === 'unlink') return null;
     const current = draft;
-    return <Card testID="draft-editor"><Text className="text-lg font-semibold text-stone-900">{current.kind === 'record' ? '记录这一次' : '编辑草稿'}</Text>
+    return <Card testID="draft-editor"><Text className="text-lg font-semibold text-stone-900">{current.kind === 'record' ? '记录这一次' : current.kind === 'candidate' ? '预览要保存的发现' : '编辑草稿'}</Text>
       <Text className="text-sm text-stone-600">只有点击保存才会写入；取消、切换页面或退出会丢弃草稿。</Text>
       {current.kind === 'candidate' && <>
-        <Field testID="candidate-text" label="我的理解（可修改）" value={current.text} maxLength={2000} multiline onChange={text => editDraft(current, { ...current, text })} />
-        <Text className="text-sm text-stone-600">来源：本次 DEV 服务端 Deep 回复，可编辑确认；实际供应商和模型未核验。不是诊断。</Text>
+        <Text testID="candidate-input-preview" className="text-sm text-stone-700">随发现保存的本轮输入（来源）：{current.input}</Text>
+        <Text className="text-sm text-stone-600">只保存下方文字与这条输入，不保存整段聊天。若不想留下这条输入，可以取消并继续聊天。</Text>
+        <Field testID="candidate-text" label="要保存的发现（可修改）" value={current.text} maxLength={2000} multiline onChange={text => editDraft(current, { ...current, text })} />
+        <Text className="text-sm text-stone-600">来源：本次 DEV 服务端 Deep 回复。请留下你想保留的文字；保存不表示 AI 推断已被核实，也不是诊断；新发现或修改过的已认可发现会标为“未判断”；已有“不符合”或“还不确定”判断会保留。实际供应商和模型未核验。</Text>
         {current.choices === null ? <><Text className="text-red-800">{current.readError || '未能读取模式。'}</Text><Button testID="candidate-retry" title="重试读取模式" secondary onPress={() => retryCandidate(current)} /></> : <>
-          <Text className="font-medium text-stone-800">这次理解要保存在哪里？</Text>
+          <Text className="font-medium text-stone-800">这次发现要保存在哪里？</Text>
           <Choice testID="candidate-new-choice" title="保存为一个新模式" selected={current.mode === 'new'} onPress={() => editDraft(current, { ...current, mode: current.mode === 'new' ? null : 'new', target: null })} />
           <Text className="text-sm text-stone-600">新模式单独保存，不覆盖已有模式，也不自动开启练习。</Text>
           {current.choices.length > 0 && <>
@@ -386,10 +388,10 @@ export default function SyntheticDemoScreen() {
       </>}
       {current.kind === 'mode' && <>
         <Field testID="pattern-name" label="模式名称" value={current.name} maxLength={80} onChange={name => editDraft(current, { ...current, name })} />
-        <Field testID="pattern-understanding" label="当前理解" value={current.understanding} maxLength={2000} multiline onChange={understanding => editDraft(current, { ...current, understanding })} />
+        <Field testID="pattern-understanding" label="当前理解" value={current.understanding} maxLength={2000} multiline onChange={understanding => editDraft(current, understanding.trim() === current.understanding.trim() ? { ...current, understanding } : { ...current, understanding, decisionExplicit: false, decision: pattern?.decision === 'confirmed' && understanding.trim() !== pattern.currentUnderstanding.trim() ? 'candidate' : pattern?.decision ?? 'candidate' })} />
         <Choices<Decision> testID="pattern-decision" label="这条模式符合我的体验吗？" options={decisionChoices} value={current.decision}
-          onChange={decision => editDraft(current, { ...current, decision })} />
-        <Text className="text-sm text-stone-600">判断在保存后生效，之后仍可重新判断。只改文字会保留原判断；尚未判断的候选不会自动确认，也不必填写完整解释。</Text>
+          onChange={decision => editDraft(current, { ...current, decision, decisionExplicit: true })} />
+        <Text className="text-sm text-stone-600">判断在保存后生效，之后仍可重新判断。修改理解文字后，旧的“符合”不沿用；若要认可新文字，请在修改后重新选择。已有“不符合”或“还不确定”会保留；仅改名字或文字未实质改变不影响原判断。</Text>
       </>}
       {current.kind === 'practice' && <>
         <Field testID="practice-cue" label="如果（触发线索）" value={current.cue} maxLength={200} onChange={cue => editDraft(current, { ...current, cue })} />
@@ -415,7 +417,7 @@ export default function SyntheticDemoScreen() {
         <Field testID="path-explanation" label="我的解释" value={current.explanation} multiline onChange={explanation => editDraft(current, { ...current, explanation })} />
         <Field testID="path-feeling" label="我的感受" value={current.feeling} onChange={feeling => editDraft(current, { ...current, feeling })} />
       </>}
-      {saveButtons(current, current.kind === 'record' ? '保存这次记录' : '保存')}
+      {saveButtons(current, current.kind === 'record' ? '保存这次记录' : current.kind === 'candidate' ? '确认保存这次发现' : '保存')}
       {current.kind === 'record' && <Button testID="record-skip" title="跳过 · 不保存" secondary onPress={() => { if (draftRef.current === current) navigate('practice', current.patternId); }} />}
     </Card>;
   }
@@ -434,7 +436,7 @@ export default function SyntheticDemoScreen() {
             <Text className="font-semibold text-stone-900">{typeLabels[entry.type]} · {entry.linked ? '已关联' : '已解除关联'}</Text>
             <Text className="text-xs text-stone-500">保存时间：{new Date(entry.createdAt).toLocaleString('zh-CN')}</Text>
             <Text className="text-stone-800">事实（不可改）：{entry.fact}</Text><Text className="text-sm text-stone-600">来源（不可改）：{entry.source}</Text>
-            <Text className="text-sm text-stone-600">{entry.demoSource === 'dev-api-test' ? 'DEV 测试流程' : '历史合成示例'} · 用户确认</Text>
+            <Text className="text-sm text-stone-600">{entry.demoSource === 'dev-api-test' ? 'DEV 测试流程' : '历史合成示例'} · 用户明确保存</Text>
             {entry.oldUnderstanding !== undefined && <Text className="text-stone-700">原理解：{entry.oldUnderstanding}</Text>}
             {entry.currentUnderstanding !== undefined && <Text className="text-stone-700">新理解：{entry.currentUnderstanding}</Text>}
             {record && <View className="gap-1">
@@ -494,12 +496,12 @@ export default function SyntheticDemoScreen() {
       <Text className="text-stone-600">选择一条，查看它的理解、练习和路径。这里只保留你明确保存的内容。</Text>
       {list.status === 'error' ? <Card><Text className="text-red-800">模式列表未能加载：{list.error}</Text><Button testID="list-retry" title="重试读取列表" secondary onPress={retryList} /></Card>
         : list.status !== 'ready' ? <Text className="text-stone-600">正在读取模式…</Text>
-          : list.data.length === 0 ? <Card testID="patterns-empty"><Text className="text-stone-700">还没有已确认的模式。先在聊天中确认理解，再明确保存为新模式。</Text><Button title="去聊天" onPress={() => navigate('chat')} /></Card>
+          : list.data.length === 0 ? <Card testID="patterns-empty"><Text className="text-stone-700">还没有保存的发现。聊天无需逐轮确认；想留下某次发现时，可选择“保存这次发现”，编辑后明确保存。</Text><Button title="去聊天" onPress={() => navigate('chat')} /></Card>
             : list.data.map(({ pattern: item }) => <Pressable key={item.patternId} testID={`pattern-open-${item.patternId}`} accessibilityRole="button" accessibilityLabel={`查看模式：${item.name}`}
               onPress={() => navigate('detail', item.patternId)} className="rounded-2xl border border-stone-200 bg-white p-5 gap-2" style={{ minHeight: 80 }}>
               <View className="flex-row items-center gap-3"><Text className="flex-1 text-lg font-semibold text-orange-800">{item.name}</Text><Text className="text-xl text-orange-700">›</Text></View>
               <Text className="text-stone-700" numberOfLines={2}>{item.currentUnderstanding || '尚未填写当前理解'}</Text>
-              <Text className="text-xs text-stone-500">{decisionLabels[item.decision]} · {item.demoSource === 'dev-api-test' ? 'DEV 回复 · 用户确认' : '合成演示内容'}</Text>
+              <Text className="text-xs text-stone-500">{decisionLabels[item.decision]} · {item.demoSource === 'dev-api-test' ? 'DEV 回复 · 用户保存' : '合成演示内容'}</Text>
             </Pressable>)}
     </View>;
     if (!selected || !pattern || !selectedPatternId) return <>
@@ -511,11 +513,11 @@ export default function SyntheticDemoScreen() {
     if (page === 'detail') return <View testID="pattern-detail" className="gap-5">
       <Button testID="pattern-back" title="返回模式列表" secondary onPress={() => navigate('patterns')} />
       <View className="gap-2"><Text className="text-sm text-stone-600">模式详情</Text><Text className="text-2xl font-semibold text-orange-800">{pattern.name}</Text>
-        <Text className="text-sm text-stone-600">{decisionLabels[pattern.decision]} · {pattern.demoSource === 'dev-api-test' ? 'DEV 回复 · 用户确认' : '历史合成示例'} · 不是诊断</Text></View>
+        <Text className="text-sm text-stone-600">{decisionLabels[pattern.decision]} · {pattern.demoSource === 'dev-api-test' ? 'DEV 回复 · 用户保存' : '历史合成示例'} · 不是诊断</Text></View>
       <Card><Text className="text-lg font-semibold text-stone-900">我的当前理解</Text>
         <Text testID="pattern-understanding-current" className="text-base text-stone-800">{!understandingExpanded && pattern.currentUnderstanding.length > 180 ? `${pattern.currentUnderstanding.slice(0, 180)}…` : pattern.currentUnderstanding || '尚未填写当前理解。'}</Text>
         {pattern.currentUnderstanding.length > 180 && <Button testID="understanding-toggle" title={understandingExpanded ? '收起理解' : '展开完整理解'} secondary onPress={() => { if (currentView()) setUnderstandingExpanded(value => !value); }} />}
-        <Button testID="pattern-edit" title="编辑理解与重新判断" secondary onPress={() => { if (currentView()) changeDraft({ kind: 'mode', ...scope, name: pattern.name, understanding: pattern.currentUnderstanding, decision: pattern.decision, version: pattern.version }); }} />
+        <Button testID="pattern-edit" title="编辑理解与重新判断" secondary onPress={() => { if (currentView()) changeDraft({ kind: 'mode', ...scope, name: pattern.name, understanding: pattern.currentUnderstanding, decision: pattern.decision, decisionExplicit: false, version: pattern.version }); }} />
         <Pressable testID="clues-toggle" accessibilityRole="button" accessibilityState={{ expanded: cluesExpanded }} onPress={() => { if (currentView()) setCluesExpanded(value => !value); }} className="py-3" style={{ minHeight: 44 }}>
           <Text className="font-medium text-green-800">{cluesExpanded ? '收起线索' : `了解更多 · 已有线索（${pattern.clues.length}）`}</Text>
         </Pressable>
@@ -537,8 +539,8 @@ export default function SyntheticDemoScreen() {
         {practice?.candidateOrigin && <Text testID="practice-suggestion-source" className="text-sm text-stone-600">来源：AI 建议 · 经你编辑或核对后明确保存</Text>}
         <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已保存 · 进行中'}</Text>
         <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green onPress={() => { if (currentView()) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
-        {practice && <>{pattern.decision !== 'confirmed' && <Text testID="record-unavailable" className="text-sm text-stone-600">这条模式目前是「{decisionLabels[pattern.decision]}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。</Text>}
-          <Button testID="record-open" title="记录这一次" green disabled={pattern.decision !== 'confirmed' || practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
+        {practice && <>{!canSavePracticeSuggestionTarget(pattern) && <Text testID="record-unavailable" className="text-sm text-stone-600">这条模式目前是「{decisionLabels[pattern.decision]}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。</Text>}
+          <Button testID="record-open" title="记录这一次" green disabled={!canSavePracticeSuggestionTarget(pattern) || practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
           {!practice.paused ? <Button testID="practice-pause" title="暂停练习" secondary onPress={() => { if (currentView()) { changeDraft(null); write(repo => repo.pausePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已暂停。'); } }} />
             : <><Text className="text-sm text-stone-600">同一账户最多开启一个练习。开启这一个不会自动暂停或更改其他模式。</Text>
               {snapshot.activePracticePatternId && snapshot.activePracticePatternId !== pattern.patternId && <Text testID="practice-active-conflict" className="text-sm text-orange-800">另一个模式的练习正在进行。请返回列表，主动暂停它后再开启这里的练习。</Text>}

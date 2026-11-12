@@ -135,7 +135,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(visible).toContain(DEV_REAL_REQUEST_STOP_NOTICE);
   }
   function expectNoCandidate() {
-    expect(nodes('candidate-confirm')).toHaveLength(0);
+    expect(nodes('candidate-save-discovery')).toHaveLength(0);
     expect(nodes('candidate-edit')).toHaveLength(0);
     expect(mockConfirm).not.toHaveBeenCalled();
   }
@@ -182,7 +182,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
 
   it.each(safetyCases)('%s replaces completed conversation and rejects captured confirm callbacks', async (kind, _label, expected) => {
     await mount(); await send('first fictional input'); await send('second fictional input');
-    const staleConfirm = node('candidate-confirm').props.onPress;
+    const staleConfirm = node('candidate-save-discovery').props.onPress;
     await type('separate unsent draft'); await press('dev-safety-controls'); await press(`dev-safety-${kind}`);
     await act(async () => { staleConfirm(); }); expectSafetyView(expected);
     for (const text of ['first fictional input', 'second fictional input', 'separate unsent draft', DEEP_REPLY]) expect(output()).not.toContain(text);
@@ -217,7 +217,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     await mount(); await send(); await press('dev-safety-controls'); await press('dev-safety-help');
     if (action === 'reset key') await update(1); else { await unmount(); await mount(); }
     expect(nodes('dev-safety-support')).toHaveLength(0); expect(node('chat-input').props.value).toBe('');
-    expect(nodes('candidate-confirm')).toHaveLength(0); expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(nodes('candidate-save-discovery')).toHaveLength(0); expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it('a throwing draft cleanup cannot leave old conversation visible or prevent safety cancellation', async () => {
@@ -246,7 +246,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     await send('new fictional conversation');
     await act(async () => { staleSafety(); });
     expect(nodes('dev-safety-support')).toHaveLength(0); expect(output()).toContain(DEEP_REPLY);
-    expect(nodes('candidate-confirm')).toHaveLength(1); expect(mockStart).toHaveBeenCalledTimes(1);
+    expect(nodes('candidate-save-discovery')).toHaveLength(1); expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it('identifies AI, nonhuman and non-therapist before any send without opening the intro', async () => {
@@ -292,7 +292,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
       expect(controller.getSnapshot().inputText).toBe('');
       expect(controller.getSnapshot().canSend).toBe(false);
     }
-    await press('candidate-confirm');
+    await press('candidate-save-discovery');
     expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockConfirm).toHaveBeenCalledWith({ text: DEEP_REPLY, input: INPUT, requestId: 'stub-request-1' });
   });
@@ -385,10 +385,10 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(output()).not.toContain('正在思考');
     expect(tree.root.findByType(MessageListView).props.messages.filter((message: { role: string }) => message.role === 'assistant')).toHaveLength(1);
     expect(nodes('parent-draft')).toHaveLength(1);
-    expect(nodes('candidate-confirm')).toHaveLength(1);
-    expect(nodes('candidate-edit')).toHaveLength(1);
+    expect(nodes('candidate-save-discovery')).toHaveLength(1);
+    expect(nodes('candidate-edit')).toHaveLength(0);
     expect(mockConfirm).not.toHaveBeenCalled();
-    await press('candidate-edit');
+    await press('candidate-save-discovery');
     expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockConfirm).toHaveBeenCalledWith({ text: DEEP_REPLY, input: INPUT, requestId: 'stub-request-1' });
     expect(mockStart).toHaveBeenCalledTimes(1);
@@ -476,22 +476,22 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     },
   );
 
-  it.each(['candidate-reject', 'candidate-unsure', 'candidate-stop'])(
-    '%s discards a successful candidate without confirming it or sending again', async choice => {
-      await mount(); await send(); mockDiscard.mockClear();
-      await press(choice);
-      expect(mockDiscard).toHaveBeenCalledTimes(1);
-      expectNoCandidate();
-      expect(node('chat-input').props.value).toBe('');
-      expect(mockControllers[0].getSnapshot().status).toBe('idle');
-      expect(mockStart).toHaveBeenCalledTimes(1);
-    },
-  );
+  it('continues naturally without confirming or saving the previous understanding', async () => {
+    await mount(); await send();
+    for (const id of ['candidate-confirm', 'candidate-edit', 'candidate-reject', 'candidate-unsure', 'candidate-stop']) {
+      expect(nodes(id)).toHaveLength(0);
+    }
+    expect(output()).toContain('不需要确认这段理解');
+    await send('虚构场景：刚才不是这个意思，我要补充一点。');
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockControllers[0].getSnapshot().status).toBe('success');
+  });
 
   it.each(['new chat', 'resetKey', 'unmount'] as const)(
     'queued old confirmation is refused after %s', async exit => {
       await mount(); await send();
-      const staleConfirm = node('candidate-confirm').props.onPress;
+      const staleConfirm = node('candidate-save-discovery').props.onPress;
       if (exit === 'new chat') await press('dev-new-chat');
       else if (exit === 'resetKey') await update(1);
       else await unmount();
@@ -523,7 +523,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
       devConversationId: 'dev-conversation', afterRequestId: 'stub-request-1' });
     expect(output()).toContain(INPUT); expect(output()).toContain(second);
     expect(mockConfirm).not.toHaveBeenCalled();
-    await press('candidate-confirm');
+    await press('candidate-save-discovery');
     expect(mockConfirm).toHaveBeenCalledWith({ text: DEEP_REPLY, input: second, requestId: 'stub-request-2' });
   });
 
@@ -594,7 +594,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     });
     expect(tree.root.findByType(MessageListView).props.messages).toHaveLength(2);
     expect(tree.root.findByType(MessageListView).props.messages[0].id).toBe('stub-request-1-user');
-    expect(nodes('candidate-confirm')).toHaveLength(1); expect(node('chat-input').props.value).toBe('另一条尚未发送的草稿');
+    expect(nodes('candidate-save-discovery')).toHaveLength(1); expect(node('chat-input').props.value).toBe('另一条尚未发送的草稿');
   });
   it('pending409 explains no new reply started and preserves the unsent draft', async () => {
     negotiateRetry(); mockStream.mockImplementationOnce(async (_s, cb) => { cb.onError('retry_turn'); });
@@ -699,7 +699,7 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
   });
 
   it.each(cleanupFaults)('%s cleanup cannot conceal terminal failure or preserve an expired completed view', async (_label, practice, draft) => {
-    await mount(); await send(); const staleConfirm = node('candidate-confirm').props.onPress;
+    await mount(); await send(); const staleConfirm = node('candidate-save-discovery').props.onPress;
     await type('unsent fictional draft'); await editorFaults(practice, draft);
     await act(async () => { jest.advanceTimersByTime(600000); staleConfirm(); });
     expect(mockControllers[0].getSnapshot().status).toBe('failed');
