@@ -175,7 +175,10 @@ export default function SyntheticDemoScreen() {
     setNotice({ kind: 'error', text: CHAT_STORAGE_RESET_NOTICE });
     return false;
   }
-  function invalidateView() { invalidatePractice(); navigation.current += 1; setViewToken(navigation.current); }
+  function invalidateView(practiceTargets?: Snapshot) {
+    if (practiceTargets) practiceCard.current?.refreshTargets(practiceTargets); else invalidatePractice();
+    navigation.current += 1; setViewToken(navigation.current);
+  }
   function changeDraft(next: Draft | null) {
     setNotice(null);
     draftRef.current = next;
@@ -227,7 +230,7 @@ export default function SyntheticDemoScreen() {
   }
   function retryList() { if (currentView()) { changeDraft(null); invalidateView(); loadList(); } }
   function retryDetail() { if (currentView() && selectedPatternId) { changeDraft(null); invalidateView(); loadDetail(selectedPatternId); } }
-  function write(operation: (repo: DemoRepository) => Snapshot, message: string, onSuccess?: () => void) {
+  function write(operation: (repo: DemoRepository) => Snapshot, message: string, onSuccess?: () => void, newPatternRequestId?: string) {
     if (!currentView() || writing.current || !repository.current) return;
     setNotice(null);
     writing.current = true;
@@ -235,7 +238,10 @@ export default function SyntheticDemoScreen() {
       const next = operation(repository.current);
       setSnapshot(next);
       changeDraft(null);
-      invalidateView();
+      // Creating a pattern does not consume its same-turn practice suggestion.
+      // Keep edited content only; all target handles and confirmations are renewed.
+      invalidateView(newPatternRequestId && practiceCard.current
+        && practiceCandidateRef.current?.source.requestId === newPatternRequestId && next.session === snapshot?.session ? next : undefined);
       if (selectedPatternId) {
         const selected = next.patterns.find(item => item.pattern.patternId === selectedPatternId && item.pattern.accountId === next.session);
         setDetail(selected ? { status: 'ready', data: selected } : { status: 'error', data: null, error: '找不到这条模式，或它不属于当前账户。' });
@@ -279,7 +285,7 @@ export default function SyntheticDemoScreen() {
     }, '已保存到此浏览器的演示空间。', () => {
       if (current.kind === 'record') setSavedWorseRecord(current.payload.feeling === 'worse'
         ? { accountId: current.accountId, patternId: current.patternId } : null);
-    });
+    }, current.kind === 'candidate' && current.mode === 'new' ? current.requestId : undefined);
   }
   function startRecord() {
     if (!currentView() || detail.status !== 'ready' || !snapshot?.session || !selectedPatternId) return;

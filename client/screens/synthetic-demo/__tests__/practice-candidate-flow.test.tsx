@@ -151,6 +151,93 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
   function state(id = a) { return saved().patterns.find(item => item.pattern.patternId === id)!; }
   async function choose(id = b) { await press(`practice-candidate-target-${id}`); await press('practice-candidate-confirm-target'); }
   async function start() { await mount(); await send(); }
+  it('keeps a same-turn edited suggestion through first-pattern creation, with a fresh explicit target choice', async () => {
+    values.clear(); repo = createDemoRepository(storage); account = repo.login(repo.requestCode(DEMO_NUMBER)).session!;
+    storage.setItem.mockClear(); await start();
+    expect(output()).toContain('目前没有可选的已确认模式');
+    expect(node('practice-candidate-save').props.disabled).toBe(true);
+    await type('practice-candidate-cue', '用户为首个模式编辑的线索');
+    await type('practice-candidate-action', '用户为首个模式编辑的动作');
+    await press('candidate-confirm'); await press('candidate-new-choice'); await press('candidate-save');
+    const first = saved().patterns[0];
+    expect(saved().patterns).toHaveLength(1); expect(first.pattern.decision).toBe('confirmed');
+    expect(first.practice).toBeNull(); expect(saved().activePracticePatternId).toBeNull();
+    expect(node('practice-candidate-cue').props.value).toBe('用户为首个模式编辑的线索');
+    expect(node('practice-candidate-action').props.value).toBe('用户为首个模式编辑的动作');
+    expect(nodes(`practice-candidate-target-${first.pattern.patternId}`)).toHaveLength(1);
+    expect(nodes('practice-candidate-target-review')).toHaveLength(0);
+    expect(node('practice-candidate-save').props.disabled).toBe(true);
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    await choose(first.pattern.patternId); await press('practice-candidate-save');
+    expect(state(first.pattern.patternId).practice).toMatchObject({
+      ifCue: '用户为首个模式编辑的线索', thenAction: '用户为首个模式编辑的动作', paused: true,
+      candidateOrigin: { kind: 'ai-suggestion', sessionId: 'stub-session', devConversationId: 'dev-conversation', requestId: 'stub-request-1' },
+    });
+    expect(state(first.pattern.patternId).path).toEqual(first.path); expect(saved().activePracticePatternId).toBeNull();
+    expect(storage.setItem).toHaveBeenCalledTimes(2); expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+  });
+  it('new-pattern save preserves edits but revokes prior target and confirmation callbacks', async () => {
+    await start(); await choose(a); await type('practice-candidate-action', '同轮保留的编辑');
+    const oldSave = node('practice-candidate-save').props.onPress;
+    const oldConfirm = node('practice-candidate-confirm-target').props.onPress;
+    const beforeA = state(a), beforeB = state(b);
+    await press('candidate-confirm'); await press('candidate-new-choice'); await press('candidate-save');
+    const created = saved().patterns[2];
+    expect(node('practice-candidate-action').props.value).toBe('同轮保留的编辑');
+    expect(nodes('practice-candidate-target-review')).toHaveLength(0);
+    await act(async () => { oldConfirm(); oldSave(); });
+    expect(node('practice-candidate-save').props.disabled).toBe(true);
+    expect(state(a)).toEqual(beforeA); expect(state(b)).toEqual(beforeB); expect(created.practice).toBeNull();
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    await choose(created.pattern.patternId); await press('practice-candidate-save');
+    expect(state(created.pattern.patternId).practice?.thenAction).toBe('同轮保留的编辑');
+    expect(state(a)).toEqual(beforeA); expect(state(b)).toEqual(beforeB); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+  it('failed understanding save keeps the original editor; successful retry refreshes its target choices', async () => {
+    await start(); await choose(a); await type('practice-candidate-action', '失败后仍保留');
+    await press('candidate-confirm'); await press('candidate-new-choice'); const before = saved();
+    failWrites = true; await press('candidate-save');
+    expect(saved()).toEqual(before); expect(node('practice-candidate-action').props.value).toBe('失败后仍保留');
+    expect(node('practice-candidate-save').props.disabled).toBe(false);
+    failWrites = false; await press('candidate-save');
+    expect(node('practice-candidate-action').props.value).toBe('失败后仍保留');
+    expect(node('practice-candidate-save').props.disabled).toBe(true);
+    expect(nodes('practice-candidate-target-review')).toHaveLength(0); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+  it.each(['dev-end-chat', 'dev-new-chat', 'nav-me'])('same-turn preservation still revokes the suggestion on %s', async id => {
+    await start(); await press('candidate-confirm'); await press('candidate-new-choice'); await press('candidate-save');
+    await choose(saved().patterns[2].pattern.patternId); const oldSave = node('practice-candidate-save').props.onPress;
+    const before = saved(); storage.setItem.mockClear();
+    await press(id); await act(async () => oldSave());
+    expect(nodes('practice-candidate-card')).toHaveLength(0); expect(saved()).toEqual(before);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+  it('correcting an existing understanding still invalidates its old practice editor', async () => {
+    await start(); await choose(a);
+    await press('candidate-confirm'); await press('candidate-correction-choice'); await press(`candidate-target-${a}`); await press('candidate-save');
+    expect(nodes('practice-candidate-card')).toHaveLength(0); expect(state(a).practice).toBeNull();
+    expect(mockStart).toHaveBeenCalledTimes(1);
+  });
+  it('a later Send replaces a preserved suggestion and cannot reuse its old save', async () => {
+    await start(); await press('candidate-confirm'); await press('candidate-new-choice'); await press('candidate-save');
+    await choose(saved().patterns[2].pattern.patternId); const staleSave = node('practice-candidate-save').props.onPress;
+    const before = saved(); storage.setItem.mockClear();
+    offer = { ifCue: '下一轮线索', thenAction: '下一轮动作' }; await send('虚构场景：下一轮');
+    await act(async () => staleSave());
+    expect(node('practice-candidate-action').props.value).toBe('下一轮动作');
+    expect(node('practice-candidate-save').props.disabled).toBe(true); expect(saved()).toEqual(before);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(mockStart).toHaveBeenCalledTimes(2);
+  });
+  it.each(['expiry', 'safety'] as const)('%s still clears a preserved suggestion and rejects its old save', async kind => {
+    await start(); await press('candidate-confirm'); await press('candidate-new-choice'); await press('candidate-save');
+    await choose(saved().patterns[2].pattern.patternId); const staleSave = node('practice-candidate-save').props.onPress;
+    const before = saved(); storage.setItem.mockClear();
+    if (kind === 'expiry') await act(async () => jest.advanceTimersByTime(600001));
+    else { await press('dev-safety-controls'); await press('dev-safety-unknown'); }
+    await act(async () => staleSave());
+    expect(nodes('practice-candidate-card')).toHaveLength(0); expect(saved()).toEqual(before);
+    expect(storage.setItem).not.toHaveBeenCalled(); expect(mockStart).toHaveBeenCalledTimes(1);
+  });
   it.each(['help', 'emergency', 'unknown'] as const)('synthetic %s clears both unsaved editors and stale saves without changing saved patterns, practice or path', async kind => {
     repo.savePractice(account, a, { ifCue: '已保存线索', thenAction: '已保存动作' }, 0);
     repo.activatePractice(account, a, 1);
