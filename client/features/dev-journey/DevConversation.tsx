@@ -115,7 +115,8 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     // Never render front templates or an in-flight partial candidate.
     if (turn.deepText) messages.push({ id: `${turn.requestId}-deep`, role: 'assistant', content: turn.deepText, responseLayer: 'deep', timestamp: turn.sentAt });
   }
-  const confirm = () => {
+  // Opening an editable preview is not confirmation of accuracy or a save.
+  const openDiscoveryPreview = () => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.source === 'backend-deep' && state.requestId) {
       onConfirm({ text: state.deepText, input: state.inputText, requestId: state.requestId });
     }
@@ -137,7 +138,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
         <Action id="dev-new-chat" title="新对话" onPress={reset} /></View></View>
       <Text className="text-xs text-stone-700">小狐狸是 AI 陪伴者，不是人类或治疗师，不提供诊断或治疗。{DEV_REAL_REQUEST_NOTICE} 超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。</Text>
       <Text testID="dev-request-status" accessibilityLiveRegion="polite" className="text-xs text-stone-700">{statusText}</Text>
-      {showIntro && <Text className="text-sm text-stone-700">回复可供你阅读和修改，不是诊断。只有你确认保存的理解才进入本地模式与路径。</Text>}
+      {showIntro && <Text className="text-sm text-stone-700">聊天不需要逐轮确认；你随时可以直接纠正。想留下这次发现时，可以先编辑，再明确保存到本地；AI 的理解不是诊断或已核实事实。</Text>}
       {state.canRetry && <><Action id="dev-retry" title="重试" onPress={() => {
         if (controller.current?.getSnapshot() !== state) return;
         if (beforeSend && !beforeSend()) { leave(); return; }
@@ -167,12 +168,8 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       retryLastMessage={() => undefined} onShowIntro={() => setShowIntro(value => !value)}
       footer={<View className="px-4 pb-4 gap-3">
         {state.status === 'success' && <>
-          <Text className="text-sm text-stone-700">这段回复可能参考本次对话前文。可编辑后确认保存；只带入选中的当前输入和理解，不保存整段对话，也不自动判断心理模式。</Text>
-          <Action id="candidate-confirm" title="确认这个理解" onPress={confirm} />
-          <Action id="candidate-edit" title="修改后再确认" onPress={confirm} />
-          <View className="flex-row flex-wrap gap-2"><Action id="candidate-reject" title="不符合 · 不保存" onPress={reset} />
-            <Action id="candidate-unsure" title="不确定 · 不保存" onPress={reset} /></View>
-          <Action id="candidate-stop" title="停止讨论 · 不保存" onPress={reset} />
+          <Text className="text-sm text-stone-700">可以继续聊或直接纠正，不需要确认这段理解。想留下这次发现时，可先查看并编辑要保存的内容；未点击最终保存前不会写入本地。</Text>
+          <Action id="candidate-save-discovery" title="保存这次发现" onPress={openDiscoveryPreview} />
         </>}
         {footer}
       </View>} />

@@ -23,6 +23,7 @@ export interface PathEntry { schemaVersion: 1; demoSource: JourneySource; origin
 export interface PatternState { pattern: Pattern; practice: Practice | null; records: PracticeRecord[]; path: PathEntry[] }
 export interface Snapshot { schemaVersion: 2; revision: number; accountId: string | null; session: string | null; patterns: PatternState[]; activePracticePatternId: string | null }
 export interface SyncStorage { getItem(key: string): string | null; setItem(key: string, value: string): void }
+export function canSavePracticeSuggestionTarget(pattern: Pattern): boolean;
 export interface DemoRepository {
  snapshot(): Snapshot;
  getPattern(accountId: string, patternId: string): PatternState;
@@ -35,6 +36,9 @@ export interface DemoRepository {
  createPattern(accountId: string, text: string): Snapshot;
  /** Local confirmation only; this does not attest an upstream provider/model. Creation requires version 0 and no patternId; correction requires the selected patternId and its current version. */
  confirmDevUnderstanding(accountId: string, payload: DevUnderstandingOrigin & { text: string; relation: 'create-new' | 'correct-current' }, expectedVersion: number, patternId?: string): Snapshot;
+ /** Save edited discovery text without endorsing it. New content is candidate; changed confirmed content becomes candidate. Rejected/uncertain judgments are preserved. */
+ saveDevDiscovery(accountId: string, payload: DevUnderstandingOrigin & { text: string; relation: 'create-new' | 'correct-current' }, expectedVersion: number, patternId?: string): Snapshot;
+ /** Without explicit decision, materially changed confirmed text becomes candidate; rejected/uncertain stay. Name-only or unchanged text keeps judgment. Explicit decision applies to supplied text. */
  updatePattern(accountId: string, patternId: string, patch: Partial<Pick<Pattern, 'name' | 'currentUnderstanding' | 'decision'>>, expectedVersion: number): Snapshot;
  /** New practices are saved paused. Edits preserve this practice's activation state and never modify another practice. */
  savePractice(accountId: string, patternId: string, patch: Pick<Practice, 'ifCue' | 'thenAction'> & { candidateOrigin?: PracticeCandidateOrigin }, expectedVersion: number): Snapshot;

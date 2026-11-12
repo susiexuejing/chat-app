@@ -1,3 +1,4 @@
+import { canSavePracticeSuggestionTarget } from '@/features/synthetic-demo/repository';
 import type { DemoRepository, Practice, PracticeCandidateOrigin, Snapshot } from '@/features/synthetic-demo/repository';
 
 /** Internal normalized content only. This is NOT a model/API/SSE output contract. */
@@ -42,7 +43,7 @@ function sameScope(a: PracticeCandidateScope | null, b: PracticeCandidateScope) 
 /**
  * Memory-only edit and explicit-save boundary. Host must invalidate synchronously
  * on stop/reset/exit/auth/target changes and supply the live scope on every call.
- * begin binds the user-selected confirmed target after upstream success, not a turn hook.
+ * begin binds the user-selected saved discovery or confirmed target after upstream success, not a turn hook.
  * Only an upstream-validated structured suggestion may call receive. No text parser.
  * The repository is the existing synchronous repository; async adapters are unsupported.
  */
@@ -66,7 +67,7 @@ export function createPracticeCandidateDraftController(options: {
     if (!ticket || !versions) return false;
     const state = repository.getPattern(ticket.scope.accountId, ticket.scope.patternId);
     return state.pattern.accountId === ticket.scope.accountId && state.pattern.patternId === ticket.scope.patternId
-      && state.pattern.decision === 'confirmed' && state.pattern.version === versions.pattern
+      && canSavePracticeSuggestionTarget(state.pattern) && state.pattern.version === versions.pattern
       && (state.practice?.version ?? 0) === versions.practice;
   }
   function nextDraft(content: PracticeCandidateContent): PracticeCandidateDraft {
@@ -83,7 +84,7 @@ export function createPracticeCandidateDraftController(options: {
       try {
         if (!sameScope(getCurrentScope(), scope)) return null;
         const state = repository.getPattern(scope.accountId, scope.patternId);
-        if (state.pattern.decision !== 'confirmed' || state.pattern.accountId !== scope.accountId || state.pattern.patternId !== scope.patternId) return null;
+        if (!canSavePracticeSuggestionTarget(state.pattern) || state.pattern.accountId !== scope.accountId || state.pattern.patternId !== scope.patternId) return null;
         versions = { pattern: state.pattern.version, practice: state.practice?.version ?? 0 };
         ticket = Object.freeze({ scope: Object.freeze({ accountSession: scope.accountSession, accountId: scope.accountId,
           patternId: scope.patternId, ...(scope.sessionId ? { sessionId: scope.sessionId } : {}), devConversationId: scope.devConversationId, requestId: scope.requestId }) });

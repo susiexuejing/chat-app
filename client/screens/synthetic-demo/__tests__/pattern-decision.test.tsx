@@ -85,7 +85,7 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
   function checked(decision: Exclude<Decision, 'candidate'>) { return node(`pattern-decision-${decision}`).props.accessibilityState.checked; }
 
   it.each([
-    ['candidate', '演示候选 · 待确认'], ['rejected', '不符合'], ['uncertain', '暂不确定'],
+    ['candidate', '未判断'], ['rejected', '不符合'], ['uncertain', '暂不确定'],
   ] as const)('keeps %s practice state but blocks an unsavable new record before editing', async (decision, label) => {
     await mount(); await editor();
     if (decision !== 'candidate') { await press(`pattern-decision-${decision}`); await press('pattern-save'); }
@@ -160,7 +160,7 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     await mount(); await editor();
     await type('pattern-name', '虚构改名'); await type('pattern-understanding', ''); await press('pattern-save');
     expect(state(a).pattern).toMatchObject({ name: '虚构改名', currentUnderstanding: '', decision: 'candidate' });
-    expect(state(a).pattern.clues).toEqual([]); expect(output()).toContain('演示候选 · 待确认');
+    expect(state(a).pattern.clues).toEqual([]); expect(output()).toContain('未判断');
     await press('pattern-edit'); await press('pattern-decision-uncertain'); await press('pattern-save');
     expect(state(a).pattern).toMatchObject({ currentUnderstanding: '', decision: 'uncertain' });
   });
