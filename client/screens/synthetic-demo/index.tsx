@@ -424,7 +424,13 @@ export default function SyntheticDemoScreen() {
             <Text className="text-sm text-stone-600">{entry.demoSource === 'dev-api-test' ? 'DEV 测试流程' : '历史合成示例'} · 用户确认</Text>
             {entry.oldUnderstanding !== undefined && <Text className="text-stone-700">原理解：{entry.oldUnderstanding}</Text>}
             {entry.currentUnderstanding !== undefined && <Text className="text-stone-700">新理解：{entry.currentUnderstanding}</Text>}
-            {record && <View className="gap-1"><Text className="text-stone-700">情境发生：{record.occurred ? '是' : '否'}</Text>
+            {record && <View className="gap-1">
+              {record.practiceSnapshot ? <View testID={`record-practice-${record.recordId}`}>
+                <Text className="text-stone-700">当时的练习（版本 {record.practiceVersion}）</Text>
+                <Text className="text-stone-700">当时的触发情境：{record.practiceSnapshot.ifCue}</Text>
+                <Text className="text-stone-700">当时的约定动作：{record.practiceSnapshot.thenAction}</Text>
+              </View> : <Text testID={`record-practice-missing-${record.recordId}`} className="text-stone-600">这条旧记录未保存当时的练习内容，不能从当前练习推断。</Text>}
+              <Text className="text-stone-700">情境发生：{record.occurred ? '是' : '否'}</Text>
               <Text className="text-stone-700">原始行动：{actions.find(([key]) => key === record.action)?.[1] ?? '不适用'}</Text>
               <Text className="text-stone-700">原始感受：{feelings.find(([key]) => key === record.feeling)?.[1] ?? '不适用'}</Text>
               {!!record.note && <Text className="text-stone-700">原始补充：{record.note}</Text>}
