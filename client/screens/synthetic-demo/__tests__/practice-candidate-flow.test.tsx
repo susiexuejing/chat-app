@@ -151,6 +151,105 @@ describe('EF-378 actual host, conversation, candidate editor, controller and rep
   function state(id = a) { return saved().patterns.find(item => item.pattern.patternId === id)!; }
   async function choose(id = b) { await press(`practice-candidate-target-${id}`); await press('practice-candidate-confirm-target'); }
   async function start() { await mount(); await send(); }
+  it('normal receipts display the candidate without a dropped-suggestion notice', async () => {
+    await start();
+    expect(nodes('practice-candidate-card')).toHaveLength(1);
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+  it('a changed account at receipt does not display the old candidate or its notice', async () => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementation(async (...args) => { repo.logout(); await transport(...args); });
+    await start();
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+  it.each(['dev-end-chat', 'dev-new-chat', 'nav-me'])('%s clears a failed-receipt notice without restoring the candidate', async id => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementation(async (...args) => {
+      storage.getItem.mockImplementation(() => { throw new Error('synthetic read failure'); });
+      await transport(...args);
+    });
+    await start(); expect(output()).toContain('本轮 AI 练习建议未显示');
+    storage.getItem.mockImplementation((key: string) => values.get(key) ?? null);
+    await press(id);
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+  });
+  it('account replacement clears a failed-receipt notice', async () => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementation(async (...args) => {
+      repo.updatePattern(account, a, { name: '另一页面更新的模式名称' }, state(a).pattern.version);
+      await transport(...args);
+    });
+    await start(); expect(output()).toContain('本轮 AI 练习建议未显示');
+    const old = values.get(STORAGE_KEY)!; repo.logout(); const after = values.get(STORAGE_KEY)!;
+    await act(async () => listeners.get('storage')!({ key: STORAGE_KEY, oldValue: old, newValue: after }));
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+  });
+  it('a fresh explicit send clears the failed receipt notice rather than retrying it', async () => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementationOnce(async (...args) => {
+      storage.getItem.mockImplementation(() => { throw new Error('synthetic read failure'); });
+      await transport(...args);
+    });
+    await start(); expect(output()).toContain('本轮 AI 练习建议未显示');
+    storage.getItem.mockImplementation((key: string) => values.get(key) ?? null);
+    await send('虚构场景：新的明确发送');
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(nodes('practice-candidate-card')).toHaveLength(1);
+    expect(mockStart).toHaveBeenCalledTimes(2); expect(mockStream).toHaveBeenCalledTimes(2);
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+  it('a terminal arriving after leaving cannot display a receipt failure notice', async () => {
+    let release!: () => void;
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementationOnce(async (...args) => {
+      await new Promise<void>(resolve => { release = resolve; });
+      await transport(...args);
+    });
+    await mount(); await send(); await press('nav-me');
+    storage.getItem.mockImplementation(() => { throw new Error('synthetic read failure'); });
+    await act(async () => release());
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(storage.setItem).not.toHaveBeenCalled();
+  });
+  it('explains same-account revision drift without displaying or saving the candidate', async () => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementation(async (...args) => {
+      repo.updatePattern(account, a, { name: '另一页面更新的模式名称' }, state(a).pattern.version);
+      await transport(...args);
+    });
+    await start();
+    expect(output()).toContain('本地数据已变化，本轮 AI 练习建议未显示，也未保存。请核对本地模式后再继续。');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(saved().patterns.every(item => item.practice === null)).toBe(true);
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+    expect(storage.setItem).toHaveBeenCalledTimes(1); // only the independent revision update
+    await press('nav-me');
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+  });
+  it('explains a failed receipt snapshot read without retaining or retrying the candidate', async () => {
+    const transport = mockStream.getMockImplementation()!;
+    mockStream.mockImplementation(async (...args) => {
+      storage.getItem.mockImplementation(() => { throw new Error('synthetic read failure'); });
+      await transport(...args);
+    });
+    await start();
+    expect(output()).toContain('未能核验本地模式，本轮 AI 练习建议未显示，也未保存。请检查本地存储后再继续。');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(mockStart).toHaveBeenCalledTimes(1); expect(mockStream).toHaveBeenCalledTimes(1);
+    storage.getItem.mockImplementation(key => values.get(key) ?? null);
+    await press('dev-new-chat');
+    expect(output()).not.toContain('本轮 AI 练习建议未显示');
+    expect(nodes('practice-candidate-card')).toHaveLength(0);
+  });
   it('keeps a same-turn edited suggestion through first-pattern creation, with a fresh explicit target choice', async () => {
     values.clear(); repo = createDemoRepository(storage); account = repo.login(repo.requestCode(DEMO_NUMBER)).session!;
     storage.setItem.mockClear(); await start();
