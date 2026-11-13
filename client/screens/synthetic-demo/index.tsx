@@ -538,13 +538,14 @@ export default function SyntheticDemoScreen() {
         {practice ? <><Text className="text-stone-800">如果：{practice.ifCue}</Text><Text className="text-stone-800">那么：{practice.thenAction}</Text></> : <Text className="text-stone-700">请自行填写一个触发线索与动作。</Text>}
         {practice?.candidateOrigin && <Text testID="practice-suggestion-source" className="text-sm text-stone-600">来源：AI 建议 · 经你编辑或核对后明确保存</Text>}
         <Text className="text-sm text-stone-600">{!practice ? '尚未保存' : practice.paused ? '已保存 · 尚未开始或已暂停' : '已保存 · 进行中'}</Text>
-        <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green onPress={() => { if (currentView()) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
+        {!canSavePracticeSuggestionTarget(pattern) && <Text testID="practice-unavailable" className="text-sm text-stone-600">这条模式目前暂不能填写、编辑或开启练习。已保存的练习和记录仍可查看；已开启的练习仍可手动暂停。无需为了使用练习而改变自己的判断。</Text>}
+        <Button testID="practice-edit" title={practice ? '编辑练习' : '填写这个模式的练习'} green disabled={!canSavePracticeSuggestionTarget(pattern)} onPress={() => { if (currentView() && canSavePracticeSuggestionTarget(pattern)) changeDraft({ kind: 'practice', ...scope, cue: practice?.ifCue ?? '', action: practice?.thenAction ?? '', version: practice?.version ?? 0 }); }} />
         {practice && <>{!canSavePracticeSuggestionTarget(pattern) && <Text testID="record-unavailable" className="text-sm text-stone-600">这条模式目前是「{decisionLabels[pattern.decision]}」，暂不能新增练习记录。已有记录会保留，练习仍开启时可手动暂停。</Text>}
           <Button testID="record-open" title="记录这一次" green disabled={!canSavePracticeSuggestionTarget(pattern) || practice.paused || snapshot.activePracticePatternId !== pattern.patternId} onPress={startRecord} />
           {!practice.paused ? <Button testID="practice-pause" title="暂停练习" secondary onPress={() => { if (currentView()) { changeDraft(null); write(repo => repo.pausePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已暂停。'); } }} />
             : <><Text className="text-sm text-stone-600">同一账户最多开启一个练习。开启这一个不会自动暂停或更改其他模式。</Text>
               {snapshot.activePracticePatternId && snapshot.activePracticePatternId !== pattern.patternId && <Text testID="practice-active-conflict" className="text-sm text-orange-800">另一个模式的练习正在进行。请返回列表，主动暂停它后再开启这里的练习。</Text>}
-              <Button testID="practice-activate" title="开启这个练习" green onPress={() => { if (currentView()) { changeDraft(null); write(repo => repo.activatePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已开启。'); } }} /></>}
+              <Button testID="practice-activate" title="开启这个练习" green disabled={!canSavePracticeSuggestionTarget(pattern) || Boolean(snapshot.activePracticePatternId && snapshot.activePracticePatternId !== pattern.patternId)} onPress={() => { if (currentView() && canSavePracticeSuggestionTarget(pattern) && (!snapshot.activePracticePatternId || snapshot.activePracticePatternId === pattern.patternId)) { changeDraft(null); write(repo => repo.activatePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已开启。'); } }} /></>}
         </>}
       </Card>{renderDraft()}
     </>;
@@ -557,8 +558,8 @@ export default function SyntheticDemoScreen() {
             {!practice.paused ? <Button testID="record-worse-pause" title="暂停这个练习" secondary onPress={() => {
               if (currentView()) write(repo => repo.pausePractice(scope.accountId, scope.patternId, practice.version), '这个模式的练习已暂停。');
             }} /> : <Text testID="record-worse-paused" className="text-stone-700">这个模式的练习已暂停。</Text>}
-            <Button testID="record-worse-edit" title="调整这个练习" secondary onPress={() => {
-              if (!currentView()) return;
+            <Button testID="record-worse-edit" title="调整这个练习" secondary disabled={!canSavePracticeSuggestionTarget(pattern)} onPress={() => {
+              if (!currentView() || !canSavePracticeSuggestionTarget(pattern)) return;
               navigate('practice', pattern.patternId);
               changeDraft({ kind: 'practice', ...scope, cue: practice.ifCue, action: practice.thenAction, version: practice.version });
             }} />
