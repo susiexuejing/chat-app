@@ -223,6 +223,91 @@ describe('EF-383 saved-pattern decisions with the actual screen and repository',
     expect(persisted()).toEqual(before); expect(persisted().session).toBeNull(); expect(nodes('draft-editor')).toHaveLength(0); expect(storage.setItem).not.toHaveBeenCalled();
   });
 
+  describe('practice entry contract', () => {
+    it.each(['candidate', 'rejected', 'uncertain'] as const)('blocks unsavable filling for %s without a practice', async decision => {
+      const repo = createDemoRepository(storage);
+      repo.updatePattern(accountId, b, { decision }, state(b).pattern.version);
+      await mount(); await detail(b); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      expect(node('practice-edit').props.disabled).toBe(true);
+      expect(nodes('practice-unavailable')).toHaveLength(1);
+      await act(async () => node('practice-edit').props.onPress());
+      expect(nodes('practice-cue')).toHaveLength(0);
+      expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
+    });
+    it.each(['candidate', 'rejected', 'uncertain'] as const)('blocks editing and activation for paused %s', async decision => {
+      const repo = createDemoRepository(storage);
+      repo.updatePattern(accountId, a, { decision }, state(a).pattern.version);
+      repo.pausePractice(accountId, a, state(a).practice!.version);
+      await mount(); await detail(); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      expect(node('practice-edit').props.disabled).toBe(true);
+      expect(node('practice-activate').props.disabled).toBe(true);
+      expect(nodes('practice-unavailable')).toHaveLength(1);
+      await act(async () => { node('practice-edit').props.onPress(); node('practice-activate').props.onPress(); });
+      expect(nodes('practice-cue')).toHaveLength(0);
+      expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
+    });
+    it.each(['candidate', 'rejected', 'uncertain'] as const)('preserves viewing and manual pause for active %s', async decision => {
+      const repo = createDemoRepository(storage);
+      repo.updatePattern(accountId, a, { decision }, state(a).pattern.version);
+      await mount(); await detail(); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      expect(output()).toContain(state(a).practice!.thenAction);
+      expect(node('practice-edit').props.disabled).toBe(true);
+      expect(node('record-open').props.disabled).toBe(true);
+      await press('practice-pause');
+      expect(state(a).practice!.paused).toBe(true);
+      expect(state(a).pattern).toEqual(state(a, before).pattern);
+      expect(state(a).records).toEqual(state(a, before).records);
+      expect(state(a).path).toEqual(state(a, before).path);
+      expect(node('practice-activate').props.disabled).toBe(true);
+      expect(storage.setItem).toHaveBeenCalledTimes(1);
+    });
+    it.each(['confirmed', 'dev-discovery'] as const)('keeps explicit edit, save, activation and record for eligible %s', async kind => {
+      const repo = createDemoRepository(storage);
+      repo.pausePractice(accountId, a, state(a).practice!.version);
+      const target = kind === 'confirmed' ? b : repo.saveDevDiscovery(accountId, {
+        text: '虚构的未判断发现', input: '虚构的本人当前输入', requestId: 'offline-discovery', relation: 'create-new',
+      }, 0).patterns.at(-1)!.pattern.patternId;
+      await mount(); await detail(target); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      expect(node('practice-edit').props.disabled).toBe(false);
+      expect(nodes('practice-unavailable')).toHaveLength(0);
+      await press('practice-edit'); await type('practice-cue', '我选择的线索'); await type('practice-action', '我选择的动作');
+      expect(persisted()).toEqual(before);
+      await press('practice-save');
+      expect(state(target).practice!.paused).toBe(true); expect(persisted().activePracticePatternId).toBeNull();
+      await press('practice-activate');
+      expect(persisted().activePracticePatternId).toBe(target);
+      await press('record-open'); await press('record-occurred-no'); await press('record-save');
+      expect(state(target).records).toHaveLength(1);
+      expect(state(target).pattern).toEqual(state(target, before).pattern);
+      expect(storage.setItem).toHaveBeenCalledTimes(3);
+    });
+    it('blocks activation conflict without auto-pausing the other practice', async () => {
+      const repo = createDemoRepository(storage);
+      repo.savePractice(accountId, b, { ifCue: '另一线索', thenAction: '另一动作' }, 0);
+      await mount(); await detail(b); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      expect(node('practice-activate').props.disabled).toBe(true);
+      await act(async () => node('practice-activate').props.onPress());
+      expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
+      expect(persisted().activePracticePatternId).toBe(a);
+    });
+    it('old allowed handlers cannot re-open or activate after a saved rejection', async () => {
+      const repo = createDemoRepository(storage);
+      repo.pausePractice(accountId, a, state(a).practice!.version);
+      repo.savePractice(accountId, b, { ifCue: '另一线索', thenAction: '另一动作' }, 0);
+      await mount(); await detail(b); await press('practice-open');
+      const oldEdit = node('practice-edit').props.onPress, oldActivate = node('practice-activate').props.onPress;
+      await press('practice-back'); await press('pattern-edit'); await press('pattern-decision-rejected'); await press('pattern-save'); await press('practice-open');
+      const before = persisted(); storage.setItem.mockClear();
+      await act(async () => { oldEdit(); oldActivate(); });
+      expect(nodes('practice-cue')).toHaveLength(0); expect(persisted()).toEqual(before); expect(storage.setItem).not.toHaveBeenCalled();
+    });
+  });
+
   it('invalidates a pending decision when the account storage is replaced', async () => {
     await mount(); await editor(); await press('pattern-decision-confirmed'); const save = node('pattern-save').props.onPress;
     const oldValue = values.get(STORAGE_KEY)!; const replacement = persisted(); replacement.session = null;
