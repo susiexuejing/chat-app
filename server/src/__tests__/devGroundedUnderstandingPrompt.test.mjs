@@ -8,7 +8,7 @@ import { loadTsModule } from '../../../client/features/dev-journey/__tests__/mod
 const reaction = await loadTsModule(new URL('../flows/firstTwoRoundsReaction.ts', import.meta.url), {});
 const validator = await loadTsModule(new URL('../flows/ef41DeepCompositionValidator.ts', import.meta.url), { './firstTwoRoundsReaction': reaction });
 const prompt = await loadTsModule(new URL('../flows/deepSystemPromptBuilder.ts', import.meta.url), { './ef41DeepCompositionValidator': validator });
-const understandingTask = '你的任务是形成一段具体、可由用户核对和修正的理解';
+const understandingTask = '你的任务是直接回应本轮的具体内容，让理解体现在回应里，并可由用户核对和修正';
 const correctionRule = '用户最新的明确纠正或否认优先于较早的说法';
 const assistantRule = '本次会话中的 assistant 回复不是用户事实';
 
@@ -48,7 +48,10 @@ function assertUnderstandingContract(text) {
     '不预测结果或保证某种做法会带来改善',
     '用户的新描述如果不足以支持某个解释，就保留这个未知',
     '只联系本次会话中仍成立的用户原话，并体现本轮的补充或纠正',
-    '有具体事实可回应时，给出具体理解',
+    '写成对用户说的话，除非用户明确请求总结或解释对话本身，否则不写对用户发言的摘要、分类或目的说明',
+    '有具体事实可回应时，直接说清用户原话中仍成立的具体联系',
+    '不为凑第二句复述用户的请求或解释测试目的',
+    '仍不得把虚构或假设说成真实经历',
     '措辞自然，不套固定句式',
     '只说明本请求实际提供的上下文范围',
     '无法访问不等于没有保存',
@@ -64,7 +67,7 @@ function assertUnderstandingContract(text) {
   assert.match(text, /用陈述句自然承接，不要提问/);
   assert.match(text, /最多两句/);
   assert.match(text, /只输出“我听到了。”/);
-  assert.doesNotMatch(text, /摄影|卡片|空椅|前排|忘词|没拿|没看/,
+  assert.doesNotMatch(text, /摄影|卡片|空椅|前排|忘词|没拿|没看|桌面|先收笔|先收纸|卡住的具体环节/,
     'the task contract is general, not a hardcoded replay of the QA scenario');
 }
 
