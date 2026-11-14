@@ -124,7 +124,7 @@ function DemoWorkspace({ temporary, temporaryStorage, onChangeSpace }: {
       if (Platform.OS !== 'web' || typeof window === 'undefined') {
         throw new Error('此 DEV 演示仅支持网页浏览器的本地存储。当前环境不可用，不会连接真实聊天。');
       }
-      const repo = createDemoRepository(temporary ? temporaryStorage : window.localStorage);
+      const repo = temporary ? createDemoRepository(temporaryStorage) : createDemoRepository(window.localStorage);
       const next = repo.snapshot();
       repository.current = repo;
       setSnapshot(next);
