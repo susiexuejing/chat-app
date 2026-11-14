@@ -4,7 +4,7 @@ import { Screen } from '@/components/Screen';
 import { useRouter } from 'expo-router';
 import {
   DEMO_NUMBER, STORAGE_KEY, LEGACY_STORAGE_KEY, createDemoRepository, canSavePracticeSuggestionTarget,
-  type Decision, type DemoRepository, type Pattern, type PatternState, type PathEntry, type RecordPayload, type Snapshot,
+  type SyncStorage, type Decision, type DemoRepository, type Pattern, type PatternState, type PathEntry, type RecordPayload, type Snapshot,
 } from '@/features/synthetic-demo/repository';
 import { PracticeCandidateCard, type PracticeCandidateCardHandle } from '@/features/dev-journey/PracticeCandidateCard';
 import type { DevPracticeCandidate } from '@/features/dev-journey/realRequestController';
@@ -61,8 +61,25 @@ function Choice({ testID, title, selected, onPress }: { testID: string; title: s
   </Pressable>;
 }
 
-/** DEV only. Local journey state stays separate from explicit real chat transport. */
+/** Explicit page-local storage, never a browser profile or a separate server account. */
+function createTemporaryStorage(): SyncStorage {
+  const values = new Map<string, string>();
+  return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); } };
+}
+
 export default function SyntheticDemoScreen() {
+  const [temporary, setTemporary] = useState(false);
+  const temporaryStorage = useRef<SyncStorage | null>(null);
+  if (!temporaryStorage.current) temporaryStorage.current = createTemporaryStorage();
+  // Changing the key destroys every old draft, request controller and repository handle.
+  return <DemoWorkspace key={temporary ? 'temporary' : 'browser'} temporary={temporary}
+    temporaryStorage={temporaryStorage.current} onChangeSpace={setTemporary} />;
+}
+
+/** DEV only. Local journey state stays separate from explicit real chat transport. */
+function DemoWorkspace({ temporary, temporaryStorage, onChangeSpace }: {
+  temporary: boolean; temporaryStorage: SyncStorage; onChangeSpace: (temporary: boolean) => void;
+}) {
   const router = useRouter();
   const repository = useRef<DemoRepository | null>(null);
   const mounted = useRef(false);
@@ -107,7 +124,7 @@ export default function SyntheticDemoScreen() {
       if (Platform.OS !== 'web' || typeof window === 'undefined') {
         throw new Error('此 DEV 演示仅支持网页浏览器的本地存储。当前环境不可用，不会连接真实聊天。');
       }
-      const repo = createDemoRepository(window.localStorage);
+      const repo = createDemoRepository(temporary ? temporaryStorage : window.localStorage);
       const next = repo.snapshot();
       repository.current = repo;
       setSnapshot(next);
@@ -116,7 +133,7 @@ export default function SyntheticDemoScreen() {
       setSnapshot(null);
       setInitialError(errorText(error, '本地演示无法初始化。'));
     }
-  }, [invalidatePractice]);
+  }, [invalidatePractice, temporary, temporaryStorage]);
   useEffect(() => {
     let active = true;
     mounted.current = true;
@@ -139,7 +156,7 @@ export default function SyntheticDemoScreen() {
   }, [initialize]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.addEventListener !== 'function' || typeof window.removeEventListener !== 'function') return;
+    if (temporary || typeof window === 'undefined' || typeof window.addEventListener !== 'function' || typeof window.removeEventListener !== 'function') return;
     const onStorage = (event: StorageEvent) => {
       if (event.key !== null && event.key !== STORAGE_KEY && event.key !== LEGACY_STORAGE_KEY) return;
       const identity = (raw: string | null) => {
@@ -162,7 +179,7 @@ export default function SyntheticDemoScreen() {
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
-  }, [initialize, invalidatePractice]);
+  }, [initialize, invalidatePractice, temporary]);
 
   function currentView() { return mounted.current && navigation.current === viewToken; }
   function beforeChatSend() {
@@ -282,7 +299,7 @@ export default function SyntheticDemoScreen() {
         return repo.saveRecord(current.accountId, current.patternId, current.payload, current.version, current.operationId);
       }
       return repo.updatePath(current.accountId, current.patternId, current.entry.entryId, { explanation: current.explanation, feeling: current.feeling }, current.entry.version);
-    }, '已保存到此浏览器的演示空间。', () => {
+    }, temporary ? '已保存到本页临时测试空间，刷新后不保留。' : '已保存到此浏览器的演示空间。', () => {
       if (current.kind === 'record') setSavedWorseRecord(current.payload.feeling === 'worse'
         ? { accountId: current.accountId, patternId: current.patternId } : null);
     }, current.kind === 'candidate' && current.mode === 'new' ? current.requestId : undefined);
@@ -340,7 +357,7 @@ export default function SyntheticDemoScreen() {
       onSaved={next => {
         if (!currentView() || practiceCandidateRef.current !== expected) return;
         invalidatePractice(); setSnapshot(next);
-        setNotice({ kind: 'success', text: '已保存到此浏览器中你选择的模式。保存不会开启或暂停练习。' });
+        setNotice({ kind: 'success', text: temporary ? '已保存到本页临时测试空间中你选择的模式。刷新后不保留；保存不会开启或暂停练习。' : '已保存到此浏览器中你选择的模式。保存不会开启或暂停练习。' });
       }} />;
   }
   function discardChatDraft() {
@@ -464,6 +481,16 @@ export default function SyntheticDemoScreen() {
     if (!snapshot) return <Text className="text-stone-700">正在准备本地演示…</Text>;
     if (!signedIn) return <Card>
       <Text className="text-2xl font-semibold text-stone-900">进入虚构演示账号</Text>
+      <Text className="text-stone-600">临时测试空间只使用本页内存，不读取或写入原浏览器空间。刷新后临时内容消失；在本页退出或切换空间不会清空临时内容。不是独立账号或浏览器 profile；发送仍调用 DEV 服务，费用与服务端日志规则不变。仅使用虚构内容。</Text>
+      <Button testID="switch-space" title={temporary ? '返回原浏览器空间' : '进入本页临时测试空间'} secondary onPress={() => {
+        if (!currentView() || !repository.current) return;
+        // Re-check the source, not just rendered state, before remounting.
+        try {
+          if (repository.current.snapshot().session) { initialize(); return; }
+          repository.current.cancelCode();
+          onChangeSpace(!temporary);
+        } catch (error) { setNotice({ kind: 'error', text: errorText(error, '无法确认退出状态，未切换空间。') }); }
+      }} />
       <Text className="text-stone-600">不发送短信，不验证真实身份。请勿输入真实手机号或私人内容。</Text>
       <TextInput testID="number" accessibilityLabel="虚构演示号码" editable={false} value={DEMO_NUMBER} className="text-lg text-stone-900" />
       <Button testID="get-code" title={code ? '重新生成演示验证码' : '获取演示验证码'} onPress={() => {
@@ -483,11 +510,11 @@ export default function SyntheticDemoScreen() {
       <Text className="text-2xl font-semibold text-stone-900">我的</Text>
       <Card><Text className="text-lg font-semibold text-stone-900">我的模式</Text><Text className="text-stone-600">查看自己确认的理解、各自的练习和路径。</Text>
         <Button testID="mode-open" title="我的模式" secondary onPress={() => navigate('patterns')} /></Card>
-      <Card><Text className="text-lg font-semibold text-stone-900">账户信息</Text><Text className="text-stone-600">虚构账号 · {DEMO_NUMBER}</Text><Text className="text-sm text-stone-600">仅保存在这个浏览器。退出后重新登录同一个演示账号可以继续查看已保存内容。</Text>
+      <Card><Text className="text-lg font-semibold text-stone-900">账户信息</Text><Text className="text-stone-600">虚构账号 · {DEMO_NUMBER}</Text><Text className="text-sm text-stone-600">{temporary ? '仅保存在本页内存。退出后在本页重新登录可继续查看；刷新后不保留。' : '仅保存在这个浏览器。退出后重新登录同一个演示账号可以继续查看已保存内容。'}</Text>
         <Button testID="logout" title="退出演示账号" secondary onPress={() => {
           if (!currentView()) return;
           invalidatePractice(); accountSession.current = {}; changeDraft(null); repository.current?.cancelCode(); setChatGeneration(value => value + 1); setCode(''); setEnteredCode('');
-          write(repo => repo.logout(), '已退出，未保存草稿已丢弃。');
+          write(repo => repo.logout(), temporary ? '已退出。已保存内容仍保留在本页临时空间，刷新后不保留。' : '已退出。已保存内容仍保留在原浏览器空间。');
         }} /></Card>
     </>;
     if (page === 'patterns') return <View testID="patterns-list" className="gap-4">
@@ -573,7 +600,7 @@ export default function SyntheticDemoScreen() {
   return <Screen backgroundColor="#fafaf9" statusBarStyle="dark">
     <View className="flex-1 bg-stone-50">
       <View className="border-b border-orange-200 bg-orange-50 px-5 py-3"><Text className="font-semibold text-orange-900">DEV · 真实聊天与本地体验流程</Text>
-        <Text className="text-xs text-orange-900">虚构账号，无短信；聊天仅在点击发送后调用现有 DEV API。模式、练习和路径只保存在本浏览器。</Text>
+        <Text className="text-xs text-orange-900">{temporary ? '本页临时测试空间 · 模式、练习和路径仅存于本页内存，刷新后不保留。' : '原浏览器空间 · 模式、练习和路径保存在本浏览器。'}虚构账号，无短信；聊天仅在点击发送后调用现有 DEV API。</Text>
         <Button testID="return-live-chat" title="返回原聊天与历史" secondary onPress={() => { if (currentView()) { navigate('chat'); router.replace('/'); } }} />
       </View>
       {notice && <View accessibilityLiveRegion="polite" className={`rounded-xl p-4 ${notice.kind === 'error' ? 'bg-red-50' : 'bg-green-50'}`}><Text className={notice.kind === 'error' ? 'text-red-800' : 'text-green-800'}>{notice.text}</Text></View>}
@@ -597,3 +624,4 @@ export default function SyntheticDemoScreen() {
     </View>
   </Screen>;
 }
+
