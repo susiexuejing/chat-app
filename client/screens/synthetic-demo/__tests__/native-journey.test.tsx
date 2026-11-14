@@ -710,4 +710,68 @@ describe('EF-385 native journey with the real controller, views and local reposi
     expect(values.get(STORAGE_KEY)).toBe(persisted); expect(storage.setItem).not.toHaveBeenCalled();
   });
 
+  test('temporary space is explicit, does not access original storage, and survives page-local relogin', async () => {
+    await mount(); await login(); await confirm();
+    expect(nodes('switch-space')).toHaveLength(0);
+    await press('nav-me'); await press('logout');
+    expect(output()).not.toContain('未保存草稿已丢弃');
+    const original = values.get(STORAGE_KEY);
+    await press('switch-space');
+    storage.getItem.mockClear(); storage.setItem.mockClear();
+    expect(listeners.has('storage')).toBe(false);
+    await login(); await press('nav-me'); await press('mode-open');
+    expect(nodes('patterns-empty')).toHaveLength(1);
+    await confirm();
+    await press('nav-me'); await press('logout'); await login();
+    await press('nav-me'); await press('mode-open');
+    expect(nodes('patterns-empty')).toHaveLength(0);
+    expect(storage.getItem).not.toHaveBeenCalled();
+    expect(storage.setItem).not.toHaveBeenCalled();
+    expect(values.get(STORAGE_KEY)).toBe(original);
+    await press('nav-me'); await press('logout'); await press('switch-space'); await login();
+    await press('nav-me'); await press('mode-open');
+    expect(nodes(`pattern-open-${JSON.parse(original!).patterns[0].pattern.patternId}`)).toHaveLength(1);
+  });
+
+  test('temporary content disappears with page unmount, without erasing original content', async () => {
+    await mount(); await press('switch-space'); await login(); await confirm();
+    await act(async () => tree.unmount()); mounted = false;
+    await mount();
+    expect(output()).toContain('原浏览器空间');
+    await press('switch-space'); await login(); await press('nav-me'); await press('mode-open');
+    expect(nodes('patterns-empty')).toHaveLength(1);
+  });
+
+  test('switching invalidates an old code and stale login callbacks without submitting transport', async () => {
+    await mount(); await press('get-code');
+    const oldLogin = node('login').props.onPress;
+    await press('switch-space');
+    await act(async () => oldLogin());
+    expect(nodes('displayed-code')).toHaveLength(0);
+    expect(nodes('login')).toHaveLength(0);
+    expect(mockStart).not.toHaveBeenCalled();
+    await login();
+    expect(nodes('switch-space')).toHaveLength(0);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
+  test('stale space switch cannot discard a logged-in workspace', async () => {
+    await mount();
+    const oldSwitch = node('switch-space').props.onPress;
+    await login();
+    await act(async () => oldSwitch());
+    expect(output()).toContain('原浏览器空间');
+    expect(nodes('switch-space')).toHaveLength(0);
+  });
+
+  test('entering temporary space never resolves the original storage property', async () => {
+    await mount();
+    Object.defineProperty(window, 'localStorage', { configurable: true, get() { throw new Error('Original storage must not be accessed'); } });
+    await press('switch-space'); await login();
+    expect(output()).toContain('本页临时测试空间');
+    expect(nodes('switch-space')).toHaveLength(0);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+
 });
+
