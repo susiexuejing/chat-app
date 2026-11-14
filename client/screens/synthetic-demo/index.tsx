@@ -69,11 +69,10 @@ function createTemporaryStorage(): SyncStorage {
 
 export default function SyntheticDemoScreen() {
   const [temporary, setTemporary] = useState(false);
-  const temporaryStorage = useRef<SyncStorage | null>(null);
-  if (!temporaryStorage.current) temporaryStorage.current = createTemporaryStorage();
+  const [temporaryStorage] = useState<SyncStorage>(createTemporaryStorage);
   // Changing the key destroys every old draft, request controller and repository handle.
   return <DemoWorkspace key={temporary ? 'temporary' : 'browser'} temporary={temporary}
-    temporaryStorage={temporaryStorage.current} onChangeSpace={setTemporary} />;
+    temporaryStorage={temporaryStorage} onChangeSpace={setTemporary} />;
 }
 
 /** DEV only. Local journey state stays separate from explicit real chat transport. */
