@@ -12,7 +12,7 @@ for(const eventType of ['turn.completed','error'])test('strict negotiated enumer
   const wire=envelope(eventType,{...base,candidateDiagnostic:stage});assert.equal(api.parseVersionedStreamEvent(wire).kind,'rejected');const p=api.parseVersionedStreamEvent(wire,true);assert.equal(p.kind,'known');assert.equal(JSON.parse(p.serialized).payload.candidateDiagnostic,stage);
  }
  for(const value of ['SENTINEL_PRIVATE','constructor','candidate_ready ',null,{},[],2]) assert.equal(api.parseVersionedStreamEvent(envelope(eventType,{...base,candidateDiagnostic:value}),true).kind,'rejected');
- assert.equal(api.parseVersionedStreamEvent(envelope(eventType,{...base,candidateDiagnostic:'model_null',secret:'SENTINEL_PRIVATE'}),true).kind,'rejected');
+ assert.equal(api.parseVersionedStreamEvent(envelope(eventType,{...base,candidateDiagnostic:'model_null',unexpectedField:'fixture-text'}),true).kind,'rejected');
  assert.equal(api.parseVersionedStreamEvent(envelope(eventType,base)).kind,'known');
 });
 test('diagnostic illegal on nonterminal event',()=>assert.equal(api.parseVersionedStreamEvent(envelope('deep.delta',{content:'SENTINEL_PRIVATE',candidateDiagnostic:'model_null'}),true).kind,'rejected'));
