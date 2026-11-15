@@ -140,7 +140,11 @@ export function createDevRealRequestController(options: {
   }
   function end(status: 'failed' | 'stopped', error: string | null) {
     if (error === EXPIRED_MESSAGE && options.allowCandidateDiagnostics) {
+      const endGeneration = generation;
       try { options.onCandidateDiagnosticExpiry?.(); } catch { /* cleanup must not prevent expiry */ }
+      // An observer may synchronously choose safety, stop, reset or dispose.
+      // Its newer state owns cleanup; this older expiry must not replace it.
+      if (generation !== endGeneration || disposed) return;
     }
     invalidate();
     publish({ ...initial(), status, error, canSend: false });
@@ -249,6 +253,9 @@ export function createDevRealRequestController(options: {
         startAcknowledged = true;
         if (start.devCandidateDiagnostic && (!diagnosticEnabled || start.devCandidateDiagnostic !== 'dev-candidate-diagnostic-v1')) throw new Error('unexpected_candidate_diagnostic');
         reportDiagnostic(start.devCandidateDiagnostic ? 'unavailable' : 'not_negotiated', 'unavailable');
+        // Observation can synchronously revoke this attempt. Do not restore
+        // its context, expiry or streaming state over a newer safety choice.
+        if (!isCurrent()) return false;
         recoveryNegotiated = start.devRetryContract === 'dev-manual-retry-v1' && start.devReplyContract === 'dev-reply-practice-v1';
         retryAnchor = null;
         context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
