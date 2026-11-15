@@ -562,3 +562,6 @@ import './devCurrentHistoryQuotation.test.mjs';
 
 // Opt-in diagnostics remain default-off and cannot alter safety/owner gates.
 import './candidate-diagnostic-review.test.mjs';
+
+// Persona identity disclosure, offline only; no changes to DEV provider behavior.
+import './personaDisclosure.test.mjs';

@@ -102,12 +102,12 @@ export function RoleDetailModal({ visible, role, onClose }: RoleDetailModalProps
 
                 {/* 职业背景 */}
                 <View className="mb-5">
-                  <SectionTitle icon="graduation-cap" title="职业背景" color={role.themeColor} />
+                  <SectionTitle icon="graduation-cap" title="身份与能力边界" color={role.themeColor} />
                   <View className="mt-3 space-y-3">
-                    <InfoItem label="教育背景" value={role.professionalBackground?.education} />
-                    <InfoItem label="工作经历" value={role.professionalBackground?.workExperience} />
+                    <InfoItem label="身份说明" value={role.professionalBackground?.education} />
+                    <InfoItem label="能力边界" value={role.professionalBackground?.workExperience} />
                     <InfoItem
-                      label="专业领域"
+                      label="陪伴主题"
                       values={role.professionalBackground?.specialties}
                     />
                   </View>
@@ -115,7 +115,7 @@ export function RoleDetailModal({ visible, role, onClose }: RoleDetailModalProps
 
                 {/* 个人背景 */}
                 <View className="mb-5">
-                  <SectionTitle icon="user" title="个人背景" color={role.themeColor} />
+                  <SectionTitle icon="user" title="虚构角色故事" color={role.themeColor} />
                   <View className="mt-3 space-y-3">
                     <InfoItem
                       label="生活经历"
