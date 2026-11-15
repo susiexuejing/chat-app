@@ -149,17 +149,17 @@ export const RoleIntroModal: React.FC<RoleIntroModalProps> = ({
 
             {activeTab === 'story' && (
               <View>
-                <SectionTitle title="成长背景" color={role.themeColor} />
+                <SectionTitle title="虚构角色故事" color={role.themeColor} />
                 <Text className="text-sm text-gray-600 leading-6 mb-4">
                   {role.personalBackground.lifeExperience}
                 </Text>
 
-                <SectionTitle title="教育背景" color={role.themeColor} />
+                <SectionTitle title="身份说明" color={role.themeColor} />
                 <Text className="text-sm text-gray-600 leading-6 mb-4">
                   {role.professionalBackground.education}
                 </Text>
 
-                <SectionTitle title="工作背景" color={role.themeColor} />
+                <SectionTitle title="能力边界" color={role.themeColor} />
                 <Text className="text-sm text-gray-600 leading-6 mb-4">
                   {role.professionalBackground.workExperience}
                 </Text>
