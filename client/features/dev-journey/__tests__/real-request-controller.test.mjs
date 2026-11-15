@@ -450,3 +450,30 @@ test('withheld classification cannot be injected into a v1 response', async () =
   assert.equal(controller.getSnapshot().canRetry,false);
   controller.dispose();
 });
+
+for (const source of ['abort', 'end']) for (const action of ['safety', 'reset', 'stop', 'dispose']) {
+  test(`withheld cleanup ${source} observer cannot overwrite newer ${action}`, async () => {
+    let controller, invoked = false;
+    const choose = () => {
+      if (invoked) return;
+      invoked = true;
+      if (action === 'safety') controller.safety('help');
+      else controller[action]();
+    };
+    ({ controller } = setup({
+      start: async (_input, signal) => {
+        if (source === 'abort') signal.addEventListener('abort', choose, { once: true });
+        return { ...receipt, sessionId:'s',devReplyContract:'dev-reply-practice-v2',devRetryContract:'dev-manual-retry-v1' };
+      },
+      end: async () => { if (source === 'end') choose(); },
+      stream: async (_s,c) => c.onError('content_not_delivered'),
+    }));
+    await controller.send('fictional');
+    assert.equal(invoked,true);
+    assert.equal(controller.getSnapshot().status, action === 'safety' ? 'safety' : action === 'reset' ? 'idle' : 'stopped');
+    assert.equal(controller.getSnapshot().completedTurns.length,0);
+    assert.equal(controller.getSnapshot().deepText,'');
+    assert.equal(controller.getSnapshot().canRetry,false);
+    controller.dispose();
+  });
+}

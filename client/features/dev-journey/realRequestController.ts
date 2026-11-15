@@ -166,8 +166,11 @@ export function createDevRealRequestController(options: {
     // This is a completed business outcome, not a transport retry invitation.
     // Keep prior completed presentation and a separately typed draft only.
     const prior = snapshot;
+    // invalidate may synchronously invoke abort/end observers that choose a
+    // newer safety, stop, reset or dispose state. That newer state owns UI.
+    const terminalGeneration = generation + 1;
     invalidate();
-    const terminalGeneration = generation;
+    if (disposed || generation !== terminalGeneration) return;
     expiry = setTimeout(() => {
       if (!disposed && generation === terminalGeneration) end('failed', EXPIRED_MESSAGE);
     }, Math.max(0, localExpiresAt - Date.now()));
