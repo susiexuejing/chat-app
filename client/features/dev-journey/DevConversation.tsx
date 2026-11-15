@@ -104,7 +104,9 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   useLayoutEffect(() => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.practiceCandidate) {
       const accepted = practiceCallbacks.current.onPracticeCandidate?.(state.practiceCandidate);
-      if (diagnosticAllowed) setPresentation(accepted === true ? 'callback_accepted' : 'state_suppressed');
+      if (diagnosticAllowed) void Promise.resolve().then(() => {
+        if (controller.current?.getSnapshot() === state) setPresentation(accepted === true ? 'callback_accepted' : 'state_suppressed');
+      });
     }
   }, [state]);
 

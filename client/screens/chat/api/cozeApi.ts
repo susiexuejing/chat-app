@@ -181,7 +181,11 @@ function normalizeKnownStreamEvent(
  * Client-owned projection of the approved EF-102 v1 envelope. This function
  * never forwards unvalidated raw fields to the chat dispatcher.
  */
-export function parseVersionedStreamEvent(data: string, candidateDiagnosticNegotiated = false): VersionedStreamParseResult {
+export function parseVersionedStreamEvent(data: string): VersionedStreamParseResult {
+  return parseVersionedStreamEventWithCandidateDiagnostic(data, false);
+}
+
+export function parseVersionedStreamEventWithCandidateDiagnostic(data: string, candidateDiagnosticNegotiated = false): VersionedStreamParseResult {
   let envelope: unknown;
   try {
     envelope = JSON.parse(data);
@@ -203,7 +207,7 @@ export function parseVersionedStreamEvent(data: string, candidateDiagnosticNegot
   const eventType = envelope.eventType as KnownStreamEventType;
   const originalPayload = envelope.payload;
   const diagnostic = originalPayload.candidateDiagnostic;
-  if (diagnostic !== undefined && (!candidateDiagnosticNegotiated || !validCandidateDiagnostic(diagnostic)
+  if (diagnostic !== undefined && (candidateDiagnosticNegotiated !== true || !validCandidateDiagnostic(diagnostic)
     || (eventType !== 'turn.completed' && eventType !== 'error'))) return rejectStreamEvent('unexpected candidate diagnostic');
   const { candidateDiagnostic: _diagnostic, ...payloadWithoutDiagnostic } = originalPayload;
   const normalized = normalizeKnownStreamEvent(eventType, envelope, payloadWithoutDiagnostic);
@@ -761,7 +765,7 @@ export async function chatStream(
                 resolve();
                 return;
               }
-              const parsed = parseVersionedStreamEvent(data, candidateDiagnosticNegotiated);
+              const parsed = parseVersionedStreamEventWithCandidateDiagnostic(data, candidateDiagnosticNegotiated);
               if (parsed.kind === 'rejected') throw parsed.error;
               const sequenceError = validateSequence(parsed.sequence);
               if (sequenceError) throw sequenceError;
@@ -834,7 +838,7 @@ export async function chatStream(
             sse.close();
             return;
           }
-          const parsed = parseVersionedStreamEvent(event.data, candidateDiagnosticNegotiated);
+          const parsed = parseVersionedStreamEventWithCandidateDiagnostic(event.data, candidateDiagnosticNegotiated);
           if (parsed.kind === 'rejected') {
             settleRejected(parsed.error);
             sse.close();
