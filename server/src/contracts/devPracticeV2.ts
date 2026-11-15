@@ -54,9 +54,10 @@ export function parseDevPracticeV2Outcome(raw: string, options: PracticeReplyOpt
     const e = p.evidence;
     if (!text(e.permissionQuote, 1000) || !text(e.anchorQuote, 1000)
       || keys.slice(2).some(k => typeof e[k] !== 'boolean')) return null;
-    // A correction can contain a fresh explicit request. Refusal/exit still vetoes.
+    // Correction or a topic change can contain a fresh explicit current-turn request.
+    // Neither may inherit prior permission; refusal/exit still vetoes.
     // All semantic labels remain model judgments, not proven ground truth.
-    if (e.smallChoiceFits !== true || e.currentUserRequest !== true || e.refusalOrExit !== false || e.topicChanged !== false
+    if (e.smallChoiceFits !== true || e.currentUserRequest !== true || e.refusalOrExit !== false
       || !options.latestUserMessage.includes(e.permissionQuote) || !options.latestUserMessage.includes(e.anchorQuote)) {
       try { options.candidateDiagnostic?.('candidate_filtered'); } catch { /* Non-authoritative observer. */ }
       return Object.freeze({ kind: 'not_delivered' }); // No model content crosses this boundary.
@@ -85,7 +86,7 @@ contract 为 "${DEV_PRACTICE_V2}"。narrative 是可编辑的 AI 理解，不是
 practiceCandidate 为 null 或 {ifCue,thenAction,evidence}。动作只写在这个对象一次；界面会从同一个对象生成正文动作与卡片，不要另写 reply。
 最终正文为 narrative 加换行“如果：ifCue”与“那么：thenAction”；总长度不超过120字符，包括这些标签。每字段不超过200字符。
 仅本人当前明确请求、可观察事实锚点和极小选择适合时生成。不要凭轮数、沉默、助手邀请或历史许可推断；不要增加理解确认流程。
-evidence仅有permissionQuote、anchorQuote（逐字引用最新用户消息），naturalClosing、smallChoiceFits、currentUserRequest、continuingExpression、correction、refusalOrExit、topicChanged（全部布尔）。仅smallChoiceFits/currentUserRequest为true且refusalOrExit/topicChanged为false合格；naturalClosing/continuingExpression不是额外门槛。
+evidence仅有permissionQuote、anchorQuote（逐字引用最新用户消息），naturalClosing、smallChoiceFits、currentUserRequest、continuingExpression、correction、refusalOrExit、topicChanged（全部布尔）。仅smallChoiceFits/currentUserRequest为true且refusalOrExit为false合格；naturalClosing/continuingExpression/topicChanged只是观察字段，不是额外门槛。换题不继承旧许可，但本轮明确的新请求仍可满足许可条件。
 correction是纠正旧建议或理解，不能自动当成拒绝新建议；若同轮明确拒绝练习、停止或离开，则refusalOrExit必须为true。请求建议不授权保存、启动、提醒或执行。
 质量安全优先于非空：保持必要事实/隐私/安全核对及最终决定权，优先可中止可撤回步骤，不以倒数或不得修改催促外部后果。不诊断、不编造身体状态、不保证效果。无法形成适合当前情境的选择则null；不能虚填证据。`;
 }
