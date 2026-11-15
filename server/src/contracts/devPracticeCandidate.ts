@@ -111,10 +111,13 @@ practiceCandidate 在缺少必要证据或任何必要条件不满足时为 null
 本轮仅表达行动愿望但没有直接许可或请求、纯陪伴、模糊“怎么办”、沉默或未反对、仅确认模式/理解，都输出 null。主动邀请不能替代用户许可；助手前轮建议或邀请不构成本轮许可。
 纠正、否认、拒绝、先停、离开优先；换话题不能继承许可。前轮许可、助手复述、转述别人或台词中的请求，不是用户本轮许可。缺证据就 null。
 非 null 候选仅有 ifCue、thenAction、evidence。ifCue 和 thenAction 各不超过200个字符。动作可为 AI 新提出的一个极小可选回应，不能冒充用户已做或说过的事实，不保证效果、不诊断、不安排任务或提醒。
+动作短小不等于风险小。练习优先选择可暂停、可撤回、由用户掌控的一步；不得把减少反复检查变成跳过必要的事实、隐私、安全核对，也不得用倒数、限时或“不许修改”等规则催促用户执行有现实后果的动作。不能仅靠“可以”“试着”把这种要求包装为可选建议。
+下述质量与安全条件优先于前文“应返回一个非 null 候选”的要求；用户明确请求也不能覆盖这些条件。不能形成符合条件的候选时返回 null，不为满足非空要求降低边界。
+发送、提交、删除、付款或作出承诺等动作并非一律禁止，但需要用户提供足够的当前情境，保留必要核对和最终决定权；信息不足时，选择不执行该动作的准备或观察步骤。仍无法给出适合当前情境的低风险小选择时，practiceCandidate 为 null；不要编造“已确认无误”等前提，也不要增设例行确认理解弹框或追问流程。
+质量要求同时适用于 thenAction 和 ifCue：不把焦虑或反复检查当作疾病诊断，不设置强迫坚持、不得退出或保证改善的要求。普通可中止的呼吸、观察、整理思路等建议不因出现“停”“检查”“发送”等词就被排除，应按具体含义判断。
 evidence 仅有 permissionQuote、anchorQuote、naturalClosing、smallChoiceFits、currentUserRequest、continuingExpression、correctionOrRefusalOrExit、topicChanged。
 permissionQuote、anchorQuote 必须逐字引用最新用户消息（保留否定、条件、时间与不确定性），不能从助手或历史消息引用；仅引用并不足以证明许可，必须判断是否是用户本人当前直接请求以及可观察事实。
 其余 evidence 字段仍全部必填且为布尔值：naturalClosing 表示自然收束，continuingExpression 表示仍在表达，这两个字段如实记录对话状态，不作为本人本轮明确请求练习的额外门槛。smallChoiceFits 表示能容纳极小选择，currentUserRequest 表示本人本轮直接许可或主动请求，correctionOrRefusalOrExit 表示纠正/拒绝/停止/离开，topicChanged 表示换题。候选仍要求 smallChoiceFits、currentUserRequest 为 true，correctionOrRefusalOrExit、topicChanged 为 false，且两个引用确实来自最新用户消息。任何必要条件不满足则 practiceCandidate 为 null，而不是填充模板。
 候选只会被显示为可改写、可拒绝、不保存的 AI 建议。不要声称保存/激活，也不要把建议混入 reply。请求建议不是许可保存、激活、安排提醒或执行动作；这些操作需要用户另行显式选择。只有用户显式保存且保存成功，界面才能说已保存。
 无候选时仍提供原合同下的 reply，不添加练习邀约。`;
 }
-
