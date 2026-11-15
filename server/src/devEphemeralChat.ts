@@ -62,7 +62,7 @@ export interface DevRetryAttempt {
   headRequestId: string;
   inputDigest: string;
   logicalAnchorRequestId: string | null;
-  state: 'pending' | 'failed' | 'completed';
+  state: 'pending' | 'failed' | 'completed' | 'withheld';
   result?: DevRetryResult;
 }
 // Copy only the validated bounded result, never arbitrary provider fields or aliases.
@@ -88,6 +88,7 @@ export interface DevConversation {
   turn: number;
   pendingRequestId: string | null;
   lastCompletedRequestId: string | null;
+  withheldRequestId?: string;
   pairs: DevContextPair[];
   retry?: DevRetryAttempt;
 }
@@ -137,8 +138,8 @@ export function createDevConversationStore(options: {
     find,
     readable(id: string, owner: string, requestId: string): boolean {
       const conversation = find(id, owner);
-      return !!conversation && (conversation.retry ? conversation.retry.headRequestId === requestId
-        : conversation.pendingRequestId === requestId || conversation.lastCompletedRequestId === requestId);
+      return !!conversation && (conversation.withheldRequestId === requestId || (conversation.retry ? conversation.retry.headRequestId === requestId
+        : conversation.pendingRequestId === requestId || conversation.lastCompletedRequestId === requestId));
     },
     begin(owner: string, requestId: string, receivedAt: number, id?: string, afterRequestId?: string,
       retry?: { inputDigest: string; retryOfRequestId?: string }):
@@ -156,7 +157,7 @@ export function createDevConversationStore(options: {
         const conversation = original?.conversationId ? find(original.conversationId, owner) : undefined;
         if (!conversation) return { ok: false, status: 404 };
         const attempt = conversation.retry;
-        if (!attempt || attempt.headRequestId !== retry.retryOfRequestId || attempt.inputDigest !== retry.inputDigest) {
+        if (conversation.withheldRequestId || !attempt || attempt.headRequestId !== retry.retryOfRequestId || attempt.inputDigest !== retry.inputDigest) {
           return { ok: false, status: 409 };
         }
         // A pending retry is only a probe: do not consume its ID or alter any state.
@@ -176,6 +177,7 @@ export function createDevConversationStore(options: {
       }
       let conversation = id ? find(id, owner) : undefined;
       if (id && !conversation) return { ok: false, status: 404 };
+      if (conversation?.withheldRequestId) return { ok: false, status: 409 };
       if (conversation && (!!conversation.retry !== !!retry || conversation.retry?.state === 'failed')) return { ok: false, status: 409 };
       if (conversation && (conversation.pendingRequestId || !afterRequestId || afterRequestId !== conversation.lastCompletedRequestId)) {
         return { ok: false, status: 409 };
@@ -218,6 +220,18 @@ export function createDevConversationStore(options: {
       if (conversation.retry) {
         conversation.retry.state = 'completed';
         conversation.retry.result = copyResult(result!);
+      }
+      return true;
+    },
+    withhold(id: string, owner: string, requestId: string): boolean {
+      const conversation = find(id, owner);
+      if (!conversation || conversation.pendingRequestId !== requestId
+        || (conversation.retry && (conversation.retry.headRequestId !== requestId || conversation.retry.state !== 'pending'))) return false;
+      conversation.pendingRequestId = null;
+      conversation.withheldRequestId = requestId;
+      if (conversation.retry) {
+        conversation.retry.state = 'withheld';
+        delete conversation.retry.result;
       }
       return true;
     },

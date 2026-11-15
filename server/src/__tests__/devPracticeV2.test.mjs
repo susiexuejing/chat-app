@@ -112,3 +112,70 @@ test('version-bound retry digest cannot collide with a v1 message containing the
   assert.equal(collision.res.body.sessionId, undefined);
   assert.equal(h.providerRequests.length, 1);
 });
+
+test('typed ineligible outcome carries no model content and is independent of optional diagnostics', () => {
+  const value = output(); value.practiceCandidate.evidence.currentUserRequest = false;
+  const options = { latestUserMessage: message, providerCompleted: true, source: { sessionId: 's', devConversationId: 'c', requestId: 'r' },
+    replyMaxChars: 120, validateReply: realValidator };
+  const result = v2.parseDevPracticeV2Outcome(JSON.stringify(value), options);
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { kind: 'not_delivered' });
+  assert.deepEqual(JSON.parse(JSON.stringify(v2.parseDevPracticeV2Outcome(JSON.stringify(value),
+    { ...options, candidateDiagnostic: () => { throw Error('observer'); } }))), { kind: 'not_delivered' });
+  assert.equal(v2.parseDevPracticeV2Outcome('broken', options), null);
+  assert.equal(v2.parseDevPracticeV2Outcome(JSON.stringify({ ...value, practiceCandidate: null }), options).kind, 'delivered');
+});
+
+async function withheld({ retry = true } = {}) {
+  const value = output(); value.narrative = '我提供一个练习，稍后你就能看到。'; value.practiceCandidate.evidence.refusalOrExit = true;
+  const h = await harness({ practiceV2Enabled: '1', realValidator: true, realStreamContract: true,
+    provider: async () => providerResponse({ text: JSON.stringify(value) }) });
+  const r = await h.request('POST', START, { input: body({ message }), accept, ...(retry ? { retryContract: 'dev-manual-retry-v1' } : {}) });
+  await settle(); return { h, r, value };
+}
+
+test('actual filtered terminal without diagnostics rejects all paid retry/continuation paths and leaks no model text', async () => {
+  const { h, r, value } = await withheld();
+  const retry = await h.request('POST', START, { input: body({ message, requestId: '100100_retry_3', retryOfRequestId: body().requestId }), accept, retryContract: 'dev-manual-retry-v1' });
+  assert.equal(retry.res.statusCode, 409);
+  const same = await h.request('POST', START, { input: body({ message }), accept, retryContract: 'dev-manual-retry-v1' }); assert.equal(same.res.statusCode, 409);
+  const continuation = await h.request('POST', START, { input: body({ message, requestId: '100100_next_4', devConversationId: r.res.body.devConversationId,
+    afterRequestId: body().requestId }), accept, retryContract: 'dev-manual-retry-v1' }); assert.equal(continuation.res.statusCode, 409);
+  const outsider = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId }, owner: 'other' }); assert.equal(outsider.res.statusCode, 404);
+  const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); h.tick(100); await settle();
+  const events = stream.events(), error = events.find(e => e.eventType === 'error');
+  assert.deepEqual(JSON.parse(JSON.stringify(error.payload)), { code: 'PRACTICE_NOT_DELIVERED', message: 'No practice was delivered.', recoverable: false, recoveryAction: 'restart_turn' });
+  assert.ok(!events.some(e => e.eventType === 'deep.delta' || e.eventType === 'turn.completed'));
+  assert.ok(!JSON.stringify(events).includes(value.narrative)); assert.ok(!JSON.stringify(events).includes(value.practiceCandidate.thenAction));
+  assert.equal(h.providerRequests.length, 1);
+  const again = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); assert.equal(again.res.statusCode, 404);
+});
+
+test('filtered result remains readable before first SSE even without manual-retry negotiation', async () => {
+  const { h, r } = await withheld({ retry: false });
+  const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); h.tick(100); await settle();
+  assert.equal(stream.events().find(e => e.eventType === 'error').payload.code, 'PRACTICE_NOT_DELIVERED');
+  assert.equal(h.providerRequests.length, 1);
+});
+
+test('explicit end and original expiry revoke unread business terminal', async () => {
+  for (const terminate of ['end', 'expiry']) {
+    const { h, r } = await withheld();
+    if (terminate === 'end') await h.request('POST', '/api/v1/chat/dev-journey/end', { input: { requestMode: 'dev-ephemeral-v1', requestId: body().requestId } });
+    else { h.tick(600001); await settle(); }
+    const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); assert.equal(stream.res.statusCode, 404);
+    assert.equal(h.providerRequests.length, 1);
+  }
+});
+
+test('store withholding cannot become completed or append late model context', async () => {
+  const { h } = await withheld(); let now = 100000;
+  const store = h.mode.createDevConversationStore({ now: () => now, createId: () => 'isolated', onInvalidate: () => {} });
+  const b = store.begin('owner', '100000_first', now, undefined, undefined, { inputDigest: 'a'.repeat(64) }); assert.ok(b.ok);
+  assert.equal(store.withhold(b.conversation.id, 'owner', '100000_first'), true);
+  assert.equal(store.complete(b.conversation.id, 'owner', '100000_first', 'user', 'late', { reply: 'late', practiceCandidate: null }), false);
+  assert.equal(store.fail(b.conversation.id, 'owner', '100000_first'), false);
+  assert.equal(store.readable(b.conversation.id, 'owner', '100000_first'), true);
+  assert.equal(store.readable(b.conversation.id, 'other', '100000_first'), false);
+  assert.equal(store.find(b.conversation.id, 'owner').pairs.length, 0);
+  now += 600001; store.sweep(); assert.equal(store.find(b.conversation.id, 'owner'), undefined);
+});

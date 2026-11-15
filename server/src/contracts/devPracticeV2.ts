@@ -27,7 +27,16 @@ export function projectPracticeReply(narrative: string, candidate: Readonly<Prac
   return candidate ? `${narrative}\n如果：${candidate.ifCue}\n那么：${candidate.thenAction}` : narrative;
 }
 
+export type PracticeV2Outcome = { readonly kind: 'delivered'; readonly reply: ValidatedPracticeReplyV2 }
+  | { readonly kind: 'not_delivered' };
+
+/** Compatibility API; callers needing business outcomes must use the typed parser. */
 export function parseDevPracticeV2(raw: string, options: PracticeReplyOptions): ValidatedPracticeReplyV2 | null {
+  const result = parseDevPracticeV2Outcome(raw, options);
+  return result?.kind === 'delivered' ? result.reply : null;
+}
+
+export function parseDevPracticeV2Outcome(raw: string, options: PracticeReplyOptions): PracticeV2Outcome | null {
   if (!options.providerCompleted || typeof raw !== 'string' || raw.length > 12000
     || typeof options.latestUserMessage !== 'string' || !Number.isSafeInteger(options.replyMaxChars) || options.replyMaxChars <= 0
     || !exact(options.source, ['sessionId', 'devConversationId', 'requestId'])
@@ -50,7 +59,7 @@ export function parseDevPracticeV2(raw: string, options: PracticeReplyOptions): 
     if (e.smallChoiceFits !== true || e.currentUserRequest !== true || e.refusalOrExit !== false || e.topicChanged !== false
       || !options.latestUserMessage.includes(e.permissionQuote) || !options.latestUserMessage.includes(e.anchorQuote)) {
       try { options.candidateDiagnostic?.('candidate_filtered'); } catch { /* Non-authoritative observer. */ }
-      return null; // No partially delivered/contradictory exercise or synthesized understanding.
+      return Object.freeze({ kind: 'not_delivered' }); // No model content crosses this boundary.
     }
     candidate = Object.freeze({ ifCue: p.ifCue, thenAction: p.thenAction });
   }
@@ -65,8 +74,8 @@ export function parseDevPracticeV2(raw: string, options: PracticeReplyOptions): 
     } catch { return null; }
   }
   try { options.candidateDiagnostic?.(candidate ? 'candidate_ready' : 'model_null'); } catch { /* Non-authoritative observer. */ }
-  return Object.freeze({ contract: DEV_PRACTICE_V2, reply, discoveryText: narrative, practiceCandidate: candidate,
-    source: Object.freeze({ ...options.source }) });
+  return Object.freeze({ kind: 'delivered', reply: Object.freeze({ contract: DEV_PRACTICE_V2, reply, discoveryText: narrative, practiceCandidate: candidate,
+    source: Object.freeze({ ...options.source }) }) });
 }
 
 export function buildDevPracticeV2Contract(understandingContract: string): string {
