@@ -27,18 +27,23 @@ function Action({ id, title, onPress }: { id: string; title: string; onPress: ()
 }
 
 /** Reuses the live presentation, without mounting the live provider/history/audio effects. */
-export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, beforeSend, onPracticeCandidate, onPracticeInvalidate }: {
+export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, beforeSend, onPracticeCandidate, onPracticeInvalidate, temporaryTestSpace = false }: {
+  temporaryTestSpace?: boolean;
   onConfirm: (draft: DevUnderstandingDraft) => void;
   onDraftDiscard: () => void;
   footer?: React.ReactNode;
   resetKey: number;
   beforeSend?: () => boolean;
-  onPracticeCandidate?: (candidate: DevPracticeCandidate) => void;
+  onPracticeCandidate?: (candidate: DevPracticeCandidate) => boolean | void;
   onPracticeInvalidate?: () => void;
 }) {
   const controller = useRef<DevRealRequestController | null>(null);
   const [state, setState] = useState(initial);
   const [input, setInput] = useState('');
+  const [diagnosticArmed, setDiagnosticArmed] = useState(false);
+  const [diagnostic, setDiagnostic] = useState<{ server: string; transport: string } | null>(null);
+  const [presentation, setPresentation] = useState<'unavailable' | 'callback_accepted' | 'state_suppressed'>('unavailable');
+  const diagnosticAllowed = temporaryTestSpace && process.env.EXPO_PUBLIC_APP_ENV === 'DEV';
   const [showIntro, setShowIntro] = useState(false);
   const [showSafetyControls, setShowSafetyControls] = useState(false);
   const discard = useRef(onDraftDiscard);
@@ -46,6 +51,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   useLayoutEffect(() => { practiceCallbacks.current = { onPracticeCandidate, onPracticeInvalidate }; }, [onPracticeCandidate, onPracticeInvalidate]);
   useLayoutEffect(() => { discard.current = onDraftDiscard; }, [onDraftDiscard]);
   const leave = useCallback(() => {
+    setDiagnosticArmed(false); setDiagnostic(null); setPresentation('unavailable');
     runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate);
     const instance = controller.current;
     const before = instance?.getSnapshot();
@@ -60,7 +66,11 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     return () => window.removeEventListener('pagehide', leave);
   }, [leave]);
   useEffect(() => {
-    const instance = createDevRealRequestControllerForRuntime();
+    const instance = createDevRealRequestControllerForRuntime({ allow: diagnosticAllowed, onExpiry: () => {
+      if (controller.current === instance) { setDiagnosticArmed(false); setDiagnostic(null); setPresentation('unavailable'); }
+    }, onResult: result => {
+      if (controller.current === instance && diagnosticAllowed) setDiagnostic(result);
+    } });
     controller.current = instance;
     void Promise.resolve().then(() => {
       if (controller.current !== instance) return;
@@ -71,6 +81,8 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     const unsubscribe = instance.subscribe(() => {
       if (controller.current !== instance) return;
       const next = instance.getSnapshot();
+      if (next.status === 'stopped' || next.status === 'idle' || next.status === 'safety') { setDiagnosticArmed(false); setDiagnostic(null); setPresentation('unavailable'); }
+      if (next.status === 'starting') { setDiagnosticArmed(false); setDiagnostic(null); setPresentation('unavailable'); }
       if (next.status === 'safety') {
         // Clear the visible conversation even if an editor's cleanup fails.
         // The safety publisher isolates observers and still aborts/ends.
@@ -87,11 +99,12 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
       setState(next);
     });
     return () => { runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); unsubscribe(); instance.dispose(); controller.current = null; };
-  }, [resetKey]);
+  }, [resetKey, diagnosticAllowed]);
 
   useLayoutEffect(() => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.practiceCandidate) {
-      practiceCallbacks.current.onPracticeCandidate?.(state.practiceCandidate);
+      const accepted = practiceCallbacks.current.onPracticeCandidate?.(state.practiceCandidate);
+      if (diagnosticAllowed) setPresentation(accepted === true ? 'callback_accepted' : 'state_suppressed');
     }
   }, [state]);
 
@@ -105,7 +118,10 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     if (beforeSend && !beforeSend()) { leave(); return; }
     // Preflight can fail before a turn is accepted. Keep the unsent draft in
     // that case; the synchronous starting notification clears accepted input.
-    void controller.current.send(input);
+    const diagnose = diagnosticAllowed && diagnosticArmed;
+    setDiagnostic(null); setPresentation('unavailable');
+    setDiagnosticArmed(false);
+    void controller.current.send(input, diagnose);
   }
   const messages: ChatMessage[] = [];
   for (const turn of [...state.completedTurns, state]) {
@@ -138,6 +154,8 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
         <Action id="dev-new-chat" title="新对话" onPress={reset} /></View></View>
       <Text className="text-xs text-stone-700">小狐狸是 AI 陪伴者，不是人类或治疗师，不提供诊断或治疗。{DEV_REAL_REQUEST_NOTICE} 超限时丢弃最早的完整轮次，单轮超限则不纳入前文。不发送本地模式、练习或路径；请只输入虚构内容。</Text>
       <Text testID="dev-request-status" accessibilityLiveRegion="polite" className="text-xs text-stone-700">{statusText}</Text>
+      {diagnosticAllowed && !busy && <Action id="dev-arm-candidate-diagnostic" title={diagnosticArmed ? '取消本次阶段诊断' : '仅下一次发送开启阶段诊断（只显示阶段，不记录内容）'} onPress={() => setDiagnosticArmed(value => !value)} />}
+      {diagnosticAllowed && diagnostic && <View testID="dev-candidate-diagnostic-panel"><Text>本次阶段诊断：服务端 {diagnostic.server}；传输 {diagnostic.transport}；界面 {presentation}。回调接受不代表卡片已可见，仍须实际检查。</Text></View>}
       {showIntro && <Text className="text-sm text-stone-700">聊天不需要逐轮确认；你随时可以直接纠正。想留下这次发现时，可以先编辑，再明确保存到本地；AI 的理解不是诊断或已核实事实。</Text>}
       {state.canRetry && <><Action id="dev-retry" title="重试" onPress={() => {
         if (controller.current?.getSnapshot() !== state) return;
@@ -179,3 +197,4 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     </>}
   </View>;
 }
+

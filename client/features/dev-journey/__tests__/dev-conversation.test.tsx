@@ -26,7 +26,7 @@ jest.mock('expo-router', () => ({ useFocusEffect: (callback: () => () => void) =
 const DEEP_REPLY = '测试后端 Deep 内容：可以先确认眼前的需要。';
 const INPUT = '虚构场景：今天的安排有些乱。';
 jest.mock('@/features/dev-journey/realRequestAdapter', () => ({
-  createDevRealRequestControllerForRuntime: () => mockCreateController(),
+  createDevRealRequestControllerForRuntime: (options: any) => mockCreateController(options),
 }));
 jest.mock('react-native', () => {
   const React = require('react');
@@ -54,10 +54,12 @@ function deferred<T>() {
 describe('DevConversation uses the shared chat UI and one explicitly requested DEV turn', () => {
   let tree: ReactTestRenderer;
   let mounted: boolean;
+  let temporary = false;
+  let oldEnv: string | undefined;
   let oldAct: unknown;
 
   beforeEach(() => {
-    mounted = false;
+    mounted = false; temporary = false; oldEnv = process.env.EXPO_PUBLIC_APP_ENV;
     jest.useFakeTimers();
     oldAct = (globalThis as any).IS_REACT_ACT_ENVIRONMENT;
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
@@ -71,8 +73,9 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
       callbacks.onDeepChunk(DEEP_REPLY); callbacks.onDone();
     });
     let sequence = 0;
-    mockCreateController.mockImplementation(() => {
+    mockCreateController.mockImplementation((diagnostics: any) => {
       const controller = createDevRealRequestController({
+        allowCandidateDiagnostics: diagnostics?.allow, onCandidateDiagnostic: diagnostics?.onResult, onCandidateDiagnosticExpiry: diagnostics?.onExpiry,
         enabled: true, transport: { start: mockStart, stream: mockStream, end: mockEnd },
         createRequestId: () => {
           if (mockRequestIdFailure === 'throw') throw new Error('synthetic request-ID failure');
@@ -92,10 +95,11 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     }
     (globalThis as any).IS_REACT_ACT_ENVIRONMENT = oldAct;
     jest.clearAllTimers(); jest.useRealTimers();
+    if (oldEnv === undefined) delete process.env.EXPO_PUBLIC_APP_ENV; else process.env.EXPO_PUBLIC_APP_ENV = oldEnv;
   });
 
   function element(resetKey = 0) {
-    return <DevConversation resetKey={resetKey} onConfirm={mockConfirm} onDraftDiscard={mockDiscard}
+    return <DevConversation temporaryTestSpace={temporary} resetKey={resetKey} onConfirm={mockConfirm} onDraftDiscard={mockDiscard}
       footer={<Text testID="parent-draft">本地编辑区域</Text>} />;
   }
   async function mount(resetKey = 0) {
@@ -719,4 +723,35 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(mockEnd).toHaveBeenCalledWith('stub-request-1'); expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
+  test('diagnostic control is absent outside DEV temporary space and mounting sends nothing', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'DEV';
+    await mount();
+    expect(nodes('dev-arm-candidate-diagnostic')).toHaveLength(0);
+    expect(mockStart).not.toHaveBeenCalled();
+    temporary = true; process.env.EXPO_PUBLIC_APP_ENV = 'PROD';
+    await update(1);
+    expect(nodes('dev-arm-candidate-diagnostic')).toHaveLength(0);
+    expect(mockStart).not.toHaveBeenCalled();
+  });
+  test('explicit temporary DEV arm is single send, enum-only panel clears on expiry', async () => {
+    process.env.EXPO_PUBLIC_APP_ENV = 'DEV'; temporary = true;
+    mockStart.mockResolvedValue({...RECEIPT, sessionId:'stub-session',reactionText:'',companionText:'',devReplyContract:'dev-reply-practice-v1',devRetryContract:'dev-manual-retry-v1',devCandidateDiagnostic:'dev-candidate-diagnostic-v1'});
+    mockStream.mockImplementation(async (_session, callbacks) => {
+      callbacks.onDeepChunk(DEEP_REPLY);
+      callbacks.onDone({contract:'dev-reply-practice-v1',reply:DEEP_REPLY,practiceCandidate:null,source:{sessionId:'stub-session',devConversationId:'dev-conversation',requestId:'stub-request-1'}}, 'model_null');
+    });
+    await mount();
+    expect(nodes('dev-candidate-diagnostic-panel')).toHaveLength(0);
+    await press('dev-arm-candidate-diagnostic');
+    expect(mockStart).not.toHaveBeenCalled();
+    await send('PRIVATE_TEST_SENTINEL');
+    expect(mockStart.mock.calls[0][0].candidateDiagnostic).toBe(true);
+    const panel = node('dev-candidate-diagnostic-panel').findAll(n => typeof n.type === 'string').flatMap(n => n.children.filter(c => typeof c === 'string')).join('');
+    expect(panel).toContain('model_null'); expect(panel).not.toContain('PRIVATE_TEST_SENTINEL'); expect(panel).not.toContain(DEEP_REPLY);
+    expect(node('dev-arm-candidate-diagnostic').props.accessibilityLabel).toContain('仅下一次');
+    await act(async () => { jest.advanceTimersByTime(600001); });
+    expect(nodes('dev-candidate-diagnostic-panel')).toHaveLength(0);
+  });
+
 });
+

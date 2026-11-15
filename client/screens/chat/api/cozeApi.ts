@@ -1,3 +1,4 @@
+import { CANDIDATE_DIAGNOSTIC_CONTRACT, validCandidateDiagnostic } from '@/features/dev-journey/candidateDiagnostic';
 /**
  * 百炼 API 客户端（通过后端代理）
  * 
@@ -180,7 +181,7 @@ function normalizeKnownStreamEvent(
  * Client-owned projection of the approved EF-102 v1 envelope. This function
  * never forwards unvalidated raw fields to the chat dispatcher.
  */
-export function parseVersionedStreamEvent(data: string): VersionedStreamParseResult {
+export function parseVersionedStreamEvent(data: string, candidateDiagnosticNegotiated = false): VersionedStreamParseResult {
   let envelope: unknown;
   try {
     envelope = JSON.parse(data);
@@ -200,7 +201,13 @@ export function parseVersionedStreamEvent(data: string): VersionedStreamParseRes
   }
 
   const eventType = envelope.eventType as KnownStreamEventType;
-  const normalized = normalizeKnownStreamEvent(eventType, envelope, envelope.payload);
+  const originalPayload = envelope.payload;
+  const diagnostic = originalPayload.candidateDiagnostic;
+  if (diagnostic !== undefined && (!candidateDiagnosticNegotiated || !validCandidateDiagnostic(diagnostic)
+    || (eventType !== 'turn.completed' && eventType !== 'error'))) return rejectStreamEvent('unexpected candidate diagnostic');
+  const { candidateDiagnostic: _diagnostic, ...payloadWithoutDiagnostic } = originalPayload;
+  const normalized = normalizeKnownStreamEvent(eventType, envelope, payloadWithoutDiagnostic);
+  if (normalized && diagnostic !== undefined) normalized.payload = { ...payloadWithoutDiagnostic, candidateDiagnostic: diagnostic };
   if (!normalized) return rejectStreamEvent(`malformed ${eventType} payload`);
   return {
     kind: 'known',
@@ -430,6 +437,7 @@ export interface FlowContext {
 }
 
 export interface ChatStartResponse {
+  devCandidateDiagnostic?: 'dev-candidate-diagnostic-v1';
   devReplyContract?: 'dev-reply-practice-v1';
   devRetryContract?: 'dev-manual-retry-v1';
   requestMode?: 'dev-ephemeral-v1';
@@ -515,6 +523,7 @@ export async function chatStart(
   devContext?: { devConversationId: string; afterRequestId?: string },
   devReplyContract?: 'dev-reply-practice-v1',
   devRetry?: { contract: 'dev-manual-retry-v1'; retryOfRequestId?: string },
+  candidateDiagnostic = false,
 ): Promise<ChatStartResponse> {
   throwIfChatAborted(signal);
   if (requestMode !== undefined && (requestMode !== 'dev-ephemeral-v1' || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV' || conversationId !== undefined)) {
@@ -526,6 +535,7 @@ export async function chatStart(
   if (devRetry && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1'
     || devRetry.contract !== 'dev-manual-retry-v1' || (devRetry.retryOfRequestId !== undefined
       && (devContext !== undefined || !/^[\w-]{1,100}$/.test(devRetry.retryOfRequestId))))) throw new Error('invalid_dev_retry');
+  if (candidateDiagnostic && (requestMode !== 'dev-ephemeral-v1' || !devRetry || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV')) throw new Error('invalid_candidate_diagnostic');
   const BASE = getBackendUrl();
   const startPath = requestMode === 'dev-ephemeral-v1' ? '/api/v1/chat/dev-journey/start' : '/api/v1/chat/start';
   const startedAt = Date.now();
@@ -542,7 +552,8 @@ export async function chatStart(
       credentials: auth.credentials,
       headers: { 'Content-Type': 'application/json', ...auth.headers, ...diagnosticHeader(oneShotDiagnosticMarker),
         ...(devReplyContract ? { Accept: `application/json; dev-reply-contract=${devReplyContract}` } : {}),
-        ...(devRetry ? { 'X-Dev-Retry-Contract': 'dev-manual-retry-v1' } : {}) },
+        ...(devRetry ? { 'X-Dev-Retry-Contract': 'dev-manual-retry-v1' } : {}),
+        ...(candidateDiagnostic ? { 'X-Dev-Candidate-Diagnostic': CANDIDATE_DIAGNOSTIC_CONTRACT } : {}) },
       // An empty value marks a local-only turn while canonical persistence is
       // unavailable. Omit it so the authenticated runtime path does not
       // attempt durable-conversation ownership validation.
@@ -632,6 +643,7 @@ export async function chatStream(
   diagnostics?: RetryTransportDiagnostics,
   signal?: AbortSignal,
   oneShotDiagnosticMarker?: string,
+  candidateDiagnosticNegotiated = false,
 ): Promise<void> {
   throwIfChatAborted(signal);
   const BASE = getBackendUrl();
@@ -749,7 +761,7 @@ export async function chatStream(
                 resolve();
                 return;
               }
-              const parsed = parseVersionedStreamEvent(data);
+              const parsed = parseVersionedStreamEvent(data, candidateDiagnosticNegotiated);
               if (parsed.kind === 'rejected') throw parsed.error;
               const sequenceError = validateSequence(parsed.sequence);
               if (sequenceError) throw sequenceError;
@@ -822,7 +834,7 @@ export async function chatStream(
             sse.close();
             return;
           }
-          const parsed = parseVersionedStreamEvent(event.data);
+          const parsed = parseVersionedStreamEvent(event.data, candidateDiagnosticNegotiated);
           if (parsed.kind === 'rejected') {
             settleRejected(parsed.error);
             sse.close();
@@ -1218,4 +1230,5 @@ async function chatCombinedNative(
     });
   });
 }
+
 

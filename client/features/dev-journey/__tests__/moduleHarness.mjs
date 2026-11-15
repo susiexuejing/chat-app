@@ -25,7 +25,21 @@ export async function loadTsModule(url, imports, globals = {}, dynamicImport) {
     ...globals,
   });
   const modules = new Map();
+  // Resolve the actual fixed diagnostic contract, never a copied enum mock.
+  const diagnosticSpecifiers = new Set(['@/features/dev-journey/candidateDiagnostic', './candidateDiagnostic']);
+  let diagnosticModule;
+  if ([...diagnosticSpecifiers].some(specifier => original.includes(`from '${specifier}'`))) {
+    const url = new URL('../candidateDiagnostic.ts', import.meta.url);
+    const input = await readFile(url, 'utf8');
+    const text = nodeModule.stripTypeScriptTypes ? nodeModule.stripTypeScriptTypes(input, { mode: 'strip' })
+      : ts.transpileModule(input, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+    diagnosticModule = new vm.SourceTextModule(text, { context, identifier: url.href });
+    await diagnosticModule.link(() => { throw new Error('Unexpected diagnostic dependency'); });
+    await diagnosticModule.evaluate();
+  }
+
   function synthetic(specifier) {
+    if (diagnosticModule && diagnosticSpecifiers.has(specifier)) return diagnosticModule;
     if (!Object.hasOwn(imports, specifier)) throw new Error(`Unmocked import: ${specifier}`);
     if (!modules.has(specifier)) {
       const exports = imports[specifier];

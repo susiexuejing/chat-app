@@ -330,18 +330,19 @@ function DemoWorkspace({ temporary, temporaryStorage, onChangeSpace }: {
     candidate({ text: previous.text, input: previous.input, requestId: previous.requestId });
   }
   function receivePracticeCandidate(result: DevPracticeCandidate) {
-    if (!currentView() || page !== 'chat' || !snapshot?.session || !repository.current || practiceCandidateRef.current) return;
+    if (!currentView() || page !== 'chat' || !snapshot?.session || !repository.current || practiceCandidateRef.current) return false;
     const identity = JSON.stringify(result.source);
-    if (lastPracticeReceipt.current === identity) return;
+    if (lastPracticeReceipt.current === identity) return false;
     try {
       const fresh = repository.current.snapshot();
-      if (fresh.session !== snapshot.session) return;
+      if (fresh.session !== snapshot.session) return false;
       if (fresh.revision !== snapshot.revision) {
         setNotice({ kind: 'error', text: '本地数据已变化，本轮 AI 练习建议未显示，也未保存。请核对本地模式后再继续。' });
         return;
       }
       lastPracticeReceipt.current = identity;
       practiceCandidateRef.current = result; setPracticeCandidate(result);
+      return true;
     } catch {
       invalidatePractice();
       setNotice({ kind: 'error', text: '未能核验本地模式，本轮 AI 练习建议未显示，也未保存。请检查本地存储后再继续。' });
@@ -504,7 +505,7 @@ function DemoWorkspace({ temporary, temporaryStorage, onChangeSpace }: {
         <Button testID="login" title="登录演示账号" onPress={() => write(repo => repo.login(enteredCode), '已进入虚构演示账号。')} />
       </>}
     </Card>;
-    if (page === 'chat') return <DevConversation beforeSend={beforeChatSend} resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} onPracticeCandidate={receivePracticeCandidate} onPracticeInvalidate={invalidatePractice} footer={<>{renderPracticeCandidate()}{renderDraft()}</>} />;
+    if (page === 'chat') return <DevConversation temporaryTestSpace={temporary} beforeSend={beforeChatSend} resetKey={chatGeneration} onConfirm={candidate} onDraftDiscard={discardChatDraft} onPracticeCandidate={receivePracticeCandidate} onPracticeInvalidate={invalidatePractice} footer={<>{renderPracticeCandidate()}{renderDraft()}</>} />;
     if (page === 'me') return <>
       <Text className="text-2xl font-semibold text-stone-900">我的</Text>
       <Card><Text className="text-lg font-semibold text-stone-900">我的模式</Text><Text className="text-stone-600">查看自己确认的理解、各自的练习和路径。</Text>
@@ -623,4 +624,5 @@ function DemoWorkspace({ temporary, temporaryStorage, onChangeSpace }: {
     </View>
   </Screen>;
 }
+
 

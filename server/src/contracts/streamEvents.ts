@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { candidateDiagnosticResults } from './candidateDiagnostic';
 
 export const STREAM_SCHEMA_VERSION = 1 as const;
 
@@ -29,12 +30,13 @@ export const streamPayloadSchemas = {
   companion: z.object({ content: z.string() }).strict(),
   'deep.delta': z.object({ content: z.string().min(1) }).strict(),
   'deep.completed': z.object({}).strict(),
-  'turn.completed': z.object({ status: z.literal('completed'), practiceReply: practiceReplySchema.optional() }).strict(),
+  'turn.completed': z.object({ status: z.literal('completed'), practiceReply: practiceReplySchema.optional(), candidateDiagnostic: z.enum(candidateDiagnosticResults).optional() }).strict(),
   error: z.object({
     code: z.enum(['DEEP_RESPONSE_FAILED', 'STREAM_TIMEOUT']),
     message: z.string().min(1),
     recoverable: z.boolean(),
     recoveryAction: z.enum(['retry_turn', 'restart_turn']),
+    candidateDiagnostic: z.enum(candidateDiagnosticResults).optional(),
   }).strict(),
 } as const;
 
@@ -136,7 +138,8 @@ export function projectLegacyCompatibility<T extends StreamEventType>(
       return { type: 'turn.completed' } as LegacyCompatibilityByType[T];
     case 'error': {
       const value = payload as StreamPayloadByType['error'];
-      return { type: 'error', ...value, done: true } as LegacyCompatibilityByType[T];
+      const { candidateDiagnostic: _diagnostic, ...legacy } = value;
+      return { type: 'error', ...legacy, done: true } as LegacyCompatibilityByType[T];
     }
   }
 }
@@ -192,3 +195,4 @@ export function mapSafeStreamError(kind: StreamFailureKind): StreamPayloadByType
     recoveryAction: 'retry_turn',
   };
 }
+
