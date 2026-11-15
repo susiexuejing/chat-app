@@ -152,6 +152,9 @@ test('actual filtered terminal without diagnostics rejects all paid retry/contin
 
 test('filtered result remains readable before first SSE even without manual-retry negotiation', async () => {
   const { h, r } = await withheld({ retry: false });
+  // Generation deadline must not erase an already finalized business outcome.
+  // Its owner-bound readability instead ends at the original 600s expiry.
+  h.tick(300001); await settle();
   const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); h.tick(100); await settle();
   assert.equal(stream.events().find(e => e.eventType === 'error').payload.code, 'PRACTICE_NOT_DELIVERED');
   assert.equal(h.providerRequests.length, 1);

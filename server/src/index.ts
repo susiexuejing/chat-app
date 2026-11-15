@@ -1583,6 +1583,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   const session = sessions.get(sessionId);
   if (session && session.ownerSessionId === authenticated.session.id && session.requestMode === DEV_EPHEMERAL_REQUEST_MODE
     && session.devDeepDeadlineAt !== undefined
+    && !session.devContentNotDelivered
     && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
   if (!session || session.ownerSessionId !== authenticated.session.id || !readableDevTurn(session)) {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
@@ -1646,7 +1647,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   // 每 100ms 轮询 session.deepChunks，推送新chunk（但前90秒不发）
   const pollInterval = setInterval(() => {
     // The same private deadline also gates delayed SSE publication/context save.
-    if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined
+    if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined && !session.devContentNotDelivered
       && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
     if (!readableDevTurn(session)) {
       clearInterval(pollInterval); clearTimeout(timeout);
@@ -1682,7 +1683,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
           // rejects it; no conversation context/continuation survives. PR167 is separate.
           endDevTurn(session);
         } else if (!session.devConversationId || !session.devRequestId
-          || (session.devDeepDeadlineAt !== undefined && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt)
+          || (session.devDeepDeadlineAt !== undefined && !session.devContentNotDelivered && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt)
           || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
             session.userMessage, session.deepChunks.join(''))) {
           clearInterval(pollInterval); clearTimeout(timeout);
