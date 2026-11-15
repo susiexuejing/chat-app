@@ -558,3 +558,7 @@ import './devManualRetryIntegration.test.mjs';
 
 // Exact current-message history attribution, without semantic paraphrase exemptions.
 import './devCurrentHistoryQuotation.test.mjs';
+
+
+// Opt-in diagnostics remain default-off and cannot alter safety/owner gates.
+import './candidate-diagnostic-review.test.mjs';

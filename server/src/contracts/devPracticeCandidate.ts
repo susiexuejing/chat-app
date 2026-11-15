@@ -1,3 +1,4 @@
+import type { CandidateDiagnosticResult } from './candidateDiagnostic';
 /** Explicitly negotiated DEV-only reply contract. */
 export const DEV_PRACTICE_CONTRACT = 'dev-reply-practice-v1' as const;
 export interface PracticeSuggestion { readonly ifCue: string; readonly thenAction: string }
@@ -41,6 +42,8 @@ export function parseDevPracticeReply(raw: string, options: {
   /** Negotiated recovery treats validator fallback as failure, never success. */
   rejectRewrittenReply?: boolean;
   replyMaxChars: number;
+  /** Internal, enabled only by negotiated DEV opt-in; receives a fixed scalar, never content. */
+  candidateDiagnostic?: (stage: CandidateDiagnosticResult) => void;
 }): ValidatedPracticeReply | null {
   if (!options.providerCompleted || typeof raw !== 'string' || raw.length > 12000
     || !exact(options.source, ['sessionId', 'devConversationId', 'requestId'])
@@ -52,6 +55,7 @@ export function parseDevPracticeReply(raw: string, options: {
   if (!exact(value, ['contract', 'reply', 'practiceCandidate'])
     || value.contract !== DEV_PRACTICE_CONTRACT || !text(value.reply, options.replyMaxChars)) return null;
   let candidate: Readonly<PracticeSuggestion> | null = null;
+  let diagnostic: CandidateDiagnosticResult = value.practiceCandidate === null ? 'model_null' : 'candidate_filtered';
   if (value.practiceCandidate !== null) {
     const suggestion = value.practiceCandidate;
     if (!exact(suggestion, ['ifCue', 'thenAction', 'evidence'])
@@ -87,6 +91,8 @@ export function parseDevPracticeReply(raw: string, options: {
   // above. Use that same comparison here; boundary whitespace alone must not
   // silently discard an otherwise eligible suggestion. Legacy behavior stays.
   if (reply !== (options.rejectRewrittenReply ? value.reply.trim() : value.reply)) candidate = null;
+  if (candidate) diagnostic = 'candidate_ready';
+  try { options.candidateDiagnostic?.(diagnostic); } catch { /* Diagnostics never decide the response. */ }
   return Object.freeze({ contract: DEV_PRACTICE_CONTRACT, reply, practiceCandidate: candidate,
     source: Object.freeze({ ...options.source }) });
 }
@@ -111,3 +117,4 @@ permissionQuote、anchorQuote 必须逐字引用最新用户消息（保留否�
 候选只会被显示为可改写、可拒绝、不保存的 AI 建议。不要声称保存/激活，也不要把建议混入 reply。请求建议不是许可保存、激活、安排提醒或执行动作；这些操作需要用户另行显式选择。只有用户显式保存且保存成功，界面才能说已保存。
 无候选时仍提供原合同下的 reply，不添加练习邀约。`;
 }
+

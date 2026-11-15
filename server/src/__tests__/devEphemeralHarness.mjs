@@ -43,7 +43,7 @@ export async function harness(options = {}) {
   const routes = new Map();
   const timers = new Map();
   let now = 100_000, timerId = 0, sessionId = 0;
-  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey,
+  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey, DEV_CANDIDATE_DIAGNOSTICS: options.candidateDiagnosticEnabled,
     ...(Object.hasOwn(options, 'model') ? { MODEL_DEEP: options.model } : {}),
     ...(Object.hasOwn(options, 'baseUrl') ? { DASHSCOPE_BASE_URL: options.baseUrl } : {}),
   }, cwd: () => '/mock-server' };
@@ -188,10 +188,15 @@ export async function harness(options = {}) {
       : ts.transpileModule(original, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
     return new vm.SourceTextModule(source, { context, identifier: url.href });
   }
+  const diagnosticModule = await sourceModule('../contracts/candidateDiagnostic.ts');
+  await diagnosticModule.link(() => { throw new Error('Unexpected diagnostic dependency'); });
+  await diagnosticModule.evaluate();
+  imports['./contracts/candidateDiagnostic'] = diagnosticModule.namespace;
   if (options.realStreamContract) {
     const { z } = nodeModule.createRequire(import.meta.url)('zod');
     const streamModule = await sourceModule('../contracts/streamEvents.ts');
     await streamModule.link(specifier => {
+      if (specifier === './candidateDiagnostic') return diagnosticModule;
       if (specifier !== 'zod') throw new Error(`Unexpected stream dependency: ${specifier}`);
       return new vm.SyntheticModule(['z'], function () { this.setExport('z', z); }, { context });
     });
@@ -256,9 +261,9 @@ export async function harness(options = {}) {
   });
   await module.evaluate();
 
-  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {}, accept, retryContract } = {}) {
+  async function request(method, path, { input, owner = OWNER, csrf = 'mock-csrf', query = {}, accept, retryContract, candidateDiagnostic } = {}) {
     const events = new Map();
-    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : name.toLowerCase() === 'accept' ? accept : name.toLowerCase() === 'x-dev-retry-contract' ? retryContract : undefined,
+    const req = { owner, body: input, query, get: name => name.toLowerCase() === 'x-ef-csrf' ? csrf : name.toLowerCase() === 'accept' ? accept : name.toLowerCase() === 'x-dev-retry-contract' ? retryContract : name.toLowerCase() === 'x-dev-candidate-diagnostic' ? candidateDiagnostic : undefined,
       on: (name, fn) => events.set(name, fn) };
     const res = {
       statusCode: 200, headers: {}, body: undefined, writes: [], ended: false,

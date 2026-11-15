@@ -1,3 +1,4 @@
+import type { CandidateDiagnosticResult } from './candidateDiagnostic';
 export interface DevPracticeCandidate {
   readonly ifCue: string; readonly thenAction: string;
   readonly source: { readonly sessionId: string; readonly devConversationId: string; readonly requestId: string };
@@ -44,8 +45,10 @@ export interface DevRealRequestSnapshot {
 export interface DevRealRequestInput {
   roleId: 'clever-fox'; message: string; requestId: string;
   devConversationId?: string; afterRequestId?: string; retryOfRequestId?: string;
+  candidateDiagnostic?: boolean;
 }
 export interface DevRealRequestStart {
+  devCandidateDiagnostic?: 'dev-candidate-diagnostic-v1';
   devReplyContract?: 'dev-reply-practice-v1';
   devRetryContract?: 'dev-manual-retry-v1';
   sessionId: string; devConversationId: string; expiresAt: number; remainingLifetimeMs: number;
@@ -53,19 +56,19 @@ export interface DevRealRequestStart {
 }
 export interface DevRealRequestCallbacks {
   onDeepChunk: (text: string) => void;
-  onDone: (reply?: DevPracticeReply) => void;
-  onError: (reason?: 'retry_turn' | 'transport' | 'terminal') => void;
+  onDone: (reply?: DevPracticeReply, diagnostic?: CandidateDiagnosticResult) => void;
+  onError: (reason?: 'retry_turn' | 'transport' | 'terminal', diagnostic?: CandidateDiagnosticResult) => void;
 }
 export interface DevRealRequestTransport {
   start: (input: DevRealRequestInput, signal: AbortSignal) => Promise<DevRealRequestStart>;
-  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal, expected?: { retryContract?: 'dev-manual-retry-v1'; contract?: 'dev-reply-practice-v1'; devConversationId: string; requestId: string }) => Promise<void>;
+  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal, expected?: { candidateDiagnostic?: boolean; retryContract?: 'dev-manual-retry-v1'; contract?: 'dev-reply-practice-v1'; devConversationId: string; requestId: string }) => Promise<void>;
   /** Best effort authenticated cleanup, never a model send or automatic retry. */
   end: (requestId: string) => Promise<void>;
 }
 export interface DevRealRequestController {
   getSnapshot: () => DevRealRequestSnapshot;
   subscribe: (listener: () => void) => () => void;
-  send: (text: string) => Promise<boolean>;
+  send: (text: string, candidateDiagnostic?: boolean) => Promise<boolean>;
   retry: () => Promise<boolean>;
   stop: () => void;
   /** Explicit fixed synthetic exit, never text classification or a model send. */
@@ -89,6 +92,9 @@ const MAX_SESSION_MS = 600_000;
 
 export function createDevRealRequestController(options: {
   enabled: boolean; transport: DevRealRequestTransport; createRequestId: () => string;
+  allowCandidateDiagnostics?: boolean;
+  onCandidateDiagnosticExpiry?: () => void;
+  onCandidateDiagnostic?: (result: { server: CandidateDiagnosticResult | 'not_negotiated'; transport: 'candidate' | 'no_candidate' | 'error' | 'unavailable' }) => void;
 }): DevRealRequestController {
   const { enabled, transport, createRequestId } = options;
   const listeners = new Set<() => void>();
@@ -133,6 +139,9 @@ export function createDevRealRequestController(options: {
     }
   }
   function end(status: 'failed' | 'stopped', error: string | null) {
+    if (error === EXPIRED_MESSAGE && options.allowCandidateDiagnostics) {
+      try { options.onCandidateDiagnosticExpiry?.(); } catch { /* cleanup must not prevent expiry */ }
+    }
     invalidate();
     publish({ ...initial(), status, error, canSend: false });
   }
@@ -167,7 +176,7 @@ export function createDevRealRequestController(options: {
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
-    send: text => attempt(text),
+    send: (text, diagnostic = false) => attempt(text, undefined, diagnostic),
     retry: () => retryAnchor && snapshot.canRetry ? attempt(snapshot.inputText, retryAnchor) : Promise.resolve(false),
     stop: () => { if (!disposed && (latestRequestId || snapshot.requestId || snapshot.status === 'safety')) end('stopped', null); },
     safety: kind => {
@@ -183,7 +192,7 @@ export function createDevRealRequestController(options: {
       listeners.clear();
     },
   };
-  async function attempt(text: string, retryOfRequestId?: string): Promise<boolean> {
+  async function attempt(text: string, retryOfRequestId?: string, diagnosticRequested = false): Promise<boolean> {
     if (disposed || !enabled || active || !(retryOfRequestId ? snapshot.canRetry : snapshot.canSend) || typeof text !== 'string' || !text.trim()) return false;
     if (context && Date.now() >= context.localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
     const message = text.trim();
@@ -197,6 +206,11 @@ export function createDevRealRequestController(options: {
     } catch {
       publish({ ...snapshot, error: '无法生成有效请求标识，请重新点击发送。' }); return false;
     }
+    const diagnosticEnabled = options.allowCandidateDiagnostics === true && diagnosticRequested === true && !retryOfRequestId;
+    const reportDiagnostic = (server: CandidateDiagnosticResult | 'not_negotiated', transport: 'candidate' | 'no_candidate' | 'error' | 'unavailable') => {
+      if (!diagnosticEnabled || !isCurrent()) return;
+      try { options.onCandidateDiagnostic?.({ server, transport }); } catch { /* observation cannot change the request */ }
+    };
     const sentAt = retryOfRequestId ? snapshot.sentAt : Date.now();
     const logicalRequestId = retryOfRequestId ? snapshot.logicalRequestId : requestId;
     const previous = snapshot.status === 'success' && snapshot.requestId
@@ -222,7 +236,7 @@ export function createDevRealRequestController(options: {
     const run = async (): Promise<boolean> => {
       try {
         if (!isCurrent()) return false;
-        const start = await transport.start({ roleId: 'clever-fox', message, requestId, ...continuation, ...(retryOfRequestId ? { retryOfRequestId } : {}) }, abort.signal);
+        const start = await transport.start({ roleId: 'clever-fox', message, requestId, ...(diagnosticEnabled ? { candidateDiagnostic: true } : {}), ...continuation, ...(retryOfRequestId ? { retryOfRequestId } : {}) }, abort.signal);
         if (!isCurrent()) return false;
         if (!start || typeof start.sessionId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(start.sessionId)
           || typeof start.devConversationId !== 'string' || !DEV_REAL_REQUEST_ID_PATTERN.test(start.devConversationId)
@@ -233,6 +247,8 @@ export function createDevRealRequestController(options: {
         const localExpiresAt = Math.min(priorLocalExpiresAt, Date.now() + start.remainingLifetimeMs);
         if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
         startAcknowledged = true;
+        if (start.devCandidateDiagnostic && (!diagnosticEnabled || start.devCandidateDiagnostic !== 'dev-candidate-diagnostic-v1')) throw new Error('unexpected_candidate_diagnostic');
+        reportDiagnostic(start.devCandidateDiagnostic ? 'unavailable' : 'not_negotiated', 'unavailable');
         recoveryNegotiated = start.devRetryContract === 'dev-manual-retry-v1' && start.devReplyContract === 'dev-reply-practice-v1';
         retryAnchor = null;
         context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
@@ -251,7 +267,7 @@ export function createDevRealRequestController(options: {
             // is still required. Keep pending chunks out of UI and save state.
             completedText += content;
           },
-          onDone: reply => {
+          onDone: (reply, diagnostic) => {
             if (!isCurrent() || terminal) return;
             terminal = true;
             if (start.devReplyContract) {
@@ -260,9 +276,10 @@ export function createDevRealRequestController(options: {
                 || reply.source.requestId !== requestId) { failed = true; terminalFailure = true; return; }
               if (reply.practiceCandidate) practiceCandidate = Object.freeze({ ...reply.practiceCandidate, source: Object.freeze({ ...reply.source }) });
             } else if (reply) { failed = true; terminalFailure = true; }
+            if (!failed) reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', practiceCandidate ? 'candidate' : 'no_candidate');
           },
-          onError: reason => { if (isCurrent() && !terminal) { terminal = true; failed = true; terminalFailure = reason === undefined || reason === 'terminal'; } },
-        }, abort.signal, { retryContract: start.devRetryContract, contract: start.devReplyContract, devConversationId: start.devConversationId, requestId });
+          onError: (reason, diagnostic) => { if (isCurrent() && !terminal) { reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', 'error'); terminal = true; failed = true; terminalFailure = reason === undefined || reason === 'terminal'; } },
+        }, abort.signal, { candidateDiagnostic: !!start.devCandidateDiagnostic, retryContract: start.devRetryContract, contract: start.devReplyContract, devConversationId: start.devConversationId, requestId });
         if (!isCurrent()) return false;
         if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
         const success = terminal && !failed && !!completedText.trim();
@@ -307,3 +324,4 @@ export function createDevRealRequestController(options: {
   }
   return controller;
 }
+

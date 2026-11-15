@@ -1,3 +1,4 @@
+import { CANDIDATE_DIAGNOSTIC_CONTRACT, negotiateCandidateDiagnostic, type CandidateDiagnosticResult } from './contracts/candidateDiagnostic';
 import { DEV_PRACTICE_CONTRACT, buildDevPracticeReplyContract, parseDevPracticeReply, type ValidatedPracticeReply } from './contracts/devPracticeCandidate';
 import 'dotenv/config';
 import express from 'express';
@@ -99,7 +100,7 @@ app.use(cors({
   origin: (origin, callback) => callback(null, origin === EF75_WEB_ORIGIN),
   credentials: true,
   methods: ['GET', 'POST', 'HEAD', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client', 'X-EF45-One-Shot-Marker', 'X-Dev-Retry-Contract'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-EF-CSRF', 'X-EF-Client', 'X-EF45-One-Shot-Marker', 'X-Dev-Retry-Contract', 'X-Dev-Candidate-Diagnostic'],
   exposedHeaders: ['X-EF45-One-Shot-Marker', 'X-Dev-Retry-State'],
 }));
 app.use(express.json({ limit: '50mb' }));
@@ -174,6 +175,7 @@ export interface ChatSession {
   devRequestId?: string;
   devTurn?: number;
   devContext?: DevContextPair[];
+  devCandidateDiagnostic?: CandidateDiagnosticResult;
   devReplyContract?: typeof DEV_PRACTICE_CONTRACT;
   devPracticeReply?: ValidatedPracticeReply;
   devRetryContract?: typeof DEV_MANUAL_RETRY_CONTRACT;
@@ -247,6 +249,7 @@ function clearDevTurnContent(session: ChatSession) {
 }
 function clearDevTurn(session: ChatSession) {
   clearDevTurnContent(session);
+  session.devCandidateDiagnostic = undefined;
   sessions.delete(session.sessionId);
 }
 const devConversations = createDevConversationStore({
@@ -267,7 +270,7 @@ function readableDevTurn(session: ChatSession): boolean {
     && devConversations.readable(session.devConversationId, session.ownerSessionId, session.devRequestId);
 }
 function devStreamFailure(session: ChatSession): StreamPayloadByType['error'] {
-  const error = mapSafeStreamError('deep_response_failed');
+  const error = { ...mapSafeStreamError('deep_response_failed'), ...(session.devCandidateDiagnostic ? { candidateDiagnostic: session.devCandidateDiagnostic } : {}) };
   return session.devRetryContract && !session.devRetryableFailure
     ? { ...error, recoverable: false, recoveryAction: 'restart_turn' } : error;
 }
@@ -683,6 +686,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
       const result = parseDevPracticeReply(deepContentBuffer, {
         latestUserMessage: session.userMessage, providerCompleted: providerCompleted && !providerTruncated,
         source: { sessionId: session.sessionId, devConversationId: session.devConversationId!, requestId: session.devRequestId! },
+        ...(session.devCandidateDiagnostic ? { candidateDiagnostic: (stage: CandidateDiagnosticResult) => { session.devCandidateDiagnostic = stage; } } : {}),
         replyMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
         rejectRewrittenReply: !!session.devRetryContract,
         validateReply: text => (session.devRetryContract ? validateEf41DeepOutputOutcome : validateEf41DeepOutput)({ text, roleId: session.roleId, userTurn,
@@ -690,7 +694,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           devPrimaryResponse: true, source: 'cleaned', visiblePrefix: '',
         }),
       });
-      if (!result) { setSafeDeepError(session, 'deep_analysis_failure'); return; }
+      if (!result) {
+        if (session.devCandidateDiagnostic) session.devCandidateDiagnostic = providerCompleted && !providerTruncated ? 'reply_rejected' : 'provider_incomplete';
+        setSafeDeepError(session, 'deep_analysis_failure'); return;
+      }
       if (!activeDevTurn(session)) return;
       checkDevDeadline();
       session.devPracticeReply = result;
@@ -1372,6 +1379,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
         session.devReplyContract = DEV_PRACTICE_CONTRACT;
       }
       if (retryNegotiated) session.devRetryContract = DEV_MANUAL_RETRY_CONTRACT;
+      if (negotiateCandidateDiagnostic(process.env.NODE_ENV, process.env.DEV_CANDIDATE_DIAGNOSTICS, isDevEphemeral, retryNegotiated, req.get('x-dev-candidate-diagnostic'))) session.devCandidateDiagnostic = 'unavailable';
       session.devTurn = userTurn;
       session.devContext = devConversation.pairs.map(pair => ({ ...pair }));
       session.devAbort = new AbortController();
@@ -1402,6 +1410,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       ...(isDevEphemeral ? { requestMode: DEV_EPHEMERAL_REQUEST_MODE,
         ...(session.devReplyContract ? { devReplyContract: session.devReplyContract } : {}),
         ...(session.devRetryContract ? { devRetryContract: session.devRetryContract } : {}),
+        ...(session.devCandidateDiagnostic ? { devCandidateDiagnostic: CANDIDATE_DIAGNOSTIC_CONTRACT } : {}),
         devConversationId: devConversation?.id, expiresAt: devConversation?.expiresAt,
         remainingLifetimeMs: Math.max(0, (devConversation?.expiresAt ?? now) - now) } : {}),
       userTurn,
@@ -1653,6 +1662,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
       emit('deep.completed', {});
       emit('turn.completed', { status: 'completed',
         ...(session.devPracticeReply ? { practiceReply: session.devPracticeReply } : {}),
+        ...(session.devCandidateDiagnostic ? { candidateDiagnostic: session.devCandidateDiagnostic } : {}),
       });
       sseTerminated = true;
       writeEf118RuntimeAudit({
@@ -1738,4 +1748,5 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`DASHSCOPE_API_KEY_DEEP: ${API_KEY_DEEP ? 'SET' : 'NOT SET'}`);
   });
 }
+
 
