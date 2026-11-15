@@ -53,6 +53,8 @@ export function isValidDevEphemeralEnd(body: unknown): body is { requestMode: st
 }
 
 export interface DevRetryResult {
+  contract?: 'dev-reply-practice-v1' | 'dev-reply-practice-v2';
+  discoveryText?: string;
   reply: string;
   practiceCandidate: { ifCue: string; thenAction: string } | null;
 }
@@ -65,11 +67,14 @@ export interface DevRetryAttempt {
 }
 // Copy only the validated bounded result, never arbitrary provider fields or aliases.
 function copyResult(result: DevRetryResult): DevRetryResult {
-  return { reply: result.reply, practiceCandidate: result.practiceCandidate === null ? null
+  return { ...(result.contract === 'dev-reply-practice-v2' ? { contract: result.contract, discoveryText: result.discoveryText } : {}),
+    reply: result.reply, practiceCandidate: result.practiceCandidate === null ? null
     : { ifCue: result.practiceCandidate.ifCue, thenAction: result.practiceCandidate.thenAction } };
 }
 function validResult(result: DevRetryResult | undefined, assistant: string): result is DevRetryResult {
   if (!result || result.reply !== assistant || !assistant.trim() || assistant.length > DEV_CONTEXT_MAX_CHARS) return false;
+  if (result.contract === 'dev-reply-practice-v2' && (typeof result.discoveryText !== 'string'
+    || !result.discoveryText.trim() || result.discoveryText.length > DEV_CONTEXT_MAX_CHARS)) return false;
   const candidate = result.practiceCandidate;
   return candidate === null || (!!candidate && typeof candidate.ifCue === 'string'
     && !!candidate.ifCue.trim() && candidate.ifCue.length <= 200

@@ -753,5 +753,25 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(nodes('dev-candidate-diagnostic-panel')).toHaveLength(0);
   });
 
+  test('v2 displays canonical action but discovery preview keeps only validated understanding', async () => {
+    const discoveryText = '你希望在切歌前停一下。';
+    const practiceCandidate = { ifCue: '准备切歌时', thenAction: '暂停手指，再自行决定继续或换歌' };
+    const reply = `${discoveryText}\n如果：${practiceCandidate.ifCue}\n那么：${practiceCandidate.thenAction}`;
+    mockStart.mockResolvedValue({ ...RECEIPT, sessionId: 'stub-session', reactionText: '', companionText: '', devReplyContract: 'dev-reply-practice-v2' });
+    mockStream.mockImplementation(async (_session, callbacks) => {
+      callbacks.onDeepChunk(reply);
+      callbacks.onDone({ contract: 'dev-reply-practice-v2', reply, discoveryText, practiceCandidate,
+        source: { sessionId: 'stub-session', devConversationId: 'dev-conversation', requestId: 'stub-request-1' } });
+    });
+    await mount(); await send();
+    expect(tree.root.findByType(MessageListView).props.messages.find((message: { role: string }) => message.role === 'assistant').content).toBe(reply);
+    expect(output()).toContain('回复已接收');
+    expect(output()).not.toContain('本轮已完成');
+    expect(mockConfirm).not.toHaveBeenCalled();
+    await press('candidate-save-discovery');
+    expect(mockConfirm.mock.calls[0][0].text).toBe(discoveryText);
+    expect(mockConfirm.mock.calls[0][0].text).not.toContain(practiceCandidate.thenAction);
+  });
+
 });
 

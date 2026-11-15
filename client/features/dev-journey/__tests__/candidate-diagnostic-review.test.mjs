@@ -44,3 +44,12 @@ test('expiry clears diagnostic observer and throwing cleanup cannot retain activ
 });
 
 test('legacy parser remains unary and array index cannot opt in',()=>{const frames=[envelope('turn.completed',{status:'completed',candidateDiagnostic:'model_null'}),envelope('turn.completed',{status:'completed',candidateDiagnostic:'model_null'})];assert.deepEqual(frames.map(api.parseVersionedStreamEvent).map(x=>x.kind),['rejected','rejected']);assert.equal(api.parseVersionedStreamEventWithCandidateDiagnostic(frames[0],1).kind,'rejected');});
+
+test('v2 strict SSE binds discovery and canonical action, v1 cannot smuggle the new field',()=>{
+ const discoveryText='你想在切歌前停一下。',practiceCandidate={ifCue:'准备切歌时',thenAction:'暂停手指，再自行决定'};
+ const r={contract:'dev-reply-practice-v2',discoveryText,practiceCandidate,reply:`${discoveryText}\n如果：${practiceCandidate.ifCue}\n那么：${practiceCandidate.thenAction}`,source:{sessionId:'s',devConversationId:'c',requestId:'r'}};
+ const parse=r=>api.parseVersionedStreamEvent(envelope('turn.completed',{status:'completed',practiceReply:r}));
+ assert.equal(parse(r).kind,'known');
+ for(const wrong of [{...r,reply:'a different instruction'},{...r,discoveryText:undefined},{...r,contract:'dev-reply-practice-v1'},{...r,extra:'not allowed'}])assert.equal(parse(wrong).kind,'rejected');
+ assert.equal(parse({...r,practiceCandidate:null,reply:discoveryText}).kind,'known');
+});

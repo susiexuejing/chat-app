@@ -4,7 +4,7 @@ import { loadTsModule } from './moduleHarness.mjs';
 
 const source = new URL('../realRequestAdapter.ts', import.meta.url);
 const controllerModule = await loadTsModule(new URL('../realRequestController.ts', import.meta.url), {});
-async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1', devReplyContract) {
+async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1', devReplyContract, v2Flag) {
   const calls = { start: [], stream: [], uuid: 0 };
   const module = await loadTsModule(source, {
     'expo-crypto': { randomUUID: () => `uuid-${++calls.uuid}` },
@@ -21,7 +21,7 @@ async function setup(env = 'DEV', streamEvents = [], receipt = 'dev-ephemeral-v1
         args[1].onDone();
       },
     },
-  }, { process: { env: { EXPO_PUBLIC_APP_ENV: env } } });
+  }, { process: { env: { EXPO_PUBLIC_APP_ENV: env, EXPO_PUBLIC_DEV_PRACTICE_V2: v2Flag } } });
   return { module, calls };
 }
 
@@ -149,4 +149,17 @@ test('EOF is transport loss rather than false successful fallback', async () => 
   const { module } = await setup(); const reasons = [];
   await module.createDevRealRequestTransport().stream('s', { onDeepChunk() { return undefined; }, onDone() { assert.fail('not success'); }, onError: reason => reasons.push(reason) }, new AbortController().signal);
   assert.deepEqual(reasons, ['transport']);
+});
+
+for (const flag of [undefined, '0', 'true']) test(`v2 stays disabled for flag=${flag}`, async () => {
+ const {module,calls}=await setup('DEV',[],'dev-ephemeral-v1','dev-reply-practice-v2',flag);
+ await assert.rejects(module.createDevRealRequestTransport().start({message:'fictional',requestId:'r'},new AbortController().signal));
+ assert.equal(calls.start[0][9],'dev-reply-practice-v1');
+});
+test('v2 opt-in requests v2 but accepts an explicitly declared v1 fallback',async()=>{
+ for(const negotiated of ['dev-reply-practice-v1','dev-reply-practice-v2']) {
+  const {module,calls}=await setup('DEV',[],'dev-ephemeral-v1',negotiated,'1');
+  const result=await module.createDevRealRequestTransport().start({message:'fictional',requestId:'r'},new AbortController().signal);
+  assert.equal(calls.start[0][9],'dev-reply-practice-v2');assert.equal(result.devReplyContract,negotiated);
+ }
 });

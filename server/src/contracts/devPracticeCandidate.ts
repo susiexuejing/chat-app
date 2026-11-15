@@ -33,7 +33,7 @@ const evidenceKeys = ['permissionQuote', 'anchorQuote', 'naturalClosing', 'small
  * The caller must preserve cancellation/deadline checks before AND after this call,
  * and hold the result private until successful SSE terminal. EOF is not completion.
  */
-export function parseDevPracticeReply(raw: string, options: {
+export type PracticeReplyOptions = {
   latestUserMessage: string;
   providerCompleted: boolean;
   source: PracticeSuggestionSource;
@@ -44,7 +44,9 @@ export function parseDevPracticeReply(raw: string, options: {
   replyMaxChars: number;
   /** Internal, enabled only by negotiated DEV opt-in; receives a fixed scalar, never content. */
   candidateDiagnostic?: (stage: CandidateDiagnosticResult) => void;
-}): ValidatedPracticeReply | null {
+};
+
+export function parseDevPracticeReply(raw: string, options: PracticeReplyOptions): ValidatedPracticeReply | null {
   if (!options.providerCompleted || typeof raw !== 'string' || raw.length > 12000
     || !exact(options.source, ['sessionId', 'devConversationId', 'requestId'])
     || !Object.values(options.source).every(id)

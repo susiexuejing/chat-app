@@ -43,15 +43,17 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       const result = await chatStart(
         'clever-fox', input.message, undefined, input.requestId, undefined, undefined, signal, 'dev-ephemeral-v1',
         input.devConversationId === undefined ? undefined : { devConversationId: input.devConversationId, afterRequestId: input.afterRequestId },
-        'dev-reply-practice-v1',
+        process.env.EXPO_PUBLIC_DEV_PRACTICE_V2 === '1' ? 'dev-reply-practice-v2' : 'dev-reply-practice-v1',
         { contract: 'dev-manual-retry-v1', ...(input.retryOfRequestId ? { retryOfRequestId: input.retryOfRequestId } : {}) },
         input.candidateDiagnostic === true,
       );
       assertAllowed(signal);
       if (result.requestMode !== 'dev-ephemeral-v1') throw new Error('dev_isolation_not_confirmed');
-      if (result.devReplyContract !== undefined && result.devReplyContract !== 'dev-reply-practice-v1') throw new Error('unsupported_dev_reply_contract');
+      if (result.devReplyContract !== undefined && result.devReplyContract !== 'dev-reply-practice-v1'
+        && !(process.env.EXPO_PUBLIC_DEV_PRACTICE_V2 === '1' && result.devReplyContract === 'dev-reply-practice-v2')) throw new Error('unsupported_dev_reply_contract');
       if (result.devRetryContract !== undefined && (result.devRetryContract !== 'dev-manual-retry-v1'
-        || result.devReplyContract !== 'dev-reply-practice-v1')) throw new Error('unsupported_dev_retry_contract');
+        || result.devReplyContract !== 'dev-reply-practice-v1'
+        && !(process.env.EXPO_PUBLIC_DEV_PRACTICE_V2 === '1' && result.devReplyContract === 'dev-reply-practice-v2'))) throw new Error('unsupported_dev_retry_contract');
       if (result.devCandidateDiagnostic !== undefined && (!input.candidateDiagnostic || result.devCandidateDiagnostic !== CANDIDATE_DIAGNOSTIC_CONTRACT)) throw new Error('unexpected_candidate_diagnostic');
       return {
         devCandidateDiagnostic: result.devCandidateDiagnostic,

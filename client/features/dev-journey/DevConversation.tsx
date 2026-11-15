@@ -136,14 +136,14 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
   // Opening an editable preview is not confirmation of accuracy or a save.
   const openDiscoveryPreview = () => {
     if (controller.current?.getSnapshot() === state && state.status === 'success' && state.source === 'backend-deep' && state.requestId) {
-      onConfirm({ text: state.deepText, input: state.inputText, requestId: state.requestId });
+      onConfirm({ text: state.discoveryText ?? state.deepText, input: state.inputText, requestId: state.requestId });
     }
   };
   const statusText = state.error ?? {
     idle: '仅点击发送才会请求。同一对话可连续发送，不加载原聊天历史。',
     starting: '正在思考',
     streaming: '正在思考',
-    success: `${DEV_REAL_REQUEST_SOURCE_NOTICE} 本轮已完成。可继续明确发送下一条，或结束对话。`,
+    success: `${DEV_REAL_REQUEST_SOURCE_NOTICE} 回复已接收。可继续明确发送下一条，或结束对话。`,
     recoverable: '刚才的回复没有完成，可以重试',
     failed: state.error ?? '本次请求未完成。',
     stopped: '本次会话已结束，上下文已清除；未自动保存理解。',

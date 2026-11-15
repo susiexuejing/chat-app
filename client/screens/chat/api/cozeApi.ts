@@ -111,13 +111,19 @@ function rejectStreamEvent(message: string): VersionedStreamParseResult {
 }
 
 function validDevPracticeReply(value: unknown): boolean {
-  if (!isRecord(value) || !hasExactKeys(value, ['contract', 'reply', 'practiceCandidate', 'source'])
-    || value.contract !== 'dev-reply-practice-v1' || typeof value.reply !== 'string' || !value.reply.trim()
+  if (!isRecord(value)) return false;
+  const v2 = value.contract === 'dev-reply-practice-v2';
+  if ((!v2 && value.contract !== 'dev-reply-practice-v1')
+    || !hasExactKeys(value, v2 ? ['contract', 'reply', 'discoveryText', 'practiceCandidate', 'source'] : ['contract', 'reply', 'practiceCandidate', 'source'])
+    || typeof value.reply !== 'string' || !value.reply.trim()
     || !isRecord(value.source) || !hasExactKeys(value.source, ['sessionId', 'devConversationId', 'requestId'])
     || !Object.values(value.source).every(id => typeof id === 'string' && /^[\w-]{1,100}$/.test(id))) return false;
   const c = value.practiceCandidate;
-  return c === null || (isRecord(c) && hasExactKeys(c, ['ifCue', 'thenAction'])
-    && [c.ifCue, c.thenAction].every(text => typeof text === 'string' && !!text.trim() && text.length <= 200));
+  if (!(c === null || (isRecord(c) && hasExactKeys(c, ['ifCue', 'thenAction'])
+    && [c.ifCue, c.thenAction].every(text => typeof text === 'string' && !!text.trim() && text.length <= 200)))) return false;
+  if (!v2) return true;
+  if (typeof value.discoveryText !== 'string' || !value.discoveryText.trim()) return false;
+  return value.reply === (isRecord(c) ? `${value.discoveryText}\n如果：${c.ifCue}\n那么：${c.thenAction}` : value.discoveryText);
 }
 
 function normalizeKnownStreamEvent(
@@ -442,7 +448,7 @@ export interface FlowContext {
 
 export interface ChatStartResponse {
   devCandidateDiagnostic?: 'dev-candidate-diagnostic-v1';
-  devReplyContract?: 'dev-reply-practice-v1';
+  devReplyContract?: 'dev-reply-practice-v1' | 'dev-reply-practice-v2';
   devRetryContract?: 'dev-manual-retry-v1';
   requestMode?: 'dev-ephemeral-v1';
   devConversationId?: string;
@@ -525,7 +531,7 @@ export async function chatStart(
   signal?: AbortSignal,
   requestMode?: 'dev-ephemeral-v1',
   devContext?: { devConversationId: string; afterRequestId?: string },
-  devReplyContract?: 'dev-reply-practice-v1',
+  devReplyContract?: 'dev-reply-practice-v1' | 'dev-reply-practice-v2',
   devRetry?: { contract: 'dev-manual-retry-v1'; retryOfRequestId?: string },
   candidateDiagnostic = false,
 ): Promise<ChatStartResponse> {
@@ -535,8 +541,8 @@ export async function chatStart(
   }
   if (devContext && (requestMode !== 'dev-ephemeral-v1' || !/^[\w-]{1,100}$/.test(devContext.devConversationId)
     || typeof devContext.afterRequestId !== 'string' || !/^[\w-]{1,100}$/.test(devContext.afterRequestId))) throw new Error('invalid_dev_context');
-  if (devReplyContract !== undefined && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1')) throw new Error('invalid_dev_reply_contract');
-  if (devRetry && (requestMode !== 'dev-ephemeral-v1' || devReplyContract !== 'dev-reply-practice-v1'
+  if (devReplyContract !== undefined && (requestMode !== 'dev-ephemeral-v1' || (devReplyContract !== 'dev-reply-practice-v1' && devReplyContract !== 'dev-reply-practice-v2'))) throw new Error('invalid_dev_reply_contract');
+  if (devRetry && (requestMode !== 'dev-ephemeral-v1' || (devReplyContract !== 'dev-reply-practice-v1' && devReplyContract !== 'dev-reply-practice-v2')
     || devRetry.contract !== 'dev-manual-retry-v1' || (devRetry.retryOfRequestId !== undefined
       && (devContext !== undefined || !/^[\w-]{1,100}$/.test(devRetry.retryOfRequestId))))) throw new Error('invalid_dev_retry');
   if (candidateDiagnostic && (requestMode !== 'dev-ephemeral-v1' || !devRetry || process.env.EXPO_PUBLIC_APP_ENV !== 'DEV')) throw new Error('invalid_candidate_diagnostic');
