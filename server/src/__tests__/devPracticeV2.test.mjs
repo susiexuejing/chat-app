@@ -84,3 +84,31 @@ test('default-off route declares v1 fallback and does not send a v2 model prompt
   assert.equal(r.res.body.devReplyContract, old.DEV_PRACTICE_CONTRACT);
   assert.ok(!JSON.parse(h.providerRequests[0].options.body).messages[0].content.includes(version));
 });
+
+test('actual v2 route preserves negotiated candidate_filtered instead of overwriting it as reply_rejected', async () => {
+  const value = output(); value.practiceCandidate.evidence.refusalOrExit = true;
+  const h = await harness({ practiceV2Enabled: '1', candidateDiagnosticEnabled: '1', realValidator: true, realStreamContract: true,
+    provider: async () => providerResponse({ text: JSON.stringify(value) }) });
+  const r = await h.request('POST', START, { input: body({ message }), accept,
+    retryContract: 'dev-manual-retry-v1', candidateDiagnostic: 'dev-candidate-diagnostic-v1' }); await settle();
+  assert.equal(r.res.body.devCandidateDiagnostic, 'dev-candidate-diagnostic-v1');
+  const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); h.tick(100); await settle();
+  const events = stream.events();
+  assert.equal(events.find(e => e.eventType === 'error').payload.candidateDiagnostic, 'candidate_filtered');
+  assert.ok(!events.some(e => e.eventType === 'turn.completed' || e.eventType === 'deep.delta'));
+  assert.equal(h.providerRequests.length, 1);
+});
+
+test('version-bound retry digest cannot collide with a v1 message containing the old separator suffix', async () => {
+  const h = await harness({ practiceV2Enabled: '1', realValidator: true, realStreamContract: true,
+    provider: async () => providerResponse({ text: JSON.stringify(output()) }) });
+  const r = await h.request('POST', START, { input: body({ message }), accept, retryContract: 'dev-manual-retry-v1' }); await settle();
+  const stream = await h.request('GET', STREAM, { query: { sessionId: r.res.body.sessionId } }); h.tick(100); await settle();
+  assert.ok(stream.events().some(e => e.eventType === 'turn.completed'));
+  const collision = await h.request('POST', START, { input: body({ message: `${message}\0dev-reply-practice-v2`,
+    requestId: '100100_collision_2', retryOfRequestId: body().requestId }),
+    accept: 'application/json; dev-reply-contract=dev-reply-practice-v1', retryContract: 'dev-manual-retry-v1' }); await settle();
+  assert.equal(collision.res.statusCode, 409);
+  assert.equal(collision.res.body.sessionId, undefined);
+  assert.equal(h.providerRequests.length, 1);
+});

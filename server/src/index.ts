@@ -697,7 +697,10 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         }),
       });
       if (!result) {
-        if (session.devCandidateDiagnostic) session.devCandidateDiagnostic = providerCompleted && !providerTruncated ? 'reply_rejected' : 'provider_incomplete';
+        if (session.devCandidateDiagnostic
+          && !(session.devReplyContract === DEV_PRACTICE_V2 && session.devCandidateDiagnostic === 'candidate_filtered')) {
+          session.devCandidateDiagnostic = providerCompleted && !providerTruncated ? 'reply_rejected' : 'provider_incomplete';
+        }
         setSafeDeepError(session, 'deep_analysis_failure'); return;
       }
       if (!activeDevTurn(session)) return;
@@ -1246,7 +1249,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     if (isDevEphemeral) {
       const begun = devConversations.begin(authenticated.session.id, requestId, receivedAt,
         req.body.devConversationId, req.body.afterRequestId, retryNegotiated ? {
-          inputDigest: crypto.createHash('sha256').update(message).update(negotiatedPractice === DEV_PRACTICE_V2 ? '\0dev-reply-practice-v2' : '').digest('hex'),
+          inputDigest: crypto.createHash('sha256').update(JSON.stringify([negotiatedPractice, message])).digest('hex'),
           retryOfRequestId: req.body.retryOfRequestId,
         } : undefined);
       if (!begun.ok) {
