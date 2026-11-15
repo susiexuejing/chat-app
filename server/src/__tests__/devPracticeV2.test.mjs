@@ -28,9 +28,9 @@ test('one action projection and separate validated discovery; explicit correctio
   assert.equal(result.practiceCandidate.thenAction, value.practiceCandidate.thenAction);
   assert.ok(Object.isFrozen(result) && Object.isFrozen(result.practiceCandidate));
 });
-test('no duplicate reply/action field, invalid evidence, explicit refusal, or topic switch is accepted', () => {
+test('no duplicate reply/action field, invalid evidence, or explicit refusal is accepted', () => {
   for (const mutate of [v => { v.reply = '另外做一个不同的动作'; }, v => { v.practiceCandidate.evidence.refusalOrExit = true; },
-    v => { v.practiceCandidate.evidence.topicChanged = true; }, v => { v.practiceCandidate.evidence.currentUserRequest = false; },
+    v => { v.practiceCandidate.evidence.currentUserRequest = false; },
     v => { v.practiceCandidate.evidence.anchorQuote = 'from a prior turn'; }, v => { delete v.practiceCandidate.evidence.correction; }]) {
     const value = output(); mutate(value); assert.equal(parse(value), null);
   }
@@ -111,4 +111,26 @@ test('version-bound retry digest cannot collide with a v1 message containing the
   assert.equal(collision.res.statusCode, 409);
   assert.equal(collision.res.body.sessionId, undefined);
   assert.equal(h.providerRequests.length, 1);
+});
+
+test('topic change requires fresh current-turn permission, never inherited permission or an ignored stop', () => {
+  const latestUserMessage = '换个话题：我在歌单里切换了十分钟，请给我一个可随时停止的小练习。';
+  const validateReply = text => validator.validateEf41DeepOutputOutcome({ text, roleId: 'clever-fox', userTurn: 1,
+    userMessage: latestUserMessage, source: 'cleaned', visiblePrefix: '', devPrimaryResponse: true });
+  const candidate = () => {
+    const value = output(); value.practiceCandidate.evidence.correction = false;
+    value.practiceCandidate.evidence.topicChanged = true; return value;
+  };
+  assert.ok(parse(candidate(), { latestUserMessage, validateReply }));
+  for (const mutate of [
+    value => { value.practiceCandidate.evidence.permissionQuote = '这是上一话题的许可'; },
+    value => { value.practiceCandidate.evidence.currentUserRequest = false; },
+    value => { value.practiceCandidate.evidence.refusalOrExit = true; },
+  ]) {
+    const value = candidate(); mutate(value);
+    assert.equal(parse(value, { latestUserMessage, validateReply }), null);
+  }
+  // Observation fields remain mandatory booleans, not a looser wire contract.
+  const malformed = candidate(); delete malformed.practiceCandidate.evidence.topicChanged;
+  assert.equal(parse(malformed, { latestUserMessage, validateReply }), null);
 });
