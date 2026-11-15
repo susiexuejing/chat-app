@@ -9,7 +9,11 @@ const validator = await loadTsModule(new URL('../flows/ef41DeepCompositionValida
 const prompt = await loadTsModule(new URL('../flows/deepSystemPromptBuilder.ts', import.meta.url), { './ef41DeepCompositionValidator': validator });
 const server = await loadTsModule(new URL('../roles/psychologistRoles.ts', import.meta.url), {});
 const client = await loadTsModule(new URL('../../../client/screens/chat/constants/roles.ts', import.meta.url), {});
-const credentialClaim = /博士|硕士|学士|大学|毕业|深造|\\d+\\s*年|担任.{0,10}(治疗师|咨询师)/;
+const credentialClaim = /博士|硕士|学士|大学|毕业|深造|\d+\s*年|担任.{0,10}(治疗师|咨询师)/;
+
+test('credential matcher detects degree, tenure and appointment claims', () => {
+  for (const claim of ['博士', '15年', '超过 10 年临床经验', '担任心理咨询师']) assert.match(claim, credentialClaim);
+});
 
 for (const [source, roles] of [['server', server.PSYCHOLOGIST_ROLES], ['client', client.DEFAULT_ROLES]]) {
   test(source + ' retains six personas with explicit non-credential identity and boundary', () => {
