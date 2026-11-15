@@ -63,6 +63,28 @@ test('prompt preserves original reply contract and names all semantic exclusions
   for (const text of ['UNCHANGED_REPLY_FACT_CONTRACT', '自然接近结束', '最新这条用户消息', '模糊', '转述别人', '纠正', '不保证效果', '轮数', '评分', '不要声称保存/激活']) assert.ok(prompt.includes(text));
 });
 
+test('prompt covers consequences and user control without changing candidate consent or wire schema', () => {
+  const prompt = contract.buildDevPracticeReplyContract('UNCHANGED_REPLY_FACT_CONTRACT');
+  for (const boundary of ['动作短小不等于风险小', '可暂停、可撤回、由用户掌控', '必要的事实、隐私、安全核对',
+    '不能仅靠“可以”“试着”', '质量与安全条件优先于', '用户明确请求也不能覆盖这些条件', '并非一律禁止', '不执行该动作的准备或观察步骤', '不要编造',
+    '不要增设例行确认理解弹框', '应按具体含义判断', '请求建议不是许可保存、激活']) {
+    assert.ok(prompt.includes(boundary), `missing generation boundary: ${boundary}`);
+  }
+  assert.equal(contract.DEV_PRACTICE_CONTRACT, version);
+});
+
+// Structural regression only: these tests do not simulate model generation or
+// assert that the parser is a semantic safety classifier.
+for (const thenAction of [
+  '可以先慢慢呼一口气，不舒服就停下',
+  '可以写下一条需要核对的事实，暂时不发送',
+  '可以把草稿留着，看看自己最担心哪一处',
+  '若你确认这是已核对、无敏感内容的普通消息，可以自行决定发送或继续保留草稿',
+]) test(`ordinary optional action remains structurally eligible: ${thenAction}`, () => {
+  const value = output(); value.practiceCandidate.thenAction = thenAction;
+  assert.equal(parse(value).practiceCandidate.thenAction, thenAction);
+});
+
 async function start(h, header = accept) {
   const r = await h.request('POST', START, { input: body({ message }), accept: header });
   await settle(); return r;
