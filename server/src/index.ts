@@ -1,4 +1,4 @@
-import { DEV_PRACTICE_V2, negotiatePracticeContract, buildDevPracticeV2Contract, parseDevPracticeV2, type ValidatedPracticeReplyV2 } from './contracts/devPracticeV2';
+import { DEV_PRACTICE_V2, negotiatePracticeContract, buildDevPracticeV2Contract, parseDevPracticeV2Outcome, type ValidatedPracticeReplyV2 } from './contracts/devPracticeV2';
 import { CANDIDATE_DIAGNOSTIC_CONTRACT, negotiateCandidateDiagnostic, type CandidateDiagnosticResult } from './contracts/candidateDiagnostic';
 import { DEV_PRACTICE_CONTRACT, buildDevPracticeReplyContract, parseDevPracticeReply, type ValidatedPracticeReply } from './contracts/devPracticeCandidate';
 import 'dotenv/config';
@@ -180,6 +180,7 @@ export interface ChatSession {
   devReplyContract?: typeof DEV_PRACTICE_CONTRACT | typeof DEV_PRACTICE_V2;
   devPracticeReply?: ValidatedPracticeReply | ValidatedPracticeReplyV2;
   devRetryContract?: typeof DEV_MANUAL_RETRY_CONTRACT;
+  devContentNotDelivered?: true;
   devRetryableFailure?: boolean;
   devProviderRejected?: boolean;
   devAbort?: AbortController;
@@ -213,7 +214,8 @@ type SafeDeepErrorCode =
   | 'provider_key_missing'
   | 'provider_api_error'
   | 'stream_reader_missing'
-  | 'deep_analysis_failure';
+  | 'deep_analysis_failure'
+  | 'practice_not_delivered';
 
 function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode, retryable = code !== 'provider_key_missing' && !session.devProviderRejected): void {
   session.deepError = code;
@@ -232,6 +234,20 @@ function setSafeDeepError(session: ChatSession, code: SafeDeepErrorCode, retryab
 }
 
 const sessions = new Map<string, ChatSession>();
+
+function withholdDevPractice(session: ChatSession): void {
+  if (!session.devConversationId || !session.devRequestId
+    || !devConversations.withhold(session.devConversationId, session.ownerSessionId, session.devRequestId)) {
+    setSafeDeepError(session, 'deep_analysis_failure', false); return;
+  }
+  // Keep only the authenticated non-retryable terminal until SSE consumes it
+  // or the original conversation expires. Never cache a generated reply.
+  session.devContentNotDelivered = true;
+  session.devRetryableFailure = false;
+  session.deepError = 'practice_not_delivered';
+  clearDevTurnContent(session);
+  session.deepStreaming = false;
+}
 
 function clearDevTurnContent(session: ChatSession) {
   session.devAbort?.abort();
@@ -266,11 +282,14 @@ function activeDevTurn(session: ChatSession): boolean {
   return !!conversation && conversation.pendingRequestId === session.devRequestId;
 }
 function readableDevTurn(session: ChatSession): boolean {
-  if (!session.devRetryContract) return activeDevTurn(session);
+  if (!session.devRetryContract && !session.devContentNotDelivered) return activeDevTurn(session);
   return !!session.devConversationId && !!session.devRequestId
     && devConversations.readable(session.devConversationId, session.ownerSessionId, session.devRequestId);
 }
 function devStreamFailure(session: ChatSession): StreamPayloadByType['error'] {
+  if (session.devContentNotDelivered) return { code: 'PRACTICE_NOT_DELIVERED', message: 'No practice was delivered.',
+    recoverable: false, recoveryAction: 'restart_turn',
+    ...(session.devCandidateDiagnostic ? { candidateDiagnostic: session.devCandidateDiagnostic } : {}) };
   const error = { ...mapSafeStreamError('deep_response_failed'), ...(session.devCandidateDiagnostic ? { candidateDiagnostic: session.devCandidateDiagnostic } : {}) };
   return session.devRetryContract && !session.devRetryableFailure
     ? { ...error, recoverable: false, recoveryAction: 'restart_turn' } : error;
@@ -684,8 +703,8 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
     if (session.devReplyContract) {
-      const parseReply = session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2 : parseDevPracticeReply;
-      const result = parseReply(deepContentBuffer, {
+      const parseReply = session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2Outcome : parseDevPracticeReply;
+      const parsed = parseReply(deepContentBuffer, {
         latestUserMessage: session.userMessage, providerCompleted: providerCompleted && !providerTruncated,
         source: { sessionId: session.sessionId, devConversationId: session.devConversationId!, requestId: session.devRequestId! },
         ...(session.devCandidateDiagnostic ? { candidateDiagnostic: (stage: CandidateDiagnosticResult) => { session.devCandidateDiagnostic = stage; } } : {}),
@@ -696,6 +715,12 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
           devPrimaryResponse: true, source: 'cleaned', visiblePrefix: '',
         }),
       });
+      if (parsed && 'kind' in parsed && parsed.kind === 'not_delivered') {
+        if (!activeDevTurn(session)) return;
+        checkDevDeadline();
+        withholdDevPractice(session); return;
+      }
+      const result = parsed && 'kind' in parsed ? parsed.reply : parsed;
       if (!result) {
         if (session.devCandidateDiagnostic
           && !(session.devReplyContract === DEV_PRACTICE_V2 && session.devCandidateDiagnostic === 'candidate_filtered')) {
@@ -1558,6 +1583,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   const session = sessions.get(sessionId);
   if (session && session.ownerSessionId === authenticated.session.id && session.requestMode === DEV_EPHEMERAL_REQUEST_MODE
     && session.devDeepDeadlineAt !== undefined
+    && !session.devContentNotDelivered
     && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
   if (!session || session.ownerSessionId !== authenticated.session.id || !readableDevTurn(session)) {
     recordEf45OneShotDiagnosticCategory(ef45OneShotMarker, 'identity_or_session_failed');
@@ -1621,7 +1647,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
   // 每 100ms 轮询 session.deepChunks，推送新chunk（但前90秒不发）
   const pollInterval = setInterval(() => {
     // The same private deadline also gates delayed SSE publication/context save.
-    if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined
+    if (session.requestMode === DEV_EPHEMERAL_REQUEST_MODE && session.devDeepDeadlineAt !== undefined && !session.devContentNotDelivered
       && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt) setSafeDeepError(session, 'deep_analysis_failure');
     if (!readableDevTurn(session)) {
       clearInterval(pollInterval); clearTimeout(timeout);
@@ -1657,7 +1683,7 @@ app.get('/api/v1/chat/stream', async (req, res) => {
           // rejects it; no conversation context/continuation survives. PR167 is separate.
           endDevTurn(session);
         } else if (!session.devConversationId || !session.devRequestId
-          || (session.devDeepDeadlineAt !== undefined && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt)
+          || (session.devDeepDeadlineAt !== undefined && !session.devContentNotDelivered && (!session.devRetryContract || (!session.deepDone && !session.deepError)) && Date.now() >= session.devDeepDeadlineAt)
           || !devConversations.complete(session.devConversationId, session.ownerSessionId, session.devRequestId,
             session.userMessage, session.deepChunks.join(''))) {
           clearInterval(pollInterval); clearTimeout(timeout);

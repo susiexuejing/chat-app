@@ -258,3 +258,15 @@ test('old server preflight/transport rejection never retries with weaker negotia
   assert.equal(calls.fetch[0][1].headers['X-Dev-Retry-Contract'], 'dev-manual-retry-v1');
   assert.ok(calls.fetch[0][0].endsWith('/api/v1/chat/dev-journey/start'));
 });
+
+test('withheld envelope is a strict terminal with no generated content or retry invitation', async () => {
+  const {api,calls}=await setup();
+  const payload={code:'PRACTICE_NOT_DELIVERED',message:'No practice was delivered.',recoverable:false,recoveryAction:'restart_turn'};
+  const parse=p=>api.parseVersionedStreamEvent(JSON.stringify({schemaVersion:1,eventType:'error',sequence:1,timestamp:'2026-11-15T12:00:00.000Z',payload:p}));
+  assert.equal(parse(payload).kind,'known'); assert.equal(parse(payload).terminal,true);
+  for(const bad of [
+    {...payload,recoverable:true},{...payload,recoveryAction:'retry_turn'},{...payload,message:'invented unsafe reason'},
+    {...payload,practiceReply:{}},{...payload,content:'hidden narrative'},{...payload,code:'OTHER'},
+  ]) assert.equal(parse(bad).kind,'rejected');
+  assert.equal(calls.fetch.length,0);
+});

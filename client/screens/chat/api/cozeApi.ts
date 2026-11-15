@@ -174,6 +174,12 @@ function normalizeKnownStreamEvent(
         || (hasExactKeys(payload, ['status', 'practiceReply']) && validDevPracticeReply(payload.practiceReply)))
         ? { ...base, type: 'turn.completed' } : null;
     case 'error':
+      if (payload.code === 'PRACTICE_NOT_DELIVERED') {
+        return hasExactKeys(payload, ['code', 'message', 'recoverable', 'recoveryAction'])
+          && payload.message === 'No practice was delivered.' && payload.recoverable === false
+          && payload.recoveryAction === 'restart_turn'
+          ? { ...base, type: 'error', ...payload, done: true } : null;
+      }
       return (payload.code === 'DEEP_RESPONSE_FAILED' || payload.code === 'STREAM_TIMEOUT')
         && typeof payload.message === 'string' && payload.message.length > 0
         && typeof payload.recoverable === 'boolean'

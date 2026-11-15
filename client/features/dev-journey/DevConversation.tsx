@@ -6,7 +6,7 @@ import { MultimodalInputView } from '@/screens/chat/components/MultimodalInputVi
 import type { ChatMessage } from '@/screens/chat/types';
 import { createDevRealRequestControllerForRuntime } from '@/features/dev-journey/realRequestAdapter';
 import {
-  DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_RETRY_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
+  DEV_PRACTICE_NOT_DELIVERED_NOTICE, DEV_REAL_REQUEST_NOTICE, DEV_REAL_REQUEST_RETRY_NOTICE, DEV_REAL_REQUEST_SOURCE_NOTICE, DEV_REAL_REQUEST_STOP_NOTICE,
   type DevPracticeCandidate, type DevRealRequestController, type DevRealRequestSnapshot, type DevSyntheticSafetyKind,
 } from '@/features/dev-journey/realRequestController';
 
@@ -90,7 +90,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
         runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); runEditorCleanup(discard.current);
         return;
       }
-      if (next.status === 'starting' || next.status === 'recoverable' || next.status === 'failed' || next.status === 'stopped') {
+      if (next.status === 'starting' || next.status === 'recoverable' || next.status === 'content_not_delivered' || next.status === 'failed' || next.status === 'stopped') {
         runEditorCleanup(practiceCallbacks.current.onPracticeInvalidate); runEditorCleanup(discard.current);
         // A manual retry must not consume a separate draft typed while waiting.
         if ((next.status === 'starting' && next.logicalRequestId === next.requestId)
@@ -145,6 +145,7 @@ export function DevConversation({ onConfirm, onDraftDiscard, footer, resetKey, b
     streaming: '正在思考',
     success: `${DEV_REAL_REQUEST_SOURCE_NOTICE} 回复已接收。可继续明确发送下一条，或结束对话。`,
     recoverable: '刚才的回复没有完成，可以重试',
+    content_not_delivered: DEV_PRACTICE_NOT_DELIVERED_NOTICE,
     failed: state.error ?? '本次请求未完成。',
     stopped: '本次会话已结束，上下文已清除；未自动保存理解。',
     safety: '已中断普通回复、分析与幽默；可以停止或离开。',

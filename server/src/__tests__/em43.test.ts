@@ -305,7 +305,7 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const negotiated = source.slice(start, end);
-    expect(negotiated).toContain('session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2 : parseDevPracticeReply');
+    expect(negotiated).toContain('session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2Outcome : parseDevPracticeReply');
     const legacy = source.slice(0, start) + source.slice(end);
     expect((legacy.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(3);
     expect((legacy.match(/roleId: session\.roleId/g) || [])).toHaveLength(3);

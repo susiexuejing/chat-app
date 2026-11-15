@@ -41,13 +41,19 @@ export const streamPayloadSchemas = {
   'deep.delta': z.object({ content: z.string().min(1) }).strict(),
   'deep.completed': z.object({}).strict(),
   'turn.completed': z.object({ status: z.literal('completed'), practiceReply: practiceReplySchema.optional(), candidateDiagnostic: z.enum(candidateDiagnosticResults).optional() }).strict(),
-  error: z.object({
+  error: z.union([z.object({
     code: z.enum(['DEEP_RESPONSE_FAILED', 'STREAM_TIMEOUT']),
     message: z.string().min(1),
     recoverable: z.boolean(),
     recoveryAction: z.enum(['retry_turn', 'restart_turn']),
     candidateDiagnostic: z.enum(candidateDiagnosticResults).optional(),
-  }).strict(),
+  }).strict(), z.object({
+    code: z.literal('PRACTICE_NOT_DELIVERED'),
+    message: z.literal('No practice was delivered.'),
+    recoverable: z.literal(false),
+    recoveryAction: z.literal('restart_turn'),
+    candidateDiagnostic: z.enum(candidateDiagnosticResults).optional(),
+  }).strict()]),
 } as const;
 
 export type StreamEventType = keyof typeof streamPayloadSchemas;
@@ -108,10 +114,10 @@ export const streamEventSchema = z.discriminatedUnion('eventType', [
     eventType: z.literal('error'),
     payload: streamPayloadSchemas.error,
     type: z.literal('error'),
-    code: streamPayloadSchemas.error.shape.code,
+    code: z.enum(['DEEP_RESPONSE_FAILED', 'STREAM_TIMEOUT', 'PRACTICE_NOT_DELIVERED']),
     message: z.string().min(1),
     recoverable: z.boolean(),
-    recoveryAction: streamPayloadSchemas.error.shape.recoveryAction,
+    recoveryAction: z.enum(['retry_turn', 'restart_turn']),
     done: z.literal(true),
   }).strict(),
 ]);

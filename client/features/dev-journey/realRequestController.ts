@@ -11,7 +11,7 @@ export interface DevPracticeReply {
   readonly source: DevPracticeCandidate['source'];
 }
 /** Explicit same-session DEV turns. No network, storage or React imports. */
-export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'recoverable' | 'stopped' | 'safety';
+export type DevRealRequestStatus = 'idle' | 'starting' | 'streaming' | 'success' | 'failed' | 'recoverable' | 'stopped' | 'safety' | 'content_not_delivered';
 export type DevSyntheticSafetyKind = 'help' | 'emergency' | 'unknown';
 // EF369-C-CHAT-SAFETY-v0.1-20261021: explicit synthetic controls only.
 // These frozen H01/U01 outputs do not classify text or call a provider.
@@ -60,7 +60,7 @@ export interface DevRealRequestStart {
 export interface DevRealRequestCallbacks {
   onDeepChunk: (text: string) => void;
   onDone: (reply?: DevPracticeReply, diagnostic?: CandidateDiagnosticResult) => void;
-  onError: (reason?: 'retry_turn' | 'transport' | 'terminal', diagnostic?: CandidateDiagnosticResult) => void;
+  onError: (reason?: 'retry_turn' | 'transport' | 'terminal' | 'content_not_delivered', diagnostic?: CandidateDiagnosticResult) => void;
 }
 export interface DevRealRequestTransport {
   start: (input: DevRealRequestInput, signal: AbortSignal) => Promise<DevRealRequestStart>;
@@ -86,6 +86,7 @@ export const DEV_REAL_REQUEST_SOURCE_NOTICE = '仅确认收到后端 Deep 内容
 export const DEV_REAL_REQUEST_MAX_INPUT = 1000;
 export const DEV_REAL_REQUEST_ID_PATTERN = /^[\w-]{1,100}$/;
 export const DEV_REAL_REQUEST_RETRY_NOTICE = '重试可能产生新的 API 费用；上一次请求也可能仍在上游处理或计费。';
+export const DEV_PRACTICE_NOT_DELIVERED_NOTICE = '本次没有交付可用练习，也没有保存或开始练习。不会自动重试。';
 const RETRY_MESSAGE = '刚才的回复没有完成，可以重试';
 const FAILED_MESSAGE = '本次真实请求未完成，会话已结束。请新开对话后再显式发送。';
 const EXPIRED_MESSAGE = '会话或请求已过期，也可能是设备时钟不准确。请检查时间并新开对话，再自行发送。';
@@ -161,6 +162,22 @@ export function createDevRealRequestController(options: {
     publish({ ...snapshot, status: 'recoverable', preserveDraft: true, error: pending ? `${RETRY_MESSAGE}。上一次请求仍在处理中，本次点击没有启动新的回复请求。请稍后自行重试。` : RETRY_MESSAGE, canSend: false, canRetry: true,
       deepText: '', discoveryText: undefined, reactionText: '', companionText: '', source: null, practiceCandidate: null });
   }
+  function contentNotDelivered(localExpiresAt: number) {
+    // This is a completed business outcome, not a transport retry invitation.
+    // Keep prior completed presentation and a separately typed draft only.
+    const prior = snapshot;
+    // invalidate may synchronously invoke abort/end observers that choose a
+    // newer safety, stop, reset or dispose state. That newer state owns UI.
+    const terminalGeneration = generation + 1;
+    invalidate();
+    if (disposed || generation !== terminalGeneration) return;
+    expiry = setTimeout(() => {
+      if (!disposed && generation === terminalGeneration) end('failed', EXPIRED_MESSAGE);
+    }, Math.max(0, localExpiresAt - Date.now()));
+    publish({ ...prior, status: 'content_not_delivered', preserveDraft: true,
+      canSend: false, canRetry: false, error: null, source: null,
+      deepText: '', discoveryText: undefined, practiceCandidate: null, reactionText: '', companionText: '' });
+  }
   function unavailable(localExpiresAt: number) {
     generation += 1;
     const run = active; active = null; retryAnchor = null;
@@ -187,7 +204,7 @@ export function createDevRealRequestController(options: {
     retry: () => retryAnchor && snapshot.canRetry ? attempt(snapshot.inputText, retryAnchor) : Promise.resolve(false),
     stop: () => { if (!disposed && (latestRequestId || snapshot.requestId || snapshot.status === 'safety')) end('stopped', null); },
     safety: kind => {
-      if (disposed || !enabled || !['idle', 'starting', 'streaming', 'success', 'recoverable'].includes(snapshot.status)
+      if (disposed || !enabled || !['idle', 'starting', 'streaming', 'success', 'recoverable', 'content_not_delivered'].includes(snapshot.status)
         || (kind !== 'help' && kind !== 'emergency' && kind !== 'unknown')) return;
       invalidate(() => publish({ ...initial(), status: 'safety', canSend: false, safetySupport: DEV_SYNTHETIC_SAFETY_REPLIES[kind] }));
     },
@@ -296,7 +313,18 @@ export function createDevRealRequestController(options: {
             } else if (reply) { failed = true; terminalFailure = true; }
             if (!failed) reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', practiceCandidate ? 'candidate' : 'no_candidate');
           },
-          onError: (reason, diagnostic) => { if (isCurrent() && !terminal) { reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', 'error'); terminal = true; failed = true; terminalFailure = reason === undefined || reason === 'terminal'; } },
+          onError: (reason, diagnostic) => {
+            if (!isCurrent() || terminal) return;
+            terminal = true; failed = true;
+            reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', 'error');
+            if (!isCurrent()) return;
+            if (reason === 'content_not_delivered' && start.devReplyContract === 'dev-reply-practice-v2') {
+              completedText = '';
+              contentNotDelivered(localExpiresAt);
+              return;
+            }
+            terminalFailure = reason === undefined || reason === 'terminal' || reason === 'content_not_delivered';
+          },
         }, abort.signal, { candidateDiagnostic: !!start.devCandidateDiagnostic, retryContract: start.devRetryContract, contract: start.devReplyContract, devConversationId: start.devConversationId, requestId });
         if (!isCurrent()) return false;
         if (Date.now() >= localExpiresAt) { end('failed', EXPIRED_MESSAGE); return false; }
