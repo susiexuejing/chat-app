@@ -116,16 +116,17 @@ for (const [value, expected] of [
   assert.doesNotMatch(text, /不超过 (?:NaN|Infinity|-) /);
 });
 
-// SHA256 of full ordinary prompt bytes captured from the unchanged PR168 source,
-// including the existing role style for each later-turn prompt.
+// Entry-turn SHA256 baselines remain unchanged from PR168.
+// Later-turn baselines include PR209's reviewed removal of fictional credentials.
+// personaDisclosure.test.mjs separately asserts the identity/boundary semantics.
 for (const [role, laterHash] of [
-  ['clever-fox', '9c1fb223715d3f57c4a38a66c965e4d32806c007f71a3b250b7f79401c4db228'],
-  ['warm-bear', '8879adae5660a2fd5fe5a8c4e761c335f855f861dc7b276510714ce5d4e71e57'],
-  ['wise-owl', 'fe02eb7c948b7d4ce5d40ab458f6ebcc240d12f5741801b12331e7a075110a32'],
-  ['emotion-elf', '76ad46d5700d0c98fbd85c8f87f4c67ae44cb8305b4d5dc5c64d93294e4b051f'],
-  ['philosophical-dolphin', '75612877e11018c11221833188637c8283132d538a2b01858900291227081717'],
-  ['family-elephant', 'ff5132b880f8be08d49099634666fdfc5818ad71368c1c2a323c68fbb4354d25'],
-]) test(`ordinary prompt bytes unchanged: ${role}, turns1/2/3`, () => {
+  ['clever-fox', '2b50341a67f1c4ed59f137742e39d764bbafe38aaacd864eae33d369bad9261b'],
+  ['warm-bear', '4e24d0b13f03ac17a2b3fb2167c529270a2695b9e432fed973050644fcabbb66'],
+  ['wise-owl', '905e6cae27801522a45537b904fd38381f58dc3d5ee69f79ff8f1fda58c8f1c2'],
+  ['emotion-elf', '9859bc523bd6ee4fd6930d7f696f1f332a17ac23b15854ee87a459a88cc65a49'],
+  ['philosophical-dolphin', 'ef5a93125417cb3b49bc97124f658157f3abe7e45a3161605df375bd1f62c083'],
+  ['family-elephant', 'f0bf8a6ed1ec0f7e7f1c09768f1b62fc4a98e7099f2f62635fdb2e91045b86dd'],
+]) test(`ordinary prompt byte baselines: ${role}, unchanged entry / disclosed later persona`, () => {
   assert.equal(sha256(build(undefined, 1, role)), '89fd396021e54c36f96b0de04a140c998c03f4175589d56c8cd183d729ecfe4a');
   assert.equal(sha256(build(undefined, 2, role)), '39cdc96d9d2d414033c0d0aecfab5dd3f9c16d34a5a4eec5538342352d3bb0c5');
   assert.equal(sha256(build(undefined, 3, role)), laterHash);
