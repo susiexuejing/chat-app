@@ -150,15 +150,18 @@ export function createDevRealRequestController(options: {
       // Its newer state owns cleanup; this older expiry must not replace it.
       if (generation !== endGeneration || disposed) return;
     }
+    const endGeneration = generation + 1;
     invalidate();
+    if (disposed || generation !== endGeneration) return;
     publish({ ...initial(), status, error, canSend: false });
   }
   function recover(anchor: string, pending = false) {
     // Keep the original fixed expiry and completed turns. Revoke old callbacks
     // before aborting; no backend end and no automatic resubmission here.
-    generation += 1;
+    const recoveryGeneration = ++generation;
     const run = active; active = null; retryAnchor = anchor;
     run?.cancel(); run?.abort.abort();
+    if (disposed || generation !== recoveryGeneration) return;
     publish({ ...snapshot, status: 'recoverable', preserveDraft: true, error: pending ? `${RETRY_MESSAGE}。上一次请求仍在处理中，本次点击没有启动新的回复请求。请稍后自行重试。` : RETRY_MESSAGE, canSend: false, canRetry: true,
       deepText: '', discoveryText: undefined, reactionText: '', companionText: '', source: null, practiceCandidate: null });
   }
@@ -179,16 +182,11 @@ export function createDevRealRequestController(options: {
       deepText: '', discoveryText: undefined, practiceCandidate: null, reactionText: '', companionText: '' });
   }
   function unavailable(localExpiresAt: number) {
-    generation += 1;
-    const run = active; active = null; retryAnchor = null;
-    run?.cancel(); run?.abort.abort();
-    for (const id of new Set([context?.afterRequestId, latestRequestId])) {
-      if (id) { try { void transport.end(id).catch(() => undefined); } catch { /* expiry is the backstop */ } }
-    }
+    const unavailableGeneration = generation + 1;
+    invalidate();
+    if (disposed || generation !== unavailableGeneration) return;
     // Cleanup was dispatched once. Keep only the read-only UI and its original
     // local deadline; later End/New/unmount must not resend retired anchors.
-    latestRequestId = null; context = null;
-    clearTimeout(expiry);
     expiry = setTimeout(() => { if (!disposed) end('failed', EXPIRED_MESSAGE); }, Math.max(0, localExpiresAt - Date.now()));
     publish({ ...snapshot, status: 'failed', preserveDraft: true, canRetry: false, canSend: false, practiceCandidate: null, source: null,
       deepText: '', discoveryText: undefined, error: '无法确认刚才的请求状态，暂不能重试。请新开对话后再自行发送。' });
@@ -208,7 +206,13 @@ export function createDevRealRequestController(options: {
         || (kind !== 'help' && kind !== 'emergency' && kind !== 'unknown')) return;
       invalidate(() => publish({ ...initial(), status: 'safety', canSend: false, safetySupport: DEV_SYNTHETIC_SAFETY_REPLIES[kind] }));
     },
-    reset: () => { if (!disposed) { invalidate(); publish(initial()); } },
+    reset: () => {
+      if (disposed) return;
+      const resetGeneration = generation + 1;
+      invalidate();
+      if (disposed || generation !== resetGeneration) return;
+      publish(initial());
+    },
     dispose: () => {
       if (disposed) return;
       disposed = true; invalidate();
