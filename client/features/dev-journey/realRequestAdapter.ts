@@ -72,7 +72,7 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
       assertAllowed(signal);
       let terminal = false;
       let successfulTerminal = false;
-      const fail = (reason: 'retry_turn' | 'transport' | 'terminal' = 'terminal', diagnostic?: CandidateDiagnosticResult) => {
+      const fail = (reason: 'retry_turn' | 'transport' | 'terminal' | 'content_not_delivered' = 'terminal', diagnostic?: CandidateDiagnosticResult) => {
         if (terminal || signal.aborted) return;
         terminal = true;
         callbacks.onError(reason, diagnostic);
@@ -89,11 +89,18 @@ export function createDevRealRequestTransport(): DevRealRequestTransport {
             const event = JSON.parse(serialized) as {
               eventType?: string;
               content?: unknown;
-              payload?: { practiceReply?: DevPracticeReply; recoverable?: boolean; recoveryAction?: string; candidateDiagnostic?: CandidateDiagnosticResult };
+              payload?: { code?: string; message?: string; practiceReply?: DevPracticeReply; recoverable?: boolean; recoveryAction?: string; candidateDiagnostic?: CandidateDiagnosticResult };
             };
             const diagnostic = event.payload?.candidateDiagnostic;
             if (diagnostic !== undefined && (!expected?.candidateDiagnostic || !validCandidateDiagnostic(diagnostic))) { fail(); return; }
             if (event.eventType === 'error') {
+              if (event.payload?.code === 'PRACTICE_NOT_DELIVERED') {
+                fail(expected?.contract === 'dev-reply-practice-v2'
+                  && event.payload.message === 'No practice was delivered.'
+                  && event.payload.recoverable === false && event.payload.recoveryAction === 'restart_turn'
+                  ? 'content_not_delivered' : 'terminal', diagnostic);
+                return;
+              }
               fail(expected?.retryContract === 'dev-manual-retry-v1' && event.payload?.recoverable === true
                 && event.payload?.recoveryAction === 'retry_turn' ? 'retry_turn' : 'terminal', diagnostic);
             } else if (event.eventType === 'deep.delta' && typeof event.content === 'string') {

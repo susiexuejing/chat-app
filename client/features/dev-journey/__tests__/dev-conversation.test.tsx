@@ -773,5 +773,26 @@ describe('DevConversation uses the shared chat UI and one explicitly requested D
     expect(mockConfirm.mock.calls[0][0].text).not.toContain(practiceCandidate.thenAction);
   });
 
+  it('withheld outcome preserves a new draft and prior answer without retry or save UI', async () => {
+    await mount(); await send();
+    const pending = deferred<void>(); let callbacks!: DevRealRequestCallbacks;
+    mockStart.mockResolvedValue({ ...RECEIPT,sessionId:'stub-session',reactionText:'',companionText:'',
+      devReplyContract:'dev-reply-practice-v2',devRetryContract:'dev-manual-retry-v1' });
+    mockStream.mockImplementation(async (_s,c) => {callbacks=c;await pending.promise;});
+    await send('虚构纠正');
+    await type('尚未发送的草稿');
+    await act(async () => {callbacks.onDeepChunk('不得显示的空承诺');callbacks.onError('content_not_delivered');pending.resolve();});
+    expect(output()).toContain('本次没有交付可用练习');
+    expect(output()).not.toContain('不得显示的空承诺');
+    expect(output()).toContain(DEEP_REPLY);
+    expect(node('chat-input').props.value).toBe('尚未发送的草稿');
+    expect(nodes('dev-retry')).toHaveLength(0);
+    expectNoCandidate();
+    expect(mockStart).toHaveBeenCalledTimes(2);
+    await press('dev-new-chat');
+    expect(node('chat-input').props.value).toBe('');
+    expect(mockStart).toHaveBeenCalledTimes(2);
+  });
+
 });
 

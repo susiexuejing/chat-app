@@ -163,3 +163,15 @@ test('v2 opt-in requests v2 but accepts an explicitly declared v1 fallback',asyn
   assert.equal(calls.start[0][9],'dev-reply-practice-v2');assert.equal(result.devReplyContract,negotiated);
  }
 });
+
+for (const negotiated of ['dev-reply-practice-v2', 'dev-reply-practice-v1', undefined]) {
+  test(`content not delivered only maps on negotiated v2: ${negotiated}`, async () => {
+    const payload = {code:'PRACTICE_NOT_DELIVERED',message:'No practice was delivered.',recoverable:false,recoveryAction:'restart_turn'};
+    const {module} = await setup('DEV',[{eventType:'error',payload}]);
+    const reasons=[];
+    await module.createDevRealRequestTransport().stream('s',{
+      onDeepChunk(){assert.fail('no content');}, onDone(){assert.fail('not success');},onError:r=>reasons.push(r),
+    },new AbortController().signal,{contract:negotiated,devConversationId:'c',requestId:'r',retryContract:'dev-manual-retry-v1'});
+    assert.deepEqual(reasons,[negotiated==='dev-reply-practice-v2'?'content_not_delivered':'terminal']);
+  });
+}
