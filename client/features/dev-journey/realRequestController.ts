@@ -4,7 +4,9 @@ export interface DevPracticeCandidate {
   readonly source: { readonly sessionId: string; readonly devConversationId: string; readonly requestId: string };
 }
 export interface DevPracticeReply {
-  readonly contract: 'dev-reply-practice-v1'; readonly reply: string;
+  readonly contract: 'dev-reply-practice-v1' | 'dev-reply-practice-v2'; readonly reply: string;
+  /** v2 only: validated understanding, never the projected practice action. */
+  readonly discoveryText?: string;
   readonly practiceCandidate: { readonly ifCue: string; readonly thenAction: string } | null;
   readonly source: DevPracticeCandidate['source'];
 }
@@ -25,6 +27,7 @@ export interface DevCompletedTurn {
 export interface DevRealRequestSnapshot {
   readonly safetySupport?: string;
   readonly practiceCandidate?: DevPracticeCandidate | null;
+  readonly discoveryText?: string;
   readonly status: DevRealRequestStatus;
   readonly inputText: string;
   readonly requestId: string | null;
@@ -49,7 +52,7 @@ export interface DevRealRequestInput {
 }
 export interface DevRealRequestStart {
   devCandidateDiagnostic?: 'dev-candidate-diagnostic-v1';
-  devReplyContract?: 'dev-reply-practice-v1';
+  devReplyContract?: 'dev-reply-practice-v1' | 'dev-reply-practice-v2';
   devRetryContract?: 'dev-manual-retry-v1';
   sessionId: string; devConversationId: string; expiresAt: number; remainingLifetimeMs: number;
   reactionText: string; companionText: string;
@@ -61,7 +64,7 @@ export interface DevRealRequestCallbacks {
 }
 export interface DevRealRequestTransport {
   start: (input: DevRealRequestInput, signal: AbortSignal) => Promise<DevRealRequestStart>;
-  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal, expected?: { candidateDiagnostic?: boolean; retryContract?: 'dev-manual-retry-v1'; contract?: 'dev-reply-practice-v1'; devConversationId: string; requestId: string }) => Promise<void>;
+  stream: (sessionId: string, callbacks: DevRealRequestCallbacks, signal: AbortSignal, expected?: { candidateDiagnostic?: boolean; retryContract?: 'dev-manual-retry-v1'; contract?: 'dev-reply-practice-v1' | 'dev-reply-practice-v2'; devConversationId: string; requestId: string }) => Promise<void>;
   /** Best effort authenticated cleanup, never a model send or automatic retry. */
   end: (requestId: string) => Promise<void>;
 }
@@ -152,7 +155,7 @@ export function createDevRealRequestController(options: {
     const run = active; active = null; retryAnchor = anchor;
     run?.cancel(); run?.abort.abort();
     publish({ ...snapshot, status: 'recoverable', preserveDraft: true, error: pending ? `${RETRY_MESSAGE}。上一次请求仍在处理中，本次点击没有启动新的回复请求。请稍后自行重试。` : RETRY_MESSAGE, canSend: false, canRetry: true,
-      deepText: '', reactionText: '', companionText: '', source: null, practiceCandidate: null });
+      deepText: '', discoveryText: undefined, reactionText: '', companionText: '', source: null, practiceCandidate: null });
   }
   function unavailable(localExpiresAt: number) {
     generation += 1;
@@ -167,7 +170,7 @@ export function createDevRealRequestController(options: {
     clearTimeout(expiry);
     expiry = setTimeout(() => { if (!disposed) end('failed', EXPIRED_MESSAGE); }, Math.max(0, localExpiresAt - Date.now()));
     publish({ ...snapshot, status: 'failed', preserveDraft: true, canRetry: false, canSend: false, practiceCandidate: null, source: null,
-      deepText: '', error: '无法确认刚才的请求状态，暂不能重试。请新开对话后再自行发送。' });
+      deepText: '', discoveryText: undefined, error: '无法确认刚才的请求状态，暂不能重试。请新开对话后再自行发送。' });
   }
   const controller: DevRealRequestController = {
     getSnapshot: () => snapshot,
@@ -249,7 +252,7 @@ export function createDevRealRequestController(options: {
         startAcknowledged = true;
         if (start.devCandidateDiagnostic && (!diagnosticEnabled || start.devCandidateDiagnostic !== 'dev-candidate-diagnostic-v1')) throw new Error('unexpected_candidate_diagnostic');
         reportDiagnostic(start.devCandidateDiagnostic ? 'unavailable' : 'not_negotiated', 'unavailable');
-        recoveryNegotiated = start.devRetryContract === 'dev-manual-retry-v1' && start.devReplyContract === 'dev-reply-practice-v1';
+        recoveryNegotiated = start.devRetryContract === 'dev-manual-retry-v1' && (start.devReplyContract === 'dev-reply-practice-v1' || start.devReplyContract === 'dev-reply-practice-v2');
         retryAnchor = null;
         context = { id: start.devConversationId, afterRequestId: requestId, expiresAt: start.expiresAt, localExpiresAt };
         clearTimeout(expiry);
@@ -260,6 +263,7 @@ export function createDevRealRequestController(options: {
         if (!isCurrent()) return false;
         let terminal = false, failed = false;
         let practiceCandidate: DevPracticeCandidate | null = null;
+        let discoveryText: string | undefined;
         await transport.stream(start.sessionId, {
           onDeepChunk: content => {
             if (!isCurrent() || terminal || typeof content !== 'string') return;
@@ -274,6 +278,13 @@ export function createDevRealRequestController(options: {
               if (!reply || reply.contract !== start.devReplyContract || reply.reply !== completedText
                 || !reply.source || reply.source.sessionId !== start.sessionId || reply.source.devConversationId !== start.devConversationId
                 || reply.source.requestId !== requestId) { failed = true; terminalFailure = true; return; }
+              if (reply.contract === 'dev-reply-practice-v2') {
+                if (typeof reply.discoveryText !== 'string' || !reply.discoveryText.trim()) { failed = true; terminalFailure = true; return; }
+                const canonical = reply.practiceCandidate
+                  ? `${reply.discoveryText}\n如果：${reply.practiceCandidate.ifCue}\n那么：${reply.practiceCandidate.thenAction}` : reply.discoveryText;
+                if (reply.reply !== canonical) { failed = true; terminalFailure = true; return; }
+                discoveryText = reply.discoveryText;
+              } else if (reply.discoveryText !== undefined) { failed = true; terminalFailure = true; return; }
               if (reply.practiceCandidate) practiceCandidate = Object.freeze({ ...reply.practiceCandidate, source: Object.freeze({ ...reply.source }) });
             } else if (reply) { failed = true; terminalFailure = true; }
             if (!failed) reportDiagnostic(start.devCandidateDiagnostic ? (diagnostic ?? 'unavailable') : 'not_negotiated', practiceCandidate ? 'candidate' : 'no_candidate');
@@ -289,7 +300,7 @@ export function createDevRealRequestController(options: {
           return false;
         }
         active = null;
-        publish({ ...snapshot, deepText: completedText, practiceCandidate, source: 'backend-deep', status: 'success', error: null, canSend: true });
+        publish({ ...snapshot, deepText: completedText, discoveryText, practiceCandidate, source: 'backend-deep', status: 'success', error: null, canSend: true });
         return true;
       } catch (error) {
         const expired = !!error && typeof error === 'object' && 'message' in error && error.message === 'dev_request_expired_or_clock_skew';

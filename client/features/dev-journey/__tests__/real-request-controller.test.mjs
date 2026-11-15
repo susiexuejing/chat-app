@@ -382,3 +382,25 @@ test('valid nullable candidate preserves completed reply', async () => {
   const { controller } = setup({ start: practiceStart, stream: async (_, cb) => { cb.onDeepChunk('backend Deep'); cb.onDone({ ...practiceReply(), practiceCandidate: null }); } });
   assert.equal(await controller.send('ordinary chat'), true); assert.equal(controller.getSnapshot().practiceCandidate, null); controller.dispose();
 });
+
+function v2Reply() {
+ const discoveryText = '你想在切歌前停一下。';
+ const practiceCandidate = { ifCue: '准备切歌时', thenAction: '暂停手指，再自行决定继续或换歌' };
+ return {contract:'dev-reply-practice-v2', discoveryText, practiceCandidate,
+  reply:`${discoveryText}\n如果：${practiceCandidate.ifCue}\n那么：${practiceCandidate.thenAction}`,
+  source:practiceReply().source};
+}
+const v2Start=async()=>({...receipt,sessionId:'backend-session',devReplyContract:'dev-reply-practice-v2'});
+test('v2 canonical visible action is separate from discovery text, both clear on stop',async()=>{
+ const r=v2Reply(),{controller}=setup({start:v2Start,stream:async(_,cb)=>{cb.onDeepChunk(r.reply);cb.onDone(r)}});
+ assert.equal(await controller.send('fictional request'),true);
+ assert.equal(controller.getSnapshot().deepText,r.reply);
+ assert.equal(controller.getSnapshot().discoveryText,r.discoveryText);
+ assert.equal(controller.getSnapshot().practiceCandidate.thenAction,r.practiceCandidate.thenAction);
+ controller.stop();assert.equal(controller.getSnapshot().discoveryText,undefined);controller.dispose();
+});
+for(const mutate of [r=>({...r,reply:r.reply+'再做另一步'}),r=>({...r,discoveryText:undefined}),r=>({...r,practiceCandidate:{...r.practiceCandidate,thenAction:'different'}})])
+ test('v2 inconsistent visible/action/discovery envelope is rejected rather than saved',async()=>{
+  const r=mutate(v2Reply()),{controller}=setup({start:v2Start,stream:async(_,cb)=>{cb.onDeepChunk(r.reply);cb.onDone(r)}});
+  assert.equal(await controller.send('fictional request'),false);assert.equal(controller.getSnapshot().practiceCandidate,null);assert.equal(controller.getSnapshot().discoveryText,undefined);controller.dispose();
+ });

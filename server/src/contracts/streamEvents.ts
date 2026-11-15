@@ -11,12 +11,22 @@ const flowContextSchema = z.object({
   flowRisk: z.string().nullable(),
 }).strict();
 
-const practiceReplySchema = z.object({
+const practiceReplyV1Schema = z.object({
   contract: z.literal('dev-reply-practice-v1'),
   reply: z.string().min(1),
   practiceCandidate: z.object({ ifCue: z.string().min(1).max(200), thenAction: z.string().min(1).max(200) }).strict().nullable(),
   source: z.object({ sessionId: z.string().min(1), devConversationId: z.string().min(1), requestId: z.string().min(1) }).strict(),
 }).strict();
+
+const practiceReplyV2Schema = z.object({
+  contract: z.literal('dev-reply-practice-v2'),
+  reply: z.string().min(1),
+  discoveryText: z.string().min(1),
+  practiceCandidate: z.object({ ifCue: z.string().min(1).max(200), thenAction: z.string().min(1).max(200) }).strict().nullable(),
+  source: z.object({ sessionId: z.string().min(1), devConversationId: z.string().min(1), requestId: z.string().min(1) }).strict(),
+}).strict().refine(value => value.reply === (value.practiceCandidate
+  ? `${value.discoveryText}\n如果：${value.practiceCandidate.ifCue}\n那么：${value.practiceCandidate.thenAction}` : value.discoveryText));
+const practiceReplySchema = z.union([practiceReplyV1Schema, practiceReplyV2Schema]);
 
 export const streamPayloadSchemas = {
   'turn.started': z.object({

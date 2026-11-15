@@ -244,3 +244,6 @@ test('actual handler carries requested candidate before natural closing without 
 
 // Include full client/server request-eligibility checks in the existing CI entry point.
 import './practiceEligibilityAudit.test.mjs';
+
+// Experimental v2 single-source projection and explicit default-off negotiation.
+import "./devPracticeV2.test.mjs";

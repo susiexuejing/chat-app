@@ -300,11 +300,12 @@ describe('EF-41: Smart Fox confused-overload first response', () => {
 
     // Preserve all three legacy output validators. The negotiated JSON reply
     // has its own fourth validation boundary; it must not replace any of them.
-    const start = source.indexOf('    if (session.devReplyContract === DEV_PRACTICE_CONTRACT) {');
+    const start = source.indexOf('    if (session.devReplyContract) {');
     const end = source.indexOf('    // Negotiated JSON never passes through', start);
     expect(start).toBeGreaterThanOrEqual(0);
     expect(end).toBeGreaterThan(start);
     const negotiated = source.slice(start, end);
+    expect(negotiated).toContain('session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2 : parseDevPracticeReply');
     const legacy = source.slice(0, start) + source.slice(end);
     expect((legacy.match(/validateEf41DeepOutput\(\{/g) || [])).toHaveLength(3);
     expect((legacy.match(/roleId: session\.roleId/g) || [])).toHaveLength(3);

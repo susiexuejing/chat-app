@@ -43,7 +43,7 @@ export async function harness(options = {}) {
   const routes = new Map();
   const timers = new Map();
   let now = 100_000, timerId = 0, sessionId = 0;
-  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey, DEV_CANDIDATE_DIAGNOSTICS: options.candidateDiagnosticEnabled,
+  const processMock = { env: { NODE_ENV: nodeEnv, DASHSCOPE_API_KEY: apiKey, DEV_CANDIDATE_DIAGNOSTICS: options.candidateDiagnosticEnabled, DEV_PRACTICE_V2: options.practiceV2Enabled,
     ...(Object.hasOwn(options, 'model') ? { MODEL_DEEP: options.model } : {}),
     ...(Object.hasOwn(options, 'baseUrl') ? { DASHSCOPE_BASE_URL: options.baseUrl } : {}),
   }, cwd: () => '/mock-server' };
@@ -207,6 +207,13 @@ export async function harness(options = {}) {
   await practiceModule.link(() => { throw new Error('Unexpected practice contract dependency'); });
   await practiceModule.evaluate();
   imports['./contracts/devPracticeCandidate'] = practiceModule.namespace;
+  const practiceV2Module = await sourceModule('../contracts/devPracticeV2.ts');
+  await practiceV2Module.link(specifier => {
+    if (specifier === './devPracticeCandidate') return practiceModule;
+    throw new Error('Unexpected v2 practice dependency');
+  });
+  await practiceV2Module.evaluate();
+  imports['./contracts/devPracticeV2'] = practiceV2Module.namespace;
   const modeModule = await sourceModule('../devEphemeralChat.ts');
   const reactionModule = await sourceModule('../flows/firstTwoRoundsReaction.ts');
   await reactionModule.link(() => { throw new Error('Unexpected reaction dependency'); });

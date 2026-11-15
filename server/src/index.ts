@@ -1,3 +1,4 @@
+import { DEV_PRACTICE_V2, negotiatePracticeContract, buildDevPracticeV2Contract, parseDevPracticeV2, type ValidatedPracticeReplyV2 } from './contracts/devPracticeV2';
 import { CANDIDATE_DIAGNOSTIC_CONTRACT, negotiateCandidateDiagnostic, type CandidateDiagnosticResult } from './contracts/candidateDiagnostic';
 import { DEV_PRACTICE_CONTRACT, buildDevPracticeReplyContract, parseDevPracticeReply, type ValidatedPracticeReply } from './contracts/devPracticeCandidate';
 import 'dotenv/config';
@@ -176,8 +177,8 @@ export interface ChatSession {
   devTurn?: number;
   devContext?: DevContextPair[];
   devCandidateDiagnostic?: CandidateDiagnosticResult;
-  devReplyContract?: typeof DEV_PRACTICE_CONTRACT;
-  devPracticeReply?: ValidatedPracticeReply;
+  devReplyContract?: typeof DEV_PRACTICE_CONTRACT | typeof DEV_PRACTICE_V2;
+  devPracticeReply?: ValidatedPracticeReply | ValidatedPracticeReplyV2;
   devRetryContract?: typeof DEV_MANUAL_RETRY_CONTRACT;
   devRetryableFailure?: boolean;
   devProviderRejected?: boolean;
@@ -429,7 +430,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         deepMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
       } : undefined);
     const deepMessages = [
-      { role: 'system', content: session.devReplyContract === DEV_PRACTICE_CONTRACT ? buildDevPracticeReplyContract(systemPrompt) : systemPrompt },
+      { role: 'system', content: session.devReplyContract === DEV_PRACTICE_V2 ? buildDevPracticeV2Contract(systemPrompt) : session.devReplyContract === DEV_PRACTICE_CONTRACT ? buildDevPracticeReplyContract(systemPrompt) : systemPrompt },
       ...(isDevEphemeral ? (session.devContext ?? []).flatMap(pair => [
         { role: 'user', content: pair.user }, { role: 'assistant', content: pair.assistant },
       ]) : []),
@@ -682,8 +683,9 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
     // qwen3.6-plus 将推理过程混在 content 字段中，
     // 需要清洗掉 "Here's a thinking process" 等英文推理，
     // 只保留最终中文回复
-    if (session.devReplyContract === DEV_PRACTICE_CONTRACT) {
-      const result = parseDevPracticeReply(deepContentBuffer, {
+    if (session.devReplyContract) {
+      const parseReply = session.devReplyContract === DEV_PRACTICE_V2 ? parseDevPracticeV2 : parseDevPracticeReply;
+      const result = parseReply(deepContentBuffer, {
         latestUserMessage: session.userMessage, providerCompleted: providerCompleted && !providerTruncated,
         source: { sessionId: session.sessionId, devConversationId: session.devConversationId!, requestId: session.devRequestId! },
         ...(session.devCandidateDiagnostic ? { candidateDiagnostic: (stage: CandidateDiagnosticResult) => { session.devCandidateDiagnostic = stage; } } : {}),
@@ -1158,7 +1160,8 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
   let devConversation: DevConversation | undefined;
   let devReplay: DevRetryResult | undefined;
   const accept = req.get('accept')?.trim();
-  const retryNegotiated = isDevEphemeral && accept === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`
+  const negotiatedPractice = isDevEphemeral ? negotiatePracticeContract(accept, process.env.DEV_PRACTICE_V2) : undefined;
+  const retryNegotiated = isDevEphemeral && !!negotiatedPractice
     && req.get('x-dev-retry-contract')?.trim() === DEV_MANUAL_RETRY_CONTRACT;
   if (isDevEphemeral && process.env.NODE_ENV !== 'development') return res.status(404).json({ error: 'resource_not_found' });
   if (isDevEphemeral && isValidDevEphemeralRequest(req.body, retryNegotiated) && !isFreshDevRequestId(req.body.requestId, receivedAt)) {
@@ -1243,7 +1246,7 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     if (isDevEphemeral) {
       const begun = devConversations.begin(authenticated.session.id, requestId, receivedAt,
         req.body.devConversationId, req.body.afterRequestId, retryNegotiated ? {
-          inputDigest: crypto.createHash('sha256').update(message).digest('hex'),
+          inputDigest: crypto.createHash('sha256').update(message).update(negotiatedPractice === DEV_PRACTICE_V2 ? '\0dev-reply-practice-v2' : '').digest('hex'),
           retryOfRequestId: req.body.retryOfRequestId,
         } : undefined);
       if (!begun.ok) {
@@ -1375,8 +1378,8 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
     if (isDevEphemeral && devConversation) {
       session.devConversationId = devConversation.id;
       session.devRequestId = requestId;
-      if (retryNegotiated || accept === `application/json; dev-reply-contract=${DEV_PRACTICE_CONTRACT}`) {
-        session.devReplyContract = DEV_PRACTICE_CONTRACT;
+      if (negotiatedPractice) {
+        session.devReplyContract = negotiatedPractice;
       }
       if (retryNegotiated) session.devRetryContract = DEV_MANUAL_RETRY_CONTRACT;
       if (negotiateCandidateDiagnostic(process.env.NODE_ENV, process.env.DEV_CANDIDATE_DIAGNOSTICS, isDevEphemeral, retryNegotiated, req.get('x-dev-candidate-diagnostic'))) session.devCandidateDiagnostic = 'unavailable';
@@ -1384,8 +1387,11 @@ async function handleChatStart(req: express.Request, res: express.Response, isDe
       session.devContext = devConversation.pairs.map(pair => ({ ...pair }));
       session.devAbort = new AbortController();
       if (devReplay) {
-        session.devPracticeReply = Object.freeze({ contract: DEV_PRACTICE_CONTRACT, ...devReplay,
-          source: Object.freeze({ sessionId, devConversationId: devConversation.id, requestId }) });
+        session.devPracticeReply = devReplay.contract === DEV_PRACTICE_V2
+          ? Object.freeze({ ...devReplay, contract: DEV_PRACTICE_V2, discoveryText: devReplay.discoveryText!,
+            source: Object.freeze({ sessionId, devConversationId: devConversation.id, requestId }) })
+          : Object.freeze({ contract: DEV_PRACTICE_CONTRACT, reply: devReplay.reply, practiceCandidate: devReplay.practiceCandidate,
+            source: Object.freeze({ sessionId, devConversationId: devConversation.id, requestId }) });
         session.deepChunks.push(devReplay.reply);
         session.deepDone = true;
       }
