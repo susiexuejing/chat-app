@@ -404,3 +404,76 @@ for(const mutate of [r=>({...r,reply:r.reply+'再做另一步'}),r=>({...r,disco
   const r=mutate(v2Reply()),{controller}=setup({start:v2Start,stream:async(_,cb)=>{cb.onDeepChunk(r.reply);cb.onDone(r)}});
   assert.equal(await controller.send('fictional request'),false);assert.equal(controller.getSnapshot().practiceCandidate,null);assert.equal(controller.getSnapshot().discoveryText,undefined);controller.dispose();
  });
+
+test('v2 withheld outcome preserves prior turns, clears current output and cannot send or retry', async () => {
+  let count = 0; const ended = [];
+  const { controller } = setup({
+    end: async id => { ended.push(id); },
+    start: async () => ({ ...receipt, sessionId: 's', devReplyContract: 'dev-reply-practice-v2', devRetryContract: 'dev-manual-retry-v1' }),
+    stream: async (_s, c) => {
+      count++;
+      if (count === 1) {
+        c.onDeepChunk('ordinary understanding');
+        c.onDone({contract:'dev-reply-practice-v2',reply:'ordinary understanding',discoveryText:'ordinary understanding',practiceCandidate:null,
+          source:{sessionId:'s',devConversationId:'dev-conversation',requestId:'request-1'}});
+      } else {
+        c.onDeepChunk('never display this partial promise');
+        c.onError('content_not_delivered');
+        c.onDone(); c.onDeepChunk('late');
+      }
+    },
+  });
+  assert.equal(await controller.send('first'), true);
+  assert.equal(await controller.send('correction'), false);
+  const state = controller.getSnapshot();
+  assert.equal(state.status, 'content_not_delivered');
+  assert.equal(state.completedTurns.length, 1);
+  assert.equal(state.completedTurns[0].deepText, 'ordinary understanding');
+  assert.equal(state.inputText, 'correction');
+  assert.equal(state.deepText, ''); assert.equal(state.discoveryText, undefined);
+  assert.equal(state.practiceCandidate, null); assert.equal(state.source, null);
+  assert.equal(state.canRetry, false); assert.equal(state.canSend, false); assert.equal(state.preserveDraft, true);
+  assert.equal(await controller.retry(), false); assert.equal(await controller.send('implicit continuation'), false);
+  assert.equal(count, 2); assert.ok(ended.includes('request-2'));
+  controller.stop(); assert.equal(controller.getSnapshot().status, 'stopped');
+  controller.reset(); assert.equal(controller.getSnapshot().canSend, true);
+  controller.dispose();
+});
+
+test('withheld classification cannot be injected into a v1 response', async () => {
+  const { controller } = setup({
+    start: async () => ({ ...receipt,sessionId:'s',devReplyContract:'dev-reply-practice-v1',devRetryContract:'dev-manual-retry-v1' }),
+    stream: async (_s,c) => c.onError('content_not_delivered'),
+  });
+  await controller.send('fictional');
+  assert.equal(controller.getSnapshot().status,'failed');
+  assert.equal(controller.getSnapshot().canRetry,false);
+  controller.dispose();
+});
+
+for (const source of ['abort', 'end']) for (const action of ['safety', 'reset', 'stop', 'dispose']) {
+  test(`withheld cleanup ${source} observer cannot overwrite newer ${action}`, async () => {
+    let controller, invoked = false;
+    const choose = () => {
+      if (invoked) return;
+      invoked = true;
+      if (action === 'safety') controller.safety('help');
+      else controller[action]();
+    };
+    ({ controller } = setup({
+      start: async (_input, signal) => {
+        if (source === 'abort') signal.addEventListener('abort', choose, { once: true });
+        return { ...receipt, sessionId:'s',devReplyContract:'dev-reply-practice-v2',devRetryContract:'dev-manual-retry-v1' };
+      },
+      end: async () => { if (source === 'end') choose(); },
+      stream: async (_s,c) => c.onError('content_not_delivered'),
+    }));
+    await controller.send('fictional');
+    assert.equal(invoked,true);
+    assert.equal(controller.getSnapshot().status, action === 'safety' ? 'safety' : action === 'reset' ? 'idle' : 'stopped');
+    assert.equal(controller.getSnapshot().completedTurns.length,0);
+    assert.equal(controller.getSnapshot().deepText,'');
+    assert.equal(controller.getSnapshot().canRetry,false);
+    controller.dispose();
+  });
+}
