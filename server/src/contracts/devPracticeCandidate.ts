@@ -92,7 +92,9 @@ export function parseDevPracticeReply(raw: string, options: PracticeReplyOptions
   // Strict negotiated recovery already accepts exactly the validator's trim()
   // above. Use that same comparison here; boundary whitespace alone must not
   // silently discard an otherwise eligible suggestion. Legacy behavior stays.
-  if (reply !== (options.rejectRewrittenReply ? value.reply.trim() : value.reply)) candidate = null;
+  // A rejected output can equal its fallback byte-for-byte. Preserve the
+  // explicit validator decision; string equality alone is not acceptance.
+  if (rejected || reply !== (options.rejectRewrittenReply ? value.reply.trim() : value.reply)) candidate = null;
   if (candidate) diagnostic = 'candidate_ready';
   try { options.candidateDiagnostic?.(diagnostic); } catch { /* Diagnostics never decide the response. */ }
   return Object.freeze({ contract: DEV_PRACTICE_CONTRACT, reply, practiceCandidate: candidate,

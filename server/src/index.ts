@@ -710,7 +710,7 @@ export async function startDeepAnalysis(session: ChatSession, userTurn: number =
         ...(session.devCandidateDiagnostic ? { candidateDiagnostic: (stage: CandidateDiagnosticResult) => { session.devCandidateDiagnostic = stage; } } : {}),
         replyMaxChars: FIRST_TWO_ROUNDS_MAX_CHARS,
         rejectRewrittenReply: !!session.devRetryContract,
-        validateReply: text => (session.devRetryContract ? validateEf41DeepOutputOutcome : validateEf41DeepOutput)({ text, roleId: session.roleId, userTurn,
+        validateReply: text => validateEf41DeepOutputOutcome({ text, roleId: session.roleId, userTurn,
           userMessage: session.userMessage, sameSessionUserMessages: session.devContext?.map(pair => pair.user),
           devPrimaryResponse: true, source: 'cleaned', visiblePrefix: '',
         }),
