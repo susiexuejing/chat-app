@@ -565,3 +565,6 @@ import './candidate-diagnostic-review.test.mjs';
 
 // Persona identity disclosure, offline only; no changes to DEV provider behavior.
 import './personaDisclosure.test.mjs';
+
+// Rejected fallback equality must never preserve a practice candidate.
+import './rejectionProvenance.test.mjs';
