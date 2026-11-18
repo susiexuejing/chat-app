@@ -59,6 +59,8 @@ jobs:
           node-version: 20
       - name: All existing and new client tests
         run: pnpm --dir client exec jest --runInBand
+      - name: Tests-first demo model and route isolation
+        run: pnpm --dir client test:tests-demo
       - name: Type-check client
         run: pnpm --dir client exec tsc --noEmit
       - name: Lint client
@@ -67,6 +69,10 @@ jobs:
         env:
           EXPO_PUBLIC_APP_ENV: DEV
         run: pnpm --dir client exec expo export --platform web --output-dir dist
+      - name: Export isolated tests-first demo without deployment
+        env:
+          EXPO_PUBLIC_TESTS_DEMO: '1'
+        run: pnpm --dir client exec expo export --platform web --output-dir dist-tests-demo
       - name: Existing backend contracts (mocked)
         id: backend_contracts
         continue-on-error: true
