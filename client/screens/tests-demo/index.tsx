@@ -35,7 +35,9 @@ export default function TestsDemo() {
     <Button onPress={() => dispatch({ type: 'fixture', target, value: 'ready' })}>{status === 'error' ? '本地重试' : '返回正常状态'}</Button>
     <Button secondary onPress={list}>返回测试</Button>
   </View>;
-  return <Screen backgroundColor="#FFFFFF"><View style={styles.container}>
+  // A new logical page must not inherit the previous page's inner scroll offset.
+  const screenKey = `${state.view}:${state.selected || ''}:${state.view === 'question' ? state.question : ''}`;
+  return <Screen key={screenKey} backgroundColor="#FFFFFF"><View style={styles.container}>
     <View style={styles.header}>
       {state.view === 'list' ? <Text style={styles.brand}>EmotionFlow</Text> : <Pressable accessibilityRole="button" accessibilityLabel={state.view === 'login' ? '取消登录' : '返回测试'} onPress={() => state.view === 'login' ? dispatch({ type: 'cancel-login' }) : list()} style={styles.back}><Ionicons name="arrow-back" size={24} color="#222" /><Text style={styles.body}>测试</Text></Pressable>}
       {state.view !== 'login' && <Pressable accessibilityRole="button" onPress={openLogin} style={styles.link}><Text style={styles.orange}>{state.identity ? `演示身份 ${state.identity}` : '登录'}</Text></Pressable>}
