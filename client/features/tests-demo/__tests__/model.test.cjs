@@ -69,3 +69,24 @@ test('repeated login opening is idempotent and cancel reaches original screen', 
 test('changing selected quiz cannot borrow another quiz completion time', () => {
   let s = authenticate(answerAll()); s = answerAll(s, 'boundaries'); s = reduce(s, { type: 'select', id: 'stress' }); s = authenticate(reduce(s, { type: 'login' })); assert.equal(s.view, 'intro'); assert.equal(s.completed.quiz, 'boundaries');
 });
+
+test('fully answered draft resumes at final question after list or cancelled login', () => {
+  for (const cancelled of [false, true]) {
+    let s = reduce(reduce(initialState(), { type: 'select', id: 'stress' }), { type: 'start' });
+    for (let i = 0; i < 6; i++) {
+      s = reduce(s, { type: 'answer', index: 0 });
+      if (i < 5 || cancelled) s = reduce(s, { type: 'next', at });
+    }
+    if (cancelled) s = reduce(s, { type: 'cancel-login' });
+    s = reduce(s, { type: 'list' });
+    s = reduce(reduce(s, { type: 'select', id: 'stress' }), { type: 'start' });
+    assert.equal(s.question, 5);
+    assert.equal(s.answers.stress.length, 6);
+    assert.equal(reduce(s, { type: 'next', at }).view, 'login');
+  }
+});
+test('editing a completed result still opens the first question', () => {
+  let s = authenticate(answerAll());
+  s = reduce(reduce(s, { type: 'select', id: 'stress' }), { type: 'start' });
+  assert.equal(s.question, 0);
+});
