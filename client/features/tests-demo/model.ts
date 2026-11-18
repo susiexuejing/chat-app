@@ -31,7 +31,13 @@ export function reduce(state: State, action: Action, catalog = quizzes): State {
   const quiz = catalog.find(q => q.id === state.selected);
   switch (action.type) {
     case 'select': return catalog.some(q => q.id === action.id) ? { ...state, selected: action.id, view: 'intro', notice: '' } : state;
-    case 'start': return quiz ? { ...state, view: 'question', question: Math.max(0, quiz.questions.findIndex((_, i) => state.answers[quiz.id]?.[i] === undefined)), notice: '' } : state;
+    case 'start': {
+      if (!quiz) return state;
+      const unanswered = quiz.questions.findIndex((_, i) => state.answers[quiz.id]?.[i] === undefined);
+      // A fully answered draft resumes at completion; an existing result opens for editing.
+      const question = unanswered >= 0 ? unanswered : state.completed?.quiz === quiz.id ? 0 : quiz.questions.length - 1;
+      return { ...state, view: 'question', question, notice: '' };
+    }
     case 'answer': return quiz && state.view === 'question' && Number.isInteger(action.index) && action.index >= 0 && action.index < quiz.questions[state.question].options.length ? { ...state, answers: { ...state.answers, [quiz.id]: Object.assign([...(state.answers[quiz.id] || [])], { [state.question]: action.index }) }, finished: state.finished?.quiz === quiz.id ? null : state.finished, completed: state.completed?.quiz === quiz.id ? null : state.completed, notice: '' } : state;
     case 'previous': return state.view === 'question' ? { ...state, view: state.question > 0 ? 'question' : 'intro', question: Math.max(0, state.question - 1), notice: '' } : state;
     case 'next':
