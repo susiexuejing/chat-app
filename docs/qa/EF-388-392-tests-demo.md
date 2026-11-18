@@ -53,3 +53,10 @@ Execution results are recorded in the PR/Jira after running. The checklist alone
 - No merge, deployment, real login, persistence or actual-user testing. Tickets remain In Progress.
 
 Next supported verification step: run the documented static export in an environment where the test browser and local server share a reachable loopback interface and the browser is permitted to create its own fresh profile. Then execute the browser checklist and capture network/screen evidence. Do not treat a new remote deployment as a workaround for this local capability restriction.
+
+## Follow-up review and CI coverage
+
+- Fixed fully answered draft resume: returning from the list now resumes at the final question rather than restarting at question one. Editing an existing result still starts from question one. Model suite expanded to 19 passing tests.
+- Existing Native Journey CI now explicitly runs the demo CJS model suite (which is outside Jest discovery) and an isolated tests-router export. The isolated output is not included in the legacy review-build artifact.
+- Added a separate read-only Tests Demo Browser Acceptance workflow using a fresh Chromium context against an ephemeral localhost static server. It never invokes a deployed DEV backend, uses no secrets and does not deploy or upload new artifacts. External and business request attempts are blocked and fail acceptance; WebSocket attempts are tracked separately. JSON evidence is printed in CI logs; screenshots remain runner-local.
+- New browser workflow is initially pending execution, not a passed browser acceptance claim. The original cloud-browser limitation remains; CI results must be checked for the exact PR head before upgrading the evidence status.
