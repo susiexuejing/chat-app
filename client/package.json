@@ -9,7 +9,10 @@
     "install-missing": "node ./scripts/install-missing-deps.js",
     "lint": "tsc --noEmit && eslint ./ -f ./scripts/formatter.mjs --quiet",
     "start": "expo start --web --clear",
-    "test": "jest --watchAll"
+    "test": "jest --watchAll",
+    "demo:tests": "EXPO_PUBLIC_TESTS_DEMO=1 expo start --web --clear",
+    "build:tests-demo": "EXPO_PUBLIC_TESTS_DEMO=1 expo export --platform web --output-dir dist/tests-demo",
+    "test:tests-demo": "node --import tsx --test features/tests-demo/__tests__/model.test.cjs"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",
