@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
 import { complete, currentResult, initialState, quizzes, reduce, type State, type Action, type LoadState } from '@/features/tests-demo/model';
 
-function Button({ children, onPress, secondary = false, selected = false, testID }: { children: React.ReactNode; onPress: () => void; secondary?: boolean; selected?: boolean; testID?: string }) {
-  return <Pressable testID={testID} accessibilityRole="button" accessibilityState={{ selected }} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, selected && styles.selected, pressed && styles.pressed]}><Text style={[styles.buttonText, secondary && styles.secondaryText]}>{children}</Text></Pressable>;
+function Button({ children, onPress, secondary = false, selected, testID }: { children: React.ReactNode; onPress: () => void; secondary?: boolean; selected?: boolean; testID?: string }) {
+  return <Pressable testID={testID} accessibilityRole="button" accessibilityState={selected === undefined ? undefined : { selected }} aria-pressed={selected} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, selected && styles.selected, pressed && styles.pressed]}><Text style={[styles.buttonText, secondary && styles.secondaryText]}>{children}</Text></Pressable>;
 }
 export default function TestsDemo() {
   const [state, dispatch] = useReducer((state: State, action: Action) => reduce(state, action), undefined, initialState);
@@ -56,7 +56,7 @@ export default function TestsDemo() {
     </>}
     {state.view === 'question' && quiz && <>
       <Text accessibilityRole="header" style={styles.title}>{quiz.title}</Text><Text style={styles.progressText}>{state.question + 1} / {quiz.questions.length}</Text>
-      <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: quiz.questions.length, now: state.question + 1 }} style={styles.progress}><View style={[styles.progressFill, { width: `${((state.question + 1) / quiz.questions.length) * 100}%` }]} /></View>
+      <View accessibilityRole="progressbar" accessibilityValue={{ min: 0, max: quiz.questions.length, now: state.question + 1 }} aria-valuemin={0} aria-valuemax={quiz.questions.length} aria-valuenow={state.question + 1} style={styles.progress}><View style={[styles.progressFill, { width: `${((state.question + 1) / quiz.questions.length) * 100}%` }]} /></View>
       <Text style={styles.question}>{quiz.questions[state.question].title}</Text>
       {quiz.questions[state.question].options.map((option, index) => <Button key={option} secondary selected={state.answers[quiz.id]?.[state.question] === index} testID={`answer-${index}`} onPress={() => dispatch({ type: 'answer', index })}>{state.answers[quiz.id]?.[state.question] === index ? '●' : '○'}  {option}</Button>)}
       <View style={styles.spacer} /><Button testID="next-question" onPress={() => dispatch({ type: 'next', at: now() })}>{state.question === quiz.questions.length - 1 ? '完成测试' : '下一题'}</Button><Button secondary onPress={() => dispatch({ type: 'previous' })}>{state.question === 0 ? '返回说明' : '上一题'}</Button>
@@ -83,7 +83,7 @@ export default function TestsDemo() {
     {showFixtures && <View style={styles.fixture}>
       <Text style={styles.muted}>仅切换本地 UI，不联网。</Text>
       {state.view === 'list' || state.view === 'result' ? <View style={styles.row}>{(['loading', 'empty', 'error', 'ready'] as const).map((v, i) => <Pressable key={v} accessibilityRole="button" onPress={() => dispatch({ type: 'fixture', target: state.view === 'list' ? 'catalog' : 'result', value: v })} style={styles.fixtureButton}><Text>{['加载', '空', '失败', '正常'][i]}</Text></Pressable>)}</View> : null}
-      {state.view === 'login' && <View style={styles.row}>{(['success', 'invalid', 'expired', 'failure'] as const).map((v, i) => <Pressable key={v} accessibilityRole="button" accessibilityState={{ selected: loginOutcome === v }} onPress={() => setLoginOutcome(v)} style={[styles.fixtureButton, loginOutcome === v && styles.selected]}><Text>{['成功', '无效码', '过期', '失败'][i]}</Text></Pressable>)}</View>}
+      {state.view === 'login' && <View style={styles.row}>{(['success', 'invalid', 'expired', 'failure'] as const).map((v, i) => <Pressable key={v} accessibilityRole="button" accessibilityState={{ selected: loginOutcome === v }} aria-pressed={loginOutcome === v} onPress={() => setLoginOutcome(v)} style={[styles.fixtureButton, loginOutcome === v && styles.selected]}><Text>{['成功', '无效码', '过期', '失败'][i]}</Text></Pressable>)}</View>}
     </View>}
   </View></Screen>;
 }

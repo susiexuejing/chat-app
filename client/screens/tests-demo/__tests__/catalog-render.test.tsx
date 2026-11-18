@@ -16,7 +16,7 @@ jest.mock('react-native', () => {
 test('fourth data-only fixture renders and completes through the unchanged screen', () => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
   quizzes.push({ ...quizzes[0], id: 'fourth-render-fixture', title: '第四个渲染示例' });
-  let tree: ReactTestRenderer;
+  let tree!: ReactTestRenderer;
   try {
     act(() => { tree = renderer.create(<TestsDemo />); });
     const press = (predicate: (props: any) => boolean) => {
@@ -33,6 +33,10 @@ test('fourth data-only fixture renders and completes through the unchanged scree
     label('开始测试');
     for (let i = 0; i < 6; i++) {
       press(p => p.testID === 'answer-0');
+      const selected = tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.testID === 'answer-0')[0];
+      expect(selected.props['aria-pressed']).toBe(true);
+      const progress = tree.root.findAll(n => n.type === ('View' as any) && n.props.accessibilityRole === 'progressbar')[0];
+      expect(progress.props['aria-valuenow']).toBe(i + 1);
       press(p => p.testID === 'next-question');
     }
     expect(text()).toContain('测试已完成');
