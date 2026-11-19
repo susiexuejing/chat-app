@@ -40,6 +40,17 @@ test('fourth data-only fixture renders and completes through the unchanged scree
       press(p => p.testID === 'next-question');
     }
     expect(text()).toContain('测试已完成');
+    expect(text()).not.toContain('simulate-login');
+    expect(text()).not.toContain('你的最近一次结果');
+    press(p => p.testID === 'view-completed-result');
+    expect(text()).toContain('演示登录');
+    label('取消，返回完成页');
+    expect(text()).toContain('测试已完成');
+    expect(text()).not.toContain('simulate-login');
+    label('返回修改答案');
+    expect(tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.testID === 'answer-0')[0].props['aria-pressed']).toBe(true);
+    press(p => p.testID === 'next-question');
+    press(p => p.testID === 'view-completed-result');
     press(p => p.testID === 'simulate-login');
     expect(text()).toContain('你的最近一次结果');
     expect(text()).toContain('第四个渲染示例');
@@ -74,7 +85,7 @@ test('real screen card actions preserve all latest results and retest only selec
     const id = (testID: string) => press(p => p.testID === testID);
     const text = () => JSON.stringify(tree.toJSON());
     const finish = (option: number) => { for (let i = 0; i < 6; i++) { id(`answer-${option}`); id('next-question'); } };
-    id('open-stress'); label('开始测试'); finish(0); id('simulate-login'); label('返回测试');
+    id('open-stress'); label('开始测试'); finish(0); id('view-completed-result'); id('simulate-login'); label('返回测试');
     id('open-boundaries'); label('开始测试'); finish(1); label('返回测试');
     id('open-recovery'); label('开始测试'); finish(2); label('返回测试');
     expect(tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.accessibilityLabel?.endsWith('，查看结果'))).toHaveLength(3);

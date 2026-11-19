@@ -6,20 +6,28 @@ const { pathToFileURL } = require('node:url');
 const fileURL = pathToFileURL(__filename);
 const { initialState, reduce, quizzes, currentResult, resultFor } = require('../model.ts');
 const at = '2026-11-18T12:00:00.000Z';
-function answerAll(state = initialState(), id = 'stress', answer = 0) {
+function answerAll(state = initialState(), id = 'stress', answer = 0, completedAt = at) {
   state = reduce(reduce(state, { type: 'select', id }), { type: 'start' });
   for (let i = 0; i < 6; i++) {
     state = reduce(state, { type: 'answer', index: answer });
-    state = reduce(state, { type: 'next', at });
+    state = reduce(state, { type: 'next', at: completedAt });
   }
   return state;
 }
+const openResult = state => reduce(state, { type: 'view-completed-result' });
 const authenticate = (state, identity = 'A', outcome = 'success') => reduce(state, { type: 'authenticate', identity, outcome, at });
 test('initially tests only, no identity, result or answers', () => {
   const s = initialState(); assert.equal(s.view, 'list'); assert.equal(s.identity, null); assert.equal(currentResult(s), null); assert.deepEqual(s.answers, {});
 });
 test('all three fixture journeys require mock login and keep result in tests', () => {
-  for (const q of quizzes) { let s = answerAll(initialState(), q.id); assert.equal(s.view, 'login'); assert.equal(currentResult(s), null); s = authenticate(s); assert.equal(s.view, 'result'); assert.equal(currentResult(s).quiz.id, q.id); assert.equal(currentResult(s).at, at); }
+  for (const q of quizzes) {
+    const s = answerAll(initialState(), q.id);
+    assert.equal(s.view, 'completion'); assert.equal(currentResult(s), null);
+    assert.equal(authenticate(s), s); assert.equal(reduce(s, { type: 'login' }), s);
+    const login = openResult(s); assert.equal(login.view, 'login'); assert.equal(login.loginReturn, 'completion');
+    const result = authenticate(login); assert.equal(result.view, 'result');
+    assert.equal(currentResult(result).quiz.id, q.id); assert.equal(currentResult(result).at, at);
+  }
 });
 test('incomplete quiz cannot finish or reveal result', () => {
   let s = reduce(reduce(initialState(), { type: 'select', id: 'stress' }), { type: 'start' });
@@ -32,22 +40,28 @@ test('back and list interruption keep answers and resume first unanswered', () =
   s = reduce(s, { type: 'previous' }); assert.equal(s.question, 0); assert.equal(s.answers.stress[0], 2);
 });
 test('login cancellation, invalid, expiry and failure preserve answers', () => {
-  for (const outcome of ['invalid', 'expired', 'failure']) { const before = answerAll(); let s = authenticate(before, 'A', outcome); assert.equal(s.view, 'login'); assert.deepEqual(s.answers, before.answers); assert.equal(s.identity, null); s = reduce(s, { type: 'cancel-login' }); assert.equal(s.view, 'question'); assert.deepEqual(s.answers, before.answers); s = reduce(s, { type: 'next', at }); assert.equal(authenticate(s).view, 'result'); }
+  for (const outcome of ['invalid', 'expired', 'failure']) {
+    const before = answerAll(); let s = authenticate(openResult(before), 'A', outcome);
+    assert.equal(s.view, 'login'); assert.deepEqual(s.answers, before.answers); assert.equal(s.identity, null);
+    s = reduce(s, { type: 'cancel-login' }); assert.equal(s.view, 'completion'); assert.deepEqual(s.answers, before.answers);
+    assert.deepEqual(s.pending, before.pending);
+    assert.equal(authenticate(openResult(s)).view, 'result');
+  }
 });
 test('logged in user completes another test without login', () => {
-  let s = authenticate(answerAll()); s = answerAll(s, 'boundaries', 1); assert.equal(s.view, 'result'); assert.equal(currentResult(s).quiz.id, 'boundaries');
+  let s = authenticate(openResult(answerAll())); s = answerAll(s, 'boundaries', 1); assert.equal(s.view, 'result'); assert.equal(currentResult(s).quiz.id, 'boundaries');
 });
 test('identity switch removes previous answers and result; logout does too', () => {
-  let s = authenticate(answerAll()); s = authenticate(reduce(s, { type: 'login' }), 'B'); assert.equal(s.identity, 'B'); assert.deepEqual(s.answers, {}); assert.equal(currentResult(s), null); assert.equal(s.view, 'list');
+  let s = authenticate(openResult(answerAll())); s = authenticate(reduce(s, { type: 'login' }), 'B'); assert.equal(s.identity, 'B'); assert.deepEqual(s.answers, {}); assert.equal(currentResult(s), null); assert.equal(s.view, 'list');
   s = reduce(answerAll(s), { type: 'logout' }); assert.equal(s.identity, null); assert.deepEqual(s.completed, {}); assert.deepEqual(s.answers, {});
 });
 test('modified answers replace previous result; same answers map deterministically', () => {
-  const original = authenticate(answerAll()); const edited = answerAll(original, 'stress', 1); assert.notEqual(currentResult(original).title, currentResult(edited).title); assert.equal(currentResult(edited).title, currentResult(authenticate(answerAll(initialState(), 'stress', 1))).title);
+  const original = authenticate(openResult(answerAll())); const edited = answerAll(original, 'stress', 1); assert.notEqual(currentResult(original).title, currentResult(edited).title); assert.equal(currentResult(edited).title, currentResult(authenticate(openResult(answerAll(initialState(), 'stress', 1)))).title);
 });
 test('repeated completion/login does not duplicate or mutate completed result', () => {
-  const s = authenticate(answerAll()); assert.deepEqual(reduce(s, { type: 'next', at: 'later' }), s); assert.deepEqual(authenticate(s), s); assert.equal(Object.keys(s.completed).length, 1);
+  const s = authenticate(openResult(answerAll())); assert.deepEqual(reduce(s, { type: 'next', at: 'later' }), s); assert.deepEqual(authenticate(s), s); assert.equal(Object.keys(s.completed).length, 1);
 });
-test('refresh starts fresh; no history or storage used', () => { authenticate(answerAll()); assert.deepEqual(initialState().answers, {}); assert.deepEqual(initialState().completed, {}); });
+test('refresh starts fresh; no history or storage used', () => { authenticate(openResult(answerAll())); assert.deepEqual(initialState().answers, {}); assert.deepEqual(initialState().completed, {}); });
 test('fixtures load/empty/error/retry are local states', () => { for (const target of ['catalog', 'result']) { for (const value of ['loading', 'empty', 'error']) { let s = reduce(initialState(), { type: 'fixture', target, value }); assert.equal(s[target], value); s = reduce(s, { type: 'fixture', target, value: 'ready' }); assert.equal(s[target], 'ready'); } } });
 test('fourth local fixture uses same reducer and data driven layout', () => { const fourth = { ...quizzes[0], id: 'fourth', title: '第四个示例' }; const all = [...quizzes, fourth]; let s = reduce(initialState(), { type: 'select', id: 'fourth' }, all); s = reduce(s, { type: 'start' }, all); assert.equal(s.view, 'question'); assert.equal(s.selected, 'fourth'); const ui = readFileSync(new URL('../../../screens/tests-demo/index.tsx', fileURL), 'utf8'); assert.match(ui, /quizzes\.map/); });
 test('new route tree contains no legacy entry or API imports', () => {
@@ -61,13 +75,13 @@ test('mid-question login resumes the unfinished question rather than claiming co
   s = authenticate(reduce(s, { type: 'login' })); assert.equal(s.view, 'question'); assert.equal(s.question, 1); assert.equal(currentResult(s), null);
 });
 test('guest completion timestamp survives delayed login and login failure', () => {
-  const s = reduce(authenticate(answerAll(), 'A', 'failure'), { type: 'authenticate', identity: 'A', outcome: 'success', at: '2026-11-19T00:00:00.000Z' }); assert.equal(currentResult(s).at, at);
+  const s = reduce(authenticate(openResult(answerAll()), 'A', 'failure'), { type: 'authenticate', identity: 'A', outcome: 'success', at: '2026-11-19T00:00:00.000Z' }); assert.equal(currentResult(s).at, at);
 });
 test('repeated login opening is idempotent and cancel reaches original screen', () => {
   const once = reduce(initialState(), { type: 'login' }); const twice = reduce(once, { type: 'login' }); assert.deepEqual(twice, once); assert.equal(reduce(twice, { type: 'cancel-login' }).view, 'list');
 });
 test('changing selected quiz cannot borrow another quiz completion time', () => {
-  let s = authenticate(answerAll()); s = answerAll(s, 'boundaries'); s = reduce(s, { type: 'select', id: 'stress' }); s = authenticate(reduce(s, { type: 'login' })); assert.equal(s.view, 'intro'); assert.equal(s.completed.boundaries.quiz, 'boundaries');
+  let s = authenticate(openResult(answerAll())); s = answerAll(s, 'boundaries'); s = reduce(s, { type: 'select', id: 'stress' }); s = authenticate(reduce(s, { type: 'login' })); assert.equal(s.view, 'intro'); assert.equal(s.completed.boundaries.quiz, 'boundaries');
 });
 
 test('fully answered draft resumes at final question after list or cancelled login', () => {
@@ -75,25 +89,25 @@ test('fully answered draft resumes at final question after list or cancelled log
     let s = reduce(reduce(initialState(), { type: 'select', id: 'stress' }), { type: 'start' });
     for (let i = 0; i < 6; i++) {
       s = reduce(s, { type: 'answer', index: 0 });
-      if (i < 5 || cancelled) s = reduce(s, { type: 'next', at });
+      if (i < 5) s = reduce(s, { type: 'next', at });
     }
-    if (cancelled) s = reduce(s, { type: 'cancel-login' });
+    if (cancelled) s = reduce(reduce(s, { type: 'login' }), { type: 'cancel-login' });
     s = reduce(s, { type: 'list' });
     s = reduce(reduce(s, { type: 'select', id: 'stress' }), { type: 'start' });
     assert.equal(s.question, 5);
     assert.equal(s.answers.stress.length, 6);
-    assert.equal(reduce(s, { type: 'next', at }).view, 'login');
+    assert.equal(reduce(s, { type: 'next', at }).view, 'completion');
   }
 });
 test('editing a completed result still opens the first question', () => {
-  let s = authenticate(answerAll());
+  let s = authenticate(openResult(answerAll()));
   s = reduce(reduce(s, { type: 'select', id: 'stress' }), { type: 'start' });
   assert.equal(s.question, 0);
 });
 
 
 test('each completed test retains its own latest snapshot and result context', () => {
-  let s = authenticate(answerAll());
+  let s = authenticate(openResult(answerAll()));
   const stress = resultFor(s, 'stress');
   s = answerAll(s, 'boundaries', 1); s = answerAll(s, 'recovery', 2);
   assert.equal(Object.keys(s.completed).length, 3);
@@ -103,7 +117,7 @@ test('each completed test retains its own latest snapshot and result context', (
   for (const q of quizzes) { s = reduce(s, { type: 'result', id: q.id }); assert.equal(s.view, 'result'); assert.equal(currentResult(s).quiz.id, q.id); }
 });
 test('restart clears only this draft and preserves last finished result during interruption', () => {
-  let s = authenticate(answerAll()); s = answerAll(s, 'boundaries', 1);
+  let s = authenticate(openResult(answerAll())); s = answerAll(s, 'boundaries', 1);
   s = reduce(s, { type: 'result', id: 'stress' }); const before = s.completed;
   s = reduce(s, { type: 'restart' }); assert.equal(s.view, 'question'); assert.equal(s.question, 0); assert.deepEqual(s.answers.stress, []);
   assert.equal(s.completed, before); assert.equal(s.answers.boundaries.length, 6);
@@ -112,7 +126,7 @@ test('restart clears only this draft and preserves last finished result during i
   assert.equal(currentResult(s).title, '先给自己一点空间'); assert.equal(s.completed, before);
 });
 test('new completion atomically replaces this test only and never accumulates history', () => {
-  let s = authenticate(answerAll()); s = answerAll(s, 'boundaries', 1); const other = s.completed.boundaries;
+  let s = authenticate(openResult(answerAll())); s = answerAll(s, 'boundaries', 1); const other = s.completed.boundaries;
   s = reduce(s, { type: 'result', id: 'stress' }); s = reduce(s, { type: 'restart' }); s = reduce(s, { type: 'start' });
   for (let i = 0; i < 6; i++) { s = reduce(s, { type: 'answer', index: 2 }); s = reduce(s, { type: 'next', at: '2026-11-19T01:00:00Z' }); }
   assert.equal(currentResult(s).title, '从一件小事开始'); assert.equal(currentResult(s).at, '2026-11-19T01:00:00Z');
@@ -120,7 +134,7 @@ test('new completion atomically replaces this test only and never accumulates hi
   assert.deepEqual(s.completed.stress.answers, [2,2,2,2,2,2]);
 });
 test('switch logout reset clear every test snapshot and foreign owners cannot be read', () => {
-  let s = authenticate(answerAll()); s = answerAll(s, 'boundaries', 1); s = answerAll(s, 'recovery', 2);
+  let s = authenticate(openResult(answerAll())); s = answerAll(s, 'boundaries', 1); s = answerAll(s, 'recovery', 2);
   for (const cleared of [reduce(s, { type: 'logout' }), reduce(s, { type: 'reset' }), authenticate(reduce(s, { type: 'login' }), 'B')]) {
     assert.deepEqual(cleared.answers, {}); assert.deepEqual(cleared.completed, {});
     for (const q of quizzes) assert.equal(resultFor(cleared, q.id), null);
@@ -130,12 +144,12 @@ test('switch logout reset clear every test snapshot and foreign owners cannot be
 });
 test('all fictional quizzes support distinct deterministic outcomes', () => {
   for (const q of quizzes) {
-    const titles = [0,1,2].map(a => currentResult(authenticate(answerAll(initialState(), q.id, a))).title);
+    const titles = [0,1,2].map(a => currentResult(authenticate(openResult(answerAll(initialState(), q.id, a)))).title);
     assert.equal(new Set(titles).size, 3);
   }
 });
 test('retake can resume before first answer and restores cursor after visiting old result', () => {
-  let s = authenticate(answerAll()); const old = s.completed.stress;
+  let s = authenticate(openResult(answerAll())); const old = s.completed.stress;
   s = reduce(s, { type: 'restart' }); s = reduce(s, { type: 'list' });
   assert.equal(s.retakes.stress, 0); assert.deepEqual(s.answers.stress, []);
   s = reduce(s, { type: 'result', id: 'stress' }); assert.equal(s.completed.stress, old);
@@ -150,7 +164,7 @@ test('retake can resume before first answer and restores cursor after visiting o
   s = reduce(s, { type: 'resume-retake', id: 'stress' }); assert.equal(s.question, 0);
 });
 test('completed retake removes resume marker; identity boundaries clear all retake drafts', () => {
-  let s = authenticate(answerAll()); s = reduce(s, { type: 'restart' });
+  let s = authenticate(openResult(answerAll())); s = reduce(s, { type: 'restart' });
   for (const cleared of [reduce(s, { type: 'logout' }), reduce(s, { type: 'reset' }), authenticate(reduce(s, { type: 'login' }), 'B')]) {
     assert.deepEqual(cleared.retakes, {}); assert.deepEqual(cleared.answers, {}); assert.deepEqual(cleared.completed, {});
     assert.equal(reduce(cleared, { type: 'resume-retake', id: 'stress' }), cleared);
@@ -162,9 +176,50 @@ test('completed retake removes resume marker; identity boundaries clear all reta
   s=reduce(s,{type:'next',at}); assert.deepEqual(s.retakes,{}); assert.equal(currentResult(s).title,'从一件小事开始');
 });
 test('all three tests can keep independent retakes with no first answer', () => {
-  let s = authenticate(answerAll()); s = answerAll(s,'boundaries',1); s = answerAll(s,'recovery',2);
+  let s = authenticate(openResult(answerAll())); s = answerAll(s,'boundaries',1); s = answerAll(s,'recovery',2);
   const snapshots = s.completed;
   for (const q of quizzes) { s=reduce(s,{type:'result',id:q.id}); s=reduce(s,{type:'restart'}); s=reduce(s,{type:'list'}); }
   assert.equal(Object.keys(s.retakes).length,3);
   for (const q of quizzes) { s=reduce(s,{type:'resume-retake',id:q.id}); assert.equal(s.question,0); assert.deepEqual(s.answers[q.id],[]); assert.equal(s.completed,snapshots); }
+});
+
+test('completion can return to edit with all answers preserved, then complete again', () => {
+  const s = answerAll();
+  let edit = reduce(s, { type: 'edit-completion' });
+  assert.equal(edit.view, 'question'); assert.equal(edit.question, 5);
+  assert.deepEqual(edit.answers, s.answers); assert.equal(edit.pending.stress, undefined);
+  edit = reduce(edit, { type: 'answer', index: 2 });
+  const newTime = '2026-11-19T00:00:00.000Z';
+  const completed = reduce(edit, { type: 'next', at: newTime });
+  assert.equal(completed.view, 'completion'); assert.equal(completed.answers.stress[5], 2);
+  const saved = authenticate(openResult(completed));
+  assert.equal(saved.completed.stress.at, newTime); assert.equal(saved.completed.stress.answers[5], 2);
+});
+
+test('ordinary login from the list never skips the resumed completion result action', () => {
+  const s = answerAll();
+  const list = reduce(s, { type: 'list' });
+  const loggedIn = authenticate(reduce(list, { type: 'login' }));
+  assert.equal(loggedIn.view, 'list'); assert.equal(currentResult(loggedIn), null);
+  const resumed = reduce(reduce(loggedIn, { type: 'select', id: 'stress' }), { type: 'start' });
+  assert.equal(resumed.view, 'completion'); assert.equal(currentResult(resumed), null);
+  const saved = openResult(resumed);
+  assert.equal(saved.view, 'result'); assert.equal(currentResult(saved).at, at);
+});
+
+test('independent guest completions retain timestamps and reveal only explicitly opened result', () => {
+  const secondTime = '2026-11-19T12:00:00.000Z';
+  const first = answerAll();
+  const second = answerAll(reduce(first, { type: 'list' }), 'boundaries', 1, secondTime);
+  assert.deepEqual(second.pending, { stress: at, boundaries: secondTime });
+  let s = reduce(reduce(reduce(second, { type: 'list' }), { type: 'select', id: 'stress' }), { type: 'start' });
+  assert.equal(s.view, 'completion'); assert.equal(currentResult(s), null);
+  s = authenticate(openResult(s));
+  assert.equal(currentResult(s).at, at); assert.equal(resultFor(s, 'boundaries'), null);
+  assert.deepEqual(s.pending, { boundaries: secondTime });
+  s = reduce(reduce(reduce(s, { type: 'list' }), { type: 'select', id: 'boundaries' }), { type: 'start' });
+  assert.equal(s.view, 'completion');
+  s = openResult(s);
+  assert.equal(currentResult(s).quiz.id, 'boundaries'); assert.equal(currentResult(s).at, secondTime);
+  assert.deepEqual(s.pending, {});
 });

@@ -12,6 +12,12 @@ jobs:
   browser-acceptance:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        base-path: ['', '/ceshi']
+    env:
+      QA_BASE_PATH: ${{ matrix.base-path }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -31,9 +37,12 @@ jobs:
       - run: pnpm install --frozen-lockfile
         env:
           npm_config_registry: https://registry.npmjs.org
+      - name: Check static server contracts
+        run: node --test scripts/qa/tests-demo/serve-build.test.cjs
       - name: Build isolated frontend only
         env:
           EXPO_PUBLIC_TESTS_DEMO: '1'
+          EXPO_PUBLIC_TESTS_DEMO_BASE_PATH: ${{ matrix.base-path }}
         run: pnpm --dir client exec expo export --platform web --output-dir dist-tests-demo
       - name: Install pinned browser QA tooling outside repository
         run: |
@@ -50,7 +59,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" || true' EXIT
           for i in $(seq 1 30); do
-            if curl --fail --silent http://127.0.0.1:8421/ > /dev/null; then break; fi
+            if curl --fail --silent "http://127.0.0.1:8421${QA_BASE_PATH}/" > /dev/null; then break; fi
             sleep 1
           done
           node scripts/qa/tests-demo/browser-acceptance.cjs
@@ -61,7 +70,7 @@ jobs:
             cat "$RUNNER_TEMP/tests-demo-browser-evidence/browser-report.json"
           fi
       - name: Retain fictional UI screenshots for visual review
-        if: success() && github.event.pull_request.number == 211
+        if: success() && github.event.pull_request.number == 211 && matrix.base-path == ''
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: tests-demo-fictional-screenshots-${{ github.event.pull_request.head.sha }}
