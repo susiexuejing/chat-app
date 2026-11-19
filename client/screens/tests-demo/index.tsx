@@ -2,10 +2,10 @@ import React, { useEffect, useReducer, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '@/components/Screen';
-import { complete, currentResult, initialState, quizzes, reduce, type State, type Action, type LoadState } from '@/features/tests-demo/model';
+import { complete, currentResult, resultFor, initialState, quizzes, reduce, type State, type Action, type LoadState } from '@/features/tests-demo/model';
 
-function Button({ children, onPress, secondary = false, selected, testID }: { children: React.ReactNode; onPress: () => void; secondary?: boolean; selected?: boolean; testID?: string }) {
-  return <Pressable testID={testID} accessibilityRole="button" accessibilityState={selected === undefined ? undefined : { selected }} aria-pressed={selected} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, selected && styles.selected, pressed && styles.pressed]}><Text style={[styles.buttonText, secondary && styles.secondaryText]}>{children}</Text></Pressable>;
+function Button({ children, onPress, secondary = false, selected, testID, label }: { children: React.ReactNode; onPress: () => void; secondary?: boolean; selected?: boolean; testID?: string; label?: string }) {
+  return <Pressable accessibilityLabel={label} testID={testID} accessibilityRole="button" accessibilityState={selected === undefined ? undefined : { selected }} aria-pressed={selected} onPress={onPress} style={({ pressed }) => [styles.button, secondary && styles.secondary, selected && styles.selected, pressed && styles.pressed]}><Text style={[styles.buttonText, secondary && styles.secondaryText]}>{children}</Text></Pressable>;
 }
 export default function TestsDemo() {
   const [state, dispatch] = useReducer((state: State, action: Action) => reduce(state, action), undefined, initialState);
@@ -37,23 +37,27 @@ export default function TestsDemo() {
   </View>;
   // A new logical page must not inherit the previous page's inner scroll offset.
   const screenKey = `${state.view}:${state.selected || ''}:${state.view === 'question' ? state.question : ''}`;
-  return <Screen key={screenKey} backgroundColor="#FFFFFF"><View style={styles.container}>
+  return <Screen key={screenKey} backgroundColor="#FBFAF6"><View style={styles.container}>
     <View style={styles.header}>
       {state.view === 'list' ? <Text style={styles.brand}>EmotionFlow</Text> : <Pressable accessibilityRole="button" accessibilityLabel={state.view === 'login' ? '取消登录' : '返回测试'} onPress={() => state.view === 'login' ? dispatch({ type: 'cancel-login' }) : list()} style={styles.back}><Ionicons name="arrow-back" size={24} color="#222" /><Text style={styles.body}>测试</Text></Pressable>}
-      {state.view !== 'login' && <Pressable accessibilityRole="button" onPress={openLogin} style={styles.link}><Text style={styles.orange}>{state.identity ? `演示身份 ${state.identity}` : '登录'}</Text></Pressable>}
+      {state.view !== 'login' && <Pressable accessibilityRole="button" onPress={openLogin} style={styles.link}><Text style={styles.green}>{state.identity ? `演示身份 ${state.identity}` : '登录'}</Text></Pressable>}
     </View>
     <Text style={styles.demoLabel}>前端演示 · 模拟数据 · 未连接服务</Text>
     {state.view === 'list' && <>
-      <Text accessibilityRole="header" style={styles.title}>测试</Text><Text style={styles.subtitle}>留几分钟，了解自己。</Text>
-      <View style={styles.tabs}><View style={styles.activeTab}><Text style={styles.green}>全部测试</Text></View><Pressable accessibilityRole="button" onPress={() => dispatch({ type: 'result' })} style={styles.tab}><Text style={styles.body}>本次结果</Text></Pressable></View>
-      {state.catalog !== 'ready' ? loadingPanel('catalog', state.catalog) : quizzes.map(q => <Pressable key={q.id} accessibilityRole="button" accessibilityLabel={`${q.title}，${q.questions.length}题，约3分钟`} onPress={() => dispatch({ type: 'select', id: q.id })} style={styles.card}>
-        <Ionicons name={q.icon} size={30} color="#587B28" /><View style={styles.cardCopy}><Text style={styles.subheading}>{q.title}</Text><Text style={styles.muted}>{q.subtitle}</Text><Text style={styles.meta}>{q.questions.length} 题 · 约 3 分钟</Text></View><Ionicons name="chevron-forward" size={20} color="#777" />
-      </Pressable>)}
+      <Text accessibilityRole="header" style={styles.title}>测试</Text><Text style={styles.subtitle}>花几分钟，了解此刻的自己。</Text>
+      {state.catalog !== 'ready' ? loadingPanel('catalog', state.catalog) : quizzes.map(q => {
+        const saved = resultFor(state, q.id);
+        return <View key={q.id} style={styles.card} testID={`test-card-${q.id}`}>
+          <View style={styles.cardTop}><View style={[styles.iconTile, q.id === 'boundaries' && styles.iconGreen]}><Ionicons name={q.icon} size={26} color={q.id === 'boundaries' ? '#315844' : '#815533'} /></View><View style={styles.cardCopy}><Text style={styles.subheading}>{q.title}</Text><Text style={styles.muted}>{q.subtitle}</Text></View></View>
+          <View style={styles.cardActions}><Text style={saved ? styles.completedMeta : styles.meta}>{saved ? '已完成 · 最近一次' : `${q.questions.length} 题 · 约 2 分钟`}</Text><View style={styles.cardButton}><Button secondary={!saved} testID={`open-${q.id}`} label={`${q.title}，${saved ? '查看结果' : '开始测试'}`} onPress={() => dispatch(saved ? { type: 'result', id: q.id } : { type: 'select', id: q.id })}>{saved ? '查看结果' : '开始测试'}</Button></View></View>
+          {saved && state.retakes[q.id] !== undefined && <Button secondary testID={`resume-${q.id}`} label={`${q.title}，继续重测`} onPress={() => dispatch({ type: 'resume-retake', id: q.id })}>继续重测</Button>}
+        </View>;
+      })}
       <Text style={styles.centerNote}>完成后模拟登录查看结果</Text>
     </>}
     {state.view === 'intro' && quiz && <>
       <Ionicons name={quiz.icon} size={42} color="#587B28" /><Text accessibilityRole="header" style={styles.title}>{quiz.title}</Text><Text style={styles.subtitle}>{quiz.subtitle}</Text>
-      <Text style={styles.meta}>{quiz.questions.length} 题 · 约 3 分钟</Text><View style={styles.panel}><Text style={styles.body}>没有标准答案，选择更接近你的选项即可。</Text><Text style={styles.muted}>完成后需要模拟登录查看示例结果。这些是虚构演示题目，不是正式测评或诊断。</Text></View>
+      <Text style={styles.meta}>{quiz.questions.length} 题 · 约 2 分钟</Text><View style={styles.panel}><Text style={styles.body}>没有标准答案，选择更接近你的选项即可。</Text><Text style={styles.muted}>完成后需要模拟登录查看示例结果。这些是虚构演示题目，不是正式测评或诊断。</Text></View>
       <Button onPress={() => dispatch({ type: 'start' })}>{state.answers[quiz.id]?.length ? '继续本次测试' : '开始测试'}</Button><Button secondary onPress={list}>返回测试列表</Button>
     </>}
     {state.view === 'question' && quiz && <>
@@ -72,11 +76,11 @@ export default function TestsDemo() {
       <Button secondary onPress={() => dispatch({ type: 'cancel-login' })}>取消，返回当前流程</Button>
     </>}
     {state.view === 'result' && (state.result !== 'ready' ? loadingPanel('result', state.result) : result ? <>
-      <Text accessibilityRole="header" style={styles.title}>测试结果</Text><Text style={styles.subtitle}>{result.quiz.title} · 示例</Text>
-      <View style={styles.resultCard}><Ionicons name="leaf-outline" size={30} color="#587B28" /><Text style={styles.resultTitle}>{result.title}</Text><Text style={styles.body}>{result.description}</Text></View>
-      <View style={styles.panel}><Text style={styles.subheading}>试试这样做</Text><Text style={styles.body}>{result.suggestion}</Text></View>
+      <Text accessibilityRole="header" style={styles.title}>{result.quiz.title}</Text><Text style={styles.subtitle}>你的最近一次结果</Text>
+      <View style={styles.resultCard}><View style={styles.resultBadge}><Text style={styles.green}>示例结果</Text></View><Text style={styles.resultTitle}>{result.title}</Text><Text style={styles.body}>{result.description}</Text></View>
+      <View style={styles.suggestionCard}><Text style={styles.subheading}>可以试试</Text><Text style={styles.body}>{result.suggestion}</Text></View>
       <Text style={styles.meta}>本次完成：{new Date(result.at).toLocaleString('zh-CN')}</Text><Text style={styles.muted}>仅本次内存结果，未保存；不是正式测评，不构成诊断。</Text>
-      <Button onPress={list}>返回测试</Button><Button secondary onPress={() => { dispatch({ type: 'select', id: result.quiz.id }); }}>返回说明，修改答案</Button>
+      <Button onPress={list}>返回测试</Button><Button secondary onPress={() => dispatch({ type: 'restart' })}>重新测试</Button>
     </> : <><Text style={styles.notice}>本次结果已不可用，请重新开始。</Text><Button onPress={list}>返回测试</Button></>)}
     {!!state.notice && <Text accessibilityRole="alert" style={styles.notice}>{state.notice}</Text>}
     <Text style={styles.footer}>示例内容 · 非正式测评{ '\n' }答案与结果只在当前页面内存中保留，刷新或离开后重置。</Text>
@@ -91,12 +95,15 @@ export default function TestsDemo() {
 }
 const styles = StyleSheet.create({
   container: { width: '100%', maxWidth: 480, alignSelf: 'center', paddingHorizontal: 24, paddingTop: 18, paddingBottom: 32 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 48 }, brand: { fontSize: 22, fontWeight: '700', color: '#171B16' }, back: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 }, link: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 }, orange: { color: '#BA4900', fontSize: 16 },
-  demoLabel: { color: '#686D63', fontSize: 11, marginBottom: 24, marginTop: 8 }, title: { fontSize: 32, fontWeight: '700', color: '#171B16', marginVertical: 8 }, subtitle: { fontSize: 17, color: '#5D6258', lineHeight: 26, marginBottom: 20 },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', minHeight: 48 }, brand: { fontSize: 22, fontWeight: '700', color: '#315844' }, back: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 44 }, link: { minHeight: 44, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 4 }, orange: { color: '#BA4900', fontSize: 16 },
+  demoLabel: { color: '#686D63', fontSize: 11, marginBottom: 24, marginTop: 8 }, title: { fontSize: 32, fontWeight: '700', color: '#242C25', marginVertical: 8 }, subtitle: { fontSize: 17, color: '#5D6258', lineHeight: 26, marginBottom: 20 },
   body: { fontSize: 16, color: '#31372B', lineHeight: 25 }, muted: { fontSize: 14, color: '#666C60', lineHeight: 23 }, meta: { fontSize: 12, color: '#69705F', lineHeight: 20 }, subheading: { fontSize: 19, fontWeight: '600', color: '#20261B', marginBottom: 4 },
-  tabs: { flexDirection: 'row', borderWidth: 1, borderColor: '#D9DED2', borderRadius: 28, marginVertical: 12 }, tab: { flex: 1, padding: 12, alignItems: 'center' }, activeTab: { flex: 1, padding: 12, borderRadius: 28, backgroundColor: '#ECF3DF', alignItems: 'center' }, green: { color: '#41651A', fontSize: 16, fontWeight: '600' },
-  card: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 24, borderBottomWidth: 1, borderBottomColor: '#E5E8E0' }, cardCopy: { flex: 1 }, centerNote: { textAlign: 'center', color: '#666C60', marginVertical: 28 },
-  panel: { gap: 10, marginVertical: 24 }, button: { backgroundColor: '#CF4D00', borderRadius: 26, paddingVertical: 15, paddingHorizontal: 20, minHeight: 52, justifyContent: 'center', marginVertical: 6 }, buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600', textAlign: 'center' }, secondary: { backgroundColor: '#FFFFFF', borderColor: '#D3D8CC', borderWidth: 1, borderRadius: 12 }, secondaryText: { color: '#30372A', fontSize: 16 }, selected: { backgroundColor: '#F0F5E7', borderColor: '#658D34', borderWidth: 1 }, pressed: { opacity: 0.7 },
-  progressText: { textAlign: 'right', color: '#606659', marginTop: 12, marginBottom: 8 }, progress: { height: 6, backgroundColor: '#E8EBE3', borderRadius: 4 }, progressFill: { height: 6, backgroundColor: '#587B28', borderRadius: 4 }, question: { fontSize: 23, fontWeight: '600', color: '#20261B', lineHeight: 34, marginTop: 28, marginBottom: 22 }, spacer: { height: 22 }, loginIntro: { alignItems: 'center', marginVertical: 24 },
-  row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' }, flex: { flex: 1, minWidth: 110 }, resultCard: { backgroundColor: '#F1F6E9', borderRadius: 18, padding: 22, gap: 12, marginVertical: 18 }, resultTitle: { fontSize: 23, fontWeight: '600', color: '#26341A' }, notice: { color: '#8B4310', backgroundColor: '#FFF5E9', padding: 14, borderRadius: 10, lineHeight: 23, marginVertical: 12 }, footer: { textAlign: 'center', color: '#74796D', fontSize: 12, lineHeight: 21, marginTop: 30 }, fixture: { borderWidth: 1, borderColor: '#E4E7DF', padding: 12, borderRadius: 12, gap: 10 }, fixtureButton: { minHeight: 44, padding: 10, backgroundColor: '#F4F5F1', borderRadius: 8 },
+  green: { color: '#315844', fontSize: 16, fontWeight: '600' },
+  card: { borderWidth: 1, borderColor: '#E3E1D8', borderRadius: 20, padding: 16, backgroundColor: '#FFFFFF', marginBottom: 14 },
+  cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 }, iconTile: { width: 42, height: 42, borderRadius: 13, backgroundColor: '#F6E8D8', alignItems: 'center', justifyContent: 'center' }, iconGreen: { backgroundColor: '#E6EEDC' },
+  cardCopy: { flex: 1 }, cardActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center', justifyContent: 'space-between', marginTop: 16 }, cardButton: { minWidth: 124 }, completedMeta: { fontSize: 13, lineHeight: 22, color: '#315844' }, centerNote: { textAlign: 'center', color: '#666C60', marginVertical: 20 },
+  resultBadge: { alignSelf: 'flex-start', borderRadius: 18, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: '#FFFFFF' }, suggestionCard: { gap: 14, borderWidth: 1, borderColor: '#E3E1D8', borderRadius: 20, backgroundColor: '#FFFFFF', padding: 20, marginVertical: 14 },
+  panel: { gap: 10, marginVertical: 24 }, button: { backgroundColor: '#315844', borderRadius: 14, paddingVertical: 15, paddingHorizontal: 20, minHeight: 52, justifyContent: 'center', marginVertical: 6 }, buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '600', textAlign: 'center' }, secondary: { backgroundColor: '#FFFFFF', borderColor: '#D3D8CC', borderWidth: 1, borderRadius: 12 }, secondaryText: { color: '#315844', fontSize: 16 }, selected: { backgroundColor: '#F0F5E7', borderColor: '#658D34', borderWidth: 1 }, pressed: { opacity: 0.7 },
+  progressText: { textAlign: 'right', color: '#606659', marginTop: 12, marginBottom: 8 }, progress: { height: 6, backgroundColor: '#E8EBE3', borderRadius: 4 }, progressFill: { height: 6, backgroundColor: '#315844', borderRadius: 4 }, question: { fontSize: 23, fontWeight: '600', color: '#20261B', lineHeight: 34, marginTop: 28, marginBottom: 22 }, spacer: { height: 22 }, loginIntro: { alignItems: 'center', marginVertical: 24 },
+  row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' }, flex: { flex: 1, minWidth: 110 }, resultCard: { backgroundColor: '#E4EDDF', borderRadius: 18, padding: 22, gap: 12, marginVertical: 18 }, resultTitle: { fontSize: 23, fontWeight: '600', color: '#26341A' }, notice: { color: '#8B4310', backgroundColor: '#FFF5E9', padding: 14, borderRadius: 10, lineHeight: 23, marginVertical: 12 }, footer: { textAlign: 'center', color: '#74796D', fontSize: 12, lineHeight: 21, marginTop: 30 }, fixture: { borderWidth: 1, borderColor: '#E4E7DF', padding: 12, borderRadius: 12, gap: 10 }, fixtureButton: { minHeight: 44, padding: 10, backgroundColor: '#F4F5F1', borderRadius: 8 },
 });
