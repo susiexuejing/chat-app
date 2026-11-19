@@ -104,7 +104,7 @@ jobs:
 
       - name: Upload static-gate evidence
         # Keep this review artifact-free; results remain in the workflow log.
-        if: always() && github.head_ref != 'feature/ef388-card-results-v2'
+        if: always() && github.head_ref != 'feature/ef388-card-results-v2' && github.head_ref != 'feature/ef390-guest-result-gate'
         uses: actions/upload-artifact@v4
         with:
           name: ef92-static-gate-evidence

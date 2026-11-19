@@ -25,10 +25,10 @@ export default function TestsDemo() {
   const [showFixtures, setShowFixtures] = useState(false);
   const quiz = quizzes.find(q => q.id === state.selected);
   const result = currentResult(state);
-  const awaitingResult = !!quiz && complete(state, quiz) && state.finished?.quiz === quiz.id;
+  const awaitingResult = state.loginReturn === 'completion' && !!quiz && complete(state, quiz) && state.pending[quiz.id] !== undefined;
   const now = () => new Date().toISOString();
   const list = () => dispatch({ type: 'list' });
-  const openLogin = () => { setLoginIdentity(state.identity || 'A'); setLoginOutcome('success'); dispatch({ type: 'login' }); };
+  const openLogin = (afterCompletion = false) => { setLoginIdentity(state.identity || 'A'); setLoginOutcome('success'); dispatch({ type: afterCompletion ? 'view-completed-result' : 'login' }); };
   const loadingPanel = (target: 'catalog' | 'result', status: LoadState) => <View style={styles.panel}>
     <Text style={styles.subheading}>{status === 'loading' ? '正在展示加载状态…' : status === 'empty' ? '这里暂时没有内容' : '暂时无法展示内容'}</Text>
     <Text style={styles.muted}>这是本地演示状态，未发送请求。</Text>
@@ -40,24 +40,26 @@ export default function TestsDemo() {
   return <Screen key={screenKey} backgroundColor="#FBFAF6"><View style={styles.container}>
     <View style={styles.header}>
       {state.view === 'list' ? <Text style={styles.brand}>EmotionFlow</Text> : <Pressable accessibilityRole="button" accessibilityLabel={state.view === 'login' ? '取消登录' : '返回测试'} onPress={() => state.view === 'login' ? dispatch({ type: 'cancel-login' }) : list()} style={styles.back}><Ionicons name="arrow-back" size={24} color="#222" /><Text style={styles.body}>测试</Text></Pressable>}
-      {state.view !== 'login' && <Pressable accessibilityRole="button" onPress={openLogin} style={styles.link}><Text style={styles.green}>{state.identity ? `演示身份 ${state.identity}` : '登录'}</Text></Pressable>}
+      {state.view !== 'login' && state.view !== 'completion' && <Pressable accessibilityRole="button" onPress={() => openLogin()} style={styles.link}><Text style={styles.green}>{state.identity ? `演示身份 ${state.identity}` : '登录'}</Text></Pressable>}
     </View>
     <Text style={styles.demoLabel}>前端演示 · 模拟数据 · 未连接服务</Text>
     {state.view === 'list' && <>
       <Text accessibilityRole="header" style={styles.title}>测试</Text><Text style={styles.subtitle}>花几分钟，了解此刻的自己。</Text>
       {state.catalog !== 'ready' ? loadingPanel('catalog', state.catalog) : quizzes.map(q => {
         const saved = resultFor(state, q.id);
+        const pending = state.pending[q.id] !== undefined;
+        const cardAction = saved ? '查看结果' : pending ? '返回完成页' : '开始测试';
         return <View key={q.id} style={styles.card} testID={`test-card-${q.id}`}>
           <View style={styles.cardTop}><View style={[styles.iconTile, q.id === 'boundaries' && styles.iconGreen]}><Ionicons name={q.icon} size={26} color={q.id === 'boundaries' ? '#315844' : '#815533'} /></View><View style={styles.cardCopy}><Text style={styles.subheading}>{q.title}</Text><Text style={styles.muted}>{q.subtitle}</Text></View></View>
-          <View style={styles.cardActions}><Text style={saved ? styles.completedMeta : styles.meta}>{saved ? '已完成 · 最近一次' : `${q.questions.length} 题 · 约 2 分钟`}</Text><View style={styles.cardButton}><Button secondary={!saved} testID={`open-${q.id}`} label={`${q.title}，${saved ? '查看结果' : '开始测试'}`} onPress={() => dispatch(saved ? { type: 'result', id: q.id } : { type: 'select', id: q.id })}>{saved ? '查看结果' : '开始测试'}</Button></View></View>
+          <View style={styles.cardActions}><Text style={saved ? styles.completedMeta : styles.meta}>{saved ? '已完成 · 最近一次' : pending ? '已完成 · 待查看' : `${q.questions.length} 题 · 约 2 分钟`}</Text><View style={styles.cardButton}><Button secondary={!saved} testID={`open-${q.id}`} label={`${q.title}，${cardAction}`} onPress={() => dispatch(saved ? { type: 'result', id: q.id } : { type: 'select', id: q.id })}>{cardAction}</Button></View></View>
           {saved && state.retakes[q.id] !== undefined && <Button secondary testID={`resume-${q.id}`} label={`${q.title}，继续重测`} onPress={() => dispatch({ type: 'resume-retake', id: q.id })}>继续重测</Button>}
         </View>;
       })}
-      <Text style={styles.centerNote}>完成后模拟登录查看结果</Text>
+      <Text style={styles.centerNote}>完成后可选择查看结果，未登录时需先模拟登录</Text>
     </>}
     {state.view === 'intro' && quiz && <>
       <Ionicons name={quiz.icon} size={42} color="#587B28" /><Text accessibilityRole="header" style={styles.title}>{quiz.title}</Text><Text style={styles.subtitle}>{quiz.subtitle}</Text>
-      <Text style={styles.meta}>{quiz.questions.length} 题 · 约 2 分钟</Text><View style={styles.panel}><Text style={styles.body}>没有标准答案，选择更接近你的选项即可。</Text><Text style={styles.muted}>完成后需要模拟登录查看示例结果。这些是虚构演示题目，不是正式测评或诊断。</Text></View>
+      <Text style={styles.meta}>{quiz.questions.length} 题 · 约 2 分钟</Text><View style={styles.panel}><Text style={styles.body}>没有标准答案，选择更接近你的选项即可。</Text><Text style={styles.muted}>完成后可选择查看示例结果；未登录时需先模拟登录。这些是虚构演示题目，不是正式测评或诊断。</Text></View>
       <Button onPress={() => dispatch({ type: 'start' })}>{state.answers[quiz.id]?.length ? '继续本次测试' : '开始测试'}</Button><Button secondary onPress={list}>返回测试列表</Button>
     </>}
     {state.view === 'question' && quiz && <>
@@ -67,13 +69,24 @@ export default function TestsDemo() {
       {quiz.questions[state.question].options.map((option, index) => <Button key={option} secondary selected={state.answers[quiz.id]?.[state.question] === index} testID={`answer-${index}`} onPress={() => dispatch({ type: 'answer', index })}>{state.answers[quiz.id]?.[state.question] === index ? '●' : '○'}  {option}</Button>)}
       <View style={styles.spacer} /><Button testID="next-question" onPress={() => dispatch({ type: 'next', at: now() })}>{state.question === quiz.questions.length - 1 ? '完成测试' : '下一题'}</Button><Button secondary onPress={() => dispatch({ type: 'previous' })}>{state.question === 0 ? '返回说明' : '上一题'}</Button>
     </>}
+    {state.view === 'completion' && quiz && <>
+      <View style={styles.loginIntro}>
+        <Ionicons name="checkmark-circle-outline" size={58} color="#587B28" />
+        <Text accessibilityRole="header" style={styles.title}>测试已完成</Text>
+        <Text style={styles.subtitle}>{quiz.title} · 已答完 {quiz.questions.length} 题</Text>
+      </View>
+      <Text style={styles.muted}>{state.identity ? '你可以查看本次示例结果。' : '点击查看结果后，再模拟登录；不会创建真实账号。'}</Text>
+      <View style={styles.spacer} />
+      <Button testID="view-completed-result" onPress={() => openLogin(true)}>查看结果</Button>
+      <Button secondary onPress={() => dispatch({ type: 'edit-completion' })}>返回修改答案</Button>
+    </>}
     {state.view === 'login' && <>
-      <View style={styles.loginIntro}><Ionicons name="checkmark-circle-outline" size={58} color="#587B28" /><Text accessibilityRole="header" style={styles.title}>{awaitingResult ? '测试已完成' : '演示登录'}</Text><Text style={styles.subtitle}>{awaitingResult ? '模拟登录后，查看本次示例结果。' : '选择一个虚构身份，体验测试流程。'}</Text></View>
+      <View style={styles.loginIntro}><Ionicons name="checkmark-circle-outline" size={58} color="#587B28" /><Text accessibilityRole="header" style={styles.title}>演示登录</Text><Text style={styles.subtitle}>{awaitingResult ? '模拟登录后，查看本次示例结果。' : '选择一个虚构身份，体验测试流程。'}</Text></View>
       <Text style={styles.subheading}>选择虚构身份</Text><View style={styles.row}>{(['A', 'B'] as const).map(id => <View key={id} style={styles.flex}><Button secondary selected={loginIdentity === id} onPress={() => setLoginIdentity(id)}>演示身份 {id}</Button></View>)}</View>
       <Text style={styles.muted}>不需要手机号或验证码，不发送短信，不创建真实账号。</Text>
       {state.identity && loginIdentity !== state.identity && <Text style={styles.notice}>切换身份将清除上一身份的演示答案和结果。</Text>}
       <View style={styles.spacer} /><Button testID="simulate-login" onPress={() => dispatch({ type: 'authenticate', identity: loginIdentity, outcome: loginOutcome, at: now() })}>模拟登录{awaitingResult ? '并查看结果' : ''}</Button>
-      <Button secondary onPress={() => dispatch({ type: 'cancel-login' })}>取消，返回当前流程</Button>
+      <Button secondary onPress={() => dispatch({ type: 'cancel-login' })}>{awaitingResult ? '取消，返回完成页' : '取消，返回当前流程'}</Button>
     </>}
     {state.view === 'result' && (state.result !== 'ready' ? loadingPanel('result', state.result) : result ? <>
       <Text accessibilityRole="header" style={styles.title}>{result.quiz.title}</Text><Text style={styles.subtitle}>你的最近一次结果</Text>

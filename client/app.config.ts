@@ -5,6 +5,10 @@ const projectId = process.env.COZE_PROJECT_ID || process.env.EXPO_PUBLIC_COZE_PR
 const slugAppName = projectId ? `app${projectId}` : 'myapp';
 
 export default ({ config }: ConfigContext): ExpoConfig => {
+  const testsBasePath = process.env.EXPO_PUBLIC_TESTS_DEMO_BASE_PATH || '';
+  if (process.env.EXPO_PUBLIC_TESTS_DEMO === '1' && !['', '/ceshi'].includes(testsBasePath)) {
+    throw new Error('EXPO_PUBLIC_TESTS_DEMO_BASE_PATH must be empty or /ceshi');
+  }
   return {
     ...config,
     "name": appName,
@@ -78,7 +82,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       ]
     ],
     "experiments": {
-      "typedRoutes": true
+      "typedRoutes": true,
+      ...(process.env.EXPO_PUBLIC_TESTS_DEMO === '1' && testsBasePath ? { baseUrl: testsBasePath } : {})
     },
     "extra": {
       "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091',
