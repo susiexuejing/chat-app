@@ -37,7 +37,9 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           "configureAndroidBackup": true
         }
       ],
-      process.env.EXPO_PUBLIC_BACKEND_BASE_URL ? [
+      process.env.EXPO_PUBLIC_TESTS_DEMO === '1' ? [
+        'expo-router', { root: './tests-app' }
+      ] : process.env.EXPO_PUBLIC_BACKEND_BASE_URL ? [
         "expo-router",
         {
           "origin": process.env.EXPO_PUBLIC_BACKEND_BASE_URL

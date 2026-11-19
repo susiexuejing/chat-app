@@ -1,0 +1,75 @@
+name: Tests Demo Browser Acceptance
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'client/**'
+      - 'scripts/qa/tests-demo/**'
+      - '.github/workflows/tests-demo-browser.yml'
+permissions:
+  contents: read
+jobs:
+  browser-acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify reviewed checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: pnpm install --frozen-lockfile
+        env:
+          npm_config_registry: https://registry.npmjs.org
+      - name: Build isolated frontend only
+        env:
+          EXPO_PUBLIC_TESTS_DEMO: '1'
+        run: pnpm --dir client exec expo export --platform web --output-dir dist-tests-demo
+      - name: Install pinned browser QA tooling outside repository
+        run: |
+          mkdir -p "$RUNNER_TEMP/browserqa"
+          printf '{"private":true}' > "$RUNNER_TEMP/browserqa/package.json"
+          pnpm --dir "$RUNNER_TEMP/browserqa" add --save-exact playwright@1.56.1
+          pnpm --dir "$RUNNER_TEMP/browserqa" exec playwright install --with-deps chromium
+      - name: Run isolated localhost browser acceptance
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/browserqa/node_modules/playwright
+          QA_OUTPUT: ${{ runner.temp }}/tests-demo-browser-evidence
+        run: |
+          node scripts/qa/tests-demo/serve-build.cjs client/dist-tests-demo > "$RUNNER_TEMP/tests-demo-server.log" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" || true' EXIT
+          for i in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8421/ > /dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/qa/tests-demo/browser-acceptance.cjs
+      - name: Print result if available
+        if: always()
+        run: |
+          if test -f "$RUNNER_TEMP/tests-demo-browser-evidence/browser-report.json"; then
+            cat "$RUNNER_TEMP/tests-demo-browser-evidence/browser-report.json"
+          fi
+      - name: Retain fictional UI screenshots for visual review
+        if: success() && github.event.pull_request.number == 211
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: tests-demo-fictional-screenshots-${{ github.event.pull_request.head.sha }}
+          path: |
+            ${{ runner.temp }}/tests-demo-browser-evidence/01-list.png
+            ${{ runner.temp }}/tests-demo-browser-evidence/02-intro.png
+            ${{ runner.temp }}/tests-demo-browser-evidence/03-question.png
+            ${{ runner.temp }}/tests-demo-browser-evidence/04-login.png
+            ${{ runner.temp }}/tests-demo-browser-evidence/05-result.png
+          retention-days: 1
+          if-no-files-found: error
