@@ -134,3 +134,37 @@ test('all fictional quizzes support distinct deterministic outcomes', () => {
     assert.equal(new Set(titles).size, 3);
   }
 });
+test('retake can resume before first answer and restores cursor after visiting old result', () => {
+  let s = authenticate(answerAll()); const old = s.completed.stress;
+  s = reduce(s, { type: 'restart' }); s = reduce(s, { type: 'list' });
+  assert.equal(s.retakes.stress, 0); assert.deepEqual(s.answers.stress, []);
+  s = reduce(s, { type: 'result', id: 'stress' }); assert.equal(s.completed.stress, old);
+  s = reduce(s, { type: 'list' }); s = reduce(s, { type: 'resume-retake', id: 'stress' });
+  assert.equal(s.view, 'question'); assert.equal(s.question, 0);
+  s = reduce(s, { type: 'answer', index: 1 }); s = reduce(s, { type: 'next', at });
+  s = reduce(s, { type: 'answer', index: 2 });
+  s = answerAll(s, 'boundaries', 1);
+  s = reduce(s, { type: 'resume-retake', id: 'stress' });
+  assert.equal(s.question, 1); assert.deepEqual(s.answers.stress, [1,2]); assert.equal(s.completed.stress, old);
+  s = reduce(s, { type: 'previous' }); s = reduce(s, { type: 'list' });
+  s = reduce(s, { type: 'resume-retake', id: 'stress' }); assert.equal(s.question, 0);
+});
+test('completed retake removes resume marker; identity boundaries clear all retake drafts', () => {
+  let s = authenticate(answerAll()); s = reduce(s, { type: 'restart' });
+  for (const cleared of [reduce(s, { type: 'logout' }), reduce(s, { type: 'reset' }), authenticate(reduce(s, { type: 'login' }), 'B')]) {
+    assert.deepEqual(cleared.retakes, {}); assert.deepEqual(cleared.answers, {}); assert.deepEqual(cleared.completed, {});
+    assert.equal(reduce(cleared, { type: 'resume-retake', id: 'stress' }), cleared);
+  }
+  const old = s.completed.stress;
+  for (let i=0;i<6;i++) { s=reduce(s,{type:'answer',index:2}); if(i<5) s=reduce(s,{type:'next',at}); }
+  s=reduce(s,{type:'list'}); s=reduce(s,{type:'resume-retake',id:'stress'});
+  assert.equal(s.question,5); assert.equal(s.completed.stress,old);
+  s=reduce(s,{type:'next',at}); assert.deepEqual(s.retakes,{}); assert.equal(currentResult(s).title,'从一件小事开始');
+});
+test('all three tests can keep independent retakes with no first answer', () => {
+  let s = authenticate(answerAll()); s = answerAll(s,'boundaries',1); s = answerAll(s,'recovery',2);
+  const snapshots = s.completed;
+  for (const q of quizzes) { s=reduce(s,{type:'result',id:q.id}); s=reduce(s,{type:'restart'}); s=reduce(s,{type:'list'}); }
+  assert.equal(Object.keys(s.retakes).length,3);
+  for (const q of quizzes) { s=reduce(s,{type:'resume-retake',id:q.id}); assert.equal(s.question,0); assert.deepEqual(s.answers[q.id],[]); assert.equal(s.completed,snapshots); }
+});

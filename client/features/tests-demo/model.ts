@@ -17,9 +17,9 @@ export const quizzes: Quiz[] = [
 ];
 export type View = 'list' | 'intro' | 'question' | 'login' | 'result';
 export type LoadState = 'ready' | 'loading' | 'empty' | 'error';
-export type State = { view: View; selected: string | null; answers: Record<string, number[]>; question: number; identity: 'A' | 'B' | null; finished: { quiz: string; at: string } | null; completed: Record<string, { quiz: string; at: string; owner: 'A' | 'B'; answers: number[] }>; loginReturn: View; notice: string; catalog: LoadState; result: LoadState };
-export const initialState = (): State => ({ view: 'list', selected: null, answers: {}, question: 0, identity: null, finished: null, completed: {}, loginReturn: 'list', notice: '', catalog: 'ready', result: 'ready' });
-export type Action = { type: 'select'; id: string } | { type: 'start' } | { type: 'answer'; index: number } | { type: 'next'; at: string } | { type: 'previous' } | { type: 'list' } | { type: 'login' } | { type: 'cancel-login' } | { type: 'authenticate'; identity: 'A' | 'B'; outcome: 'success' | 'invalid' | 'expired' | 'failure'; at: string } | { type: 'logout' } | { type: 'reset' } | { type: 'result'; id?: string } | { type: 'restart' } | { type: 'fixture'; target: 'catalog' | 'result'; value: LoadState };
+export type State = { view: View; selected: string | null; answers: Record<string, number[]>; question: number; retakes: Record<string, number>; identity: 'A' | 'B' | null; finished: { quiz: string; at: string } | null; completed: Record<string, { quiz: string; at: string; owner: 'A' | 'B'; answers: number[] }>; loginReturn: View; notice: string; catalog: LoadState; result: LoadState };
+export const initialState = (): State => ({ view: 'list', selected: null, answers: {}, question: 0, retakes: {}, identity: null, finished: null, completed: {}, loginReturn: 'list', notice: '', catalog: 'ready', result: 'ready' });
+export type Action = { type: 'select'; id: string } | { type: 'start' } | { type: 'answer'; index: number } | { type: 'next'; at: string } | { type: 'previous' } | { type: 'list' } | { type: 'login' } | { type: 'cancel-login' } | { type: 'authenticate'; identity: 'A' | 'B'; outcome: 'success' | 'invalid' | 'expired' | 'failure'; at: string } | { type: 'logout' } | { type: 'reset' } | { type: 'result'; id?: string } | { type: 'restart' } | { type: 'resume-retake'; id: string } | { type: 'fixture'; target: 'catalog' | 'result'; value: LoadState };
 export function complete(state: State, quiz: Quiz) { return quiz.questions.every((q, i) => Number.isInteger(state.answers[quiz.id]?.[i]) && state.answers[quiz.id][i] >= 0 && state.answers[quiz.id][i] < q.options.length); }
 // Completed results are immutable snapshots, separate from in-progress answers.
 // Only the latest snapshot per test survives within the current fictional identity.
@@ -34,6 +34,11 @@ export function resultFor(state: State, id: string, catalog = quizzes) {
 export function currentResult(state: State, catalog = quizzes) {
   return state.selected ? resultFor(state, state.selected, catalog) : null;
 }
+function finishRetake(retakes: State['retakes'], id: string) {
+  const remaining = { ...retakes };
+  delete remaining[id];
+  return remaining;
+}
 export function reduce(state: State, action: Action, catalog = quizzes): State {
   const quiz = catalog.find(q => q.id === state.selected);
   switch (action.type) {
@@ -42,17 +47,17 @@ export function reduce(state: State, action: Action, catalog = quizzes): State {
       if (!quiz) return state;
       const unanswered = quiz.questions.findIndex((_, i) => state.answers[quiz.id]?.[i] === undefined);
       // A fully answered draft resumes at completion; an existing result opens for editing.
-      const question = unanswered >= 0 ? unanswered : resultFor(state, quiz.id, catalog) ? 0 : quiz.questions.length - 1;
+      const question = state.retakes[quiz.id] ?? (unanswered >= 0 ? unanswered : resultFor(state, quiz.id, catalog) ? 0 : quiz.questions.length - 1);
       return { ...state, view: 'question', question, notice: '' };
     }
     case 'answer': return quiz && state.view === 'question' && Number.isInteger(action.index) && action.index >= 0 && action.index < quiz.questions[state.question].options.length ? { ...state, answers: { ...state.answers, [quiz.id]: Object.assign([...(state.answers[quiz.id] || [])], { [state.question]: action.index }) }, finished: state.finished?.quiz === quiz.id ? null : state.finished, notice: '' } : state;
-    case 'previous': return state.view === 'question' ? { ...state, view: state.question > 0 ? 'question' : 'intro', question: Math.max(0, state.question - 1), notice: '' } : state;
+    case 'previous': return state.view === 'question' ? { ...state, view: state.question > 0 ? 'question' : 'intro', question: Math.max(0, state.question - 1), retakes: quiz && state.retakes[quiz.id] !== undefined ? { ...state.retakes, [quiz.id]: Math.max(0, state.question - 1) } : state.retakes, notice: '' } : state;
     case 'next':
       if (!quiz || state.view !== 'question') return state;
       if (state.answers[quiz.id]?.[state.question] === undefined) return { ...state, notice: '请先选择一个选项。' };
-      if (state.question < quiz.questions.length - 1) return { ...state, question: state.question + 1, notice: '' };
+      if (state.question < quiz.questions.length - 1) return { ...state, question: state.question + 1, retakes: state.retakes[quiz.id] !== undefined ? { ...state.retakes, [quiz.id]: state.question + 1 } : state.retakes, notice: '' };
       if (!complete(state, quiz)) return { ...state, notice: '还有题目未完成，请返回检查。' };
-      return state.identity ? { ...state, view: 'result', result: 'ready', finished: { quiz: quiz.id, at: action.at }, completed: { ...state.completed, [quiz.id]: { quiz: quiz.id, at: action.at, owner: state.identity, answers: [...state.answers[quiz.id]] } }, notice: '' } : { ...state, view: 'login', loginReturn: 'question', finished: { quiz: quiz.id, at: action.at }, notice: '' };
+      return state.identity ? { ...state, view: 'result', result: 'ready', retakes: finishRetake(state.retakes, quiz.id), finished: { quiz: quiz.id, at: action.at }, completed: { ...state.completed, [quiz.id]: { quiz: quiz.id, at: action.at, owner: state.identity, answers: [...state.answers[quiz.id]] } }, notice: '' } : { ...state, view: 'login', loginReturn: 'question', finished: { quiz: quiz.id, at: action.at }, notice: '' };
     case 'list': return { ...state, view: 'list', notice: '' };
     case 'login': return state.view === 'login' ? state : { ...state, loginReturn: state.view, view: 'login', notice: '' };
     case 'cancel-login': return { ...state, view: state.loginReturn, notice: '' };
@@ -60,11 +65,12 @@ export function reduce(state: State, action: Action, catalog = quizzes): State {
       if (state.view !== 'login') return state;
       if (action.outcome !== 'success') return { ...state, notice: { invalid: '模拟验证码无效，答案仍保留。', expired: '模拟验证码已过期，答案仍保留。', failure: '模拟登录未成功，答案仍保留。' }[action.outcome] };
       if (state.identity && state.identity !== action.identity) return { ...initialState(), identity: action.identity, notice: '已切换演示身份，上一身份的答案和结果已清除。' };
-      return quiz && complete(state, quiz) && state.finished?.quiz === quiz.id ? { ...state, identity: action.identity, view: 'result', result: 'ready', completed: { ...state.completed, [quiz.id]: { quiz: quiz.id, at: state.finished.at, owner: action.identity, answers: [...state.answers[quiz.id]] } }, notice: '' } : { ...state, identity: action.identity, view: state.loginReturn === 'login' || state.loginReturn === 'result' ? 'list' : state.loginReturn, notice: '' };
+      return quiz && complete(state, quiz) && state.finished?.quiz === quiz.id ? { ...state, identity: action.identity, view: 'result', result: 'ready', retakes: finishRetake(state.retakes, quiz.id), completed: { ...state.completed, [quiz.id]: { quiz: quiz.id, at: state.finished.at, owner: action.identity, answers: [...state.answers[quiz.id]] } }, notice: '' } : { ...state, identity: action.identity, view: state.loginReturn === 'login' || state.loginReturn === 'result' ? 'list' : state.loginReturn, notice: '' };
     }
     case 'reset': return initialState();
     case 'logout': return { ...initialState(), notice: '已退出演示，答案和结果已清除。' };
-    case 'restart': return quiz && state.view === 'result' ? { ...state, view: 'question', question: 0, answers: { ...state.answers, [quiz.id]: [] }, finished: null, notice: '' } : state;
+    case 'restart': return quiz && state.view === 'result' ? { ...state, view: 'question', question: 0, retakes: { ...state.retakes, [quiz.id]: 0 }, answers: { ...state.answers, [quiz.id]: [] }, finished: null, notice: '' } : state;
+    case 'resume-retake': return resultFor(state, action.id, catalog) && state.retakes[action.id] !== undefined ? { ...state, selected: action.id, view: 'question', question: state.retakes[action.id], notice: '' } : state;
     case 'result': {
       const id = action.id || state.selected;
       return id && resultFor(state, id, catalog) ? { ...state, selected: id, view: 'result', result: 'ready', notice: '' } : { ...state, notice: '这个测试还没有结果，请先完成测试。' };

@@ -81,13 +81,19 @@ test('real screen card actions preserve all latest results and retest only selec
     for (const [quiz, title] of [['stress','先给自己一点空间'],['boundaries','在沟通中寻找空间'],['recovery','从一件小事开始']]) {
       id(`open-${quiz}`); expect(text()).toContain(title); label('返回测试');
     }
-    id('open-stress'); label('重新测试'); id('answer-1');
+    id('open-stress'); label('重新测试');
+    press(p => p.accessibilityLabel === '返回测试');
+    id('open-stress'); expect(text()).toContain('先给自己一点空间'); label('返回测试');
+    id('resume-stress'); expect(text()).toContain('遇到压力时，你通常会怎么做？'); id('answer-1'); id('next-question'); id('answer-2');
+    press(p => p.accessibilityLabel === '返回测试'); id('resume-stress');
+    expect(text()).toContain('事情突然变多时，哪种方式更适合你？');
+    expect(tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.testID === 'answer-2')[0].props['aria-pressed']).toBe(true);
     press(p => p.accessibilityLabel === '返回测试'); id('open-stress'); expect(text()).toContain('先给自己一点空间');
-    label('重新测试'); finish(1); expect(text()).toContain('让连接成为支持'); label('返回测试');
+    label('重新测试'); finish(1); expect(text()).toContain('让连接成为支持'); label('返回测试'); expect(text()).not.toContain('resume-stress');
     id('open-boundaries'); expect(text()).toContain('在沟通中寻找空间'); label('返回测试');
-    label('演示身份 A'); label('演示身份 B'); id('simulate-login');
+    id('open-stress'); label('重新测试'); id('answer-0'); label('演示身份 A'); label('演示身份 B'); id('simulate-login');
     expect(tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.accessibilityLabel?.endsWith('，查看结果'))).toHaveLength(0);
-    id('open-stress'); label('开始测试'); finish(2); label('退出演示并清除本次内容');
+    expect(text()).not.toContain('resume-stress'); id('open-stress'); label('开始测试'); finish(2); label('重新测试'); label('退出演示并清除本次内容');
     expect(tree.root.findAll(n => n.type === ('Pressable' as any) && n.props.accessibilityLabel?.endsWith('，开始测试'))).toHaveLength(3);
     expect(text()).not.toContain('演示身份 B');
   } finally { act(() => tree?.unmount()); }

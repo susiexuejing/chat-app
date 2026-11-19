@@ -50,6 +50,7 @@ export default function TestsDemo() {
         return <View key={q.id} style={styles.card} testID={`test-card-${q.id}`}>
           <View style={styles.cardTop}><View style={[styles.iconTile, q.id === 'boundaries' && styles.iconGreen]}><Ionicons name={q.icon} size={26} color={q.id === 'boundaries' ? '#315844' : '#815533'} /></View><View style={styles.cardCopy}><Text style={styles.subheading}>{q.title}</Text><Text style={styles.muted}>{q.subtitle}</Text></View></View>
           <View style={styles.cardActions}><Text style={saved ? styles.completedMeta : styles.meta}>{saved ? '已完成 · 最近一次' : `${q.questions.length} 题 · 约 2 分钟`}</Text><View style={styles.cardButton}><Button secondary={!saved} testID={`open-${q.id}`} label={`${q.title}，${saved ? '查看结果' : '开始测试'}`} onPress={() => dispatch(saved ? { type: 'result', id: q.id } : { type: 'select', id: q.id })}>{saved ? '查看结果' : '开始测试'}</Button></View></View>
+          {saved && state.retakes[q.id] !== undefined && <Button secondary testID={`resume-${q.id}`} label={`${q.title}，继续重测`} onPress={() => dispatch({ type: 'resume-retake', id: q.id })}>继续重测</Button>}
         </View>;
       })}
       <Text style={styles.centerNote}>完成后模拟登录查看结果</Text>
