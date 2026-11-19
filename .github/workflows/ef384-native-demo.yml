@@ -85,6 +85,8 @@ jobs:
       - name: Check tracked runtime data
         run: pnpm run check:runtime-data
       - name: Upload review-only web build
+        # This frontend review authorizes CI only, not publishing build artifacts.
+        if: github.head_ref != 'feature/ef388-card-results-v2'
         uses: actions/upload-artifact@v4
         with:
           name: ef384-native-web-${{ github.event.pull_request.head.sha }}
