@@ -6,7 +6,7 @@ const require=createRequire(import.meta.url);
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const app=await makeLoopback(process.argv[2]);
 const {origin}=new URL(app.url);
-let browser;
+let browser, phase='chromium-start';
 try {
   browser=await chromium.launch({
     headless:true,ignoreDefaultArgs:['--disable-back-forward-cache'],
@@ -32,18 +32,21 @@ try {
     return await p.evaluate(()=>document.visibilityState==='hidden');
   };
   const counts=(send,verify)=>assert.deepEqual(app.counts(),{send,verify});
+  phase='guest-entry';
   await away.goto(app.url+'qa-away.html');
   await p.goto(app.url);
   await click(p,'intro');
   await visible(p,'plus86-note');
   await hidden(p,'phone');
   await click(p,'start');
+  phase='guest-answers';
   for(let i=0;i<93;i++){
     await click(p,'answer-A');await click(p,'next');
   }
   await visible(p,'view-result');
   await hidden(p,'phone');
   counts(0,0);
+  phase='cancel-retains-answers';
   await click(p,'view-result');
   await visible(p,'phone');
   await click(p,'cancel-login');
@@ -52,6 +55,7 @@ try {
   assert.equal(await selector(p,'answer-A').getAttribute('aria-selected'),'true');
   await click(p,'next');
   await click(p,'view-result');
+  phase='verify-and-save';
   await selector(p,'phone').fill('13000000000');
   await click(p,'send');
   await visible(p,'code');
@@ -66,11 +70,14 @@ try {
   assert.equal(await selector(p,'verify').isEnabled(),false);
   counts(1,0);
   await click(p,'consent');
+  assert.equal(await selector(p,'code').inputValue(),'000000');
+  counts(1,0);
   await click(p,'verify');
   await visible(p,'report');
   assert.match(await selector(p,'report').innerText(),/ESTJ/);
   counts(1,1);
 
+  phase='back-navigation';
   // Real cross-document navigation, then Back. Only label actual persisted reads BFCache.
   await p.goto(app.url+'qa-away.html');
   await p.goBack({waitUntil:'commit'});
@@ -86,6 +93,7 @@ try {
   }
   counts(1,1);
 
+  phase='cross-tab-logout';
   // Log out on a second tab in the same browser context, not a separate profile.
   await away.goto(app.url);
   await away.bringToFront();
@@ -101,6 +109,7 @@ try {
     flags.crossTabLogout='PASS';
   }
   counts(1,1);
+  phase='same-account-readback';
   await click(away,'read');
   await selector(away,'phone').fill('13000000000');
   await click(away,'send');
@@ -111,6 +120,7 @@ try {
   await visible(away,'report');
   assert.match(await selector(away,'report').innerText(),/ESTJ/);
   counts(2,2);
+  phase='account-isolation';
   await click(away,'logout');
   await click(away,'read');
   await selector(away,'phone').fill('13900000000');
@@ -122,9 +132,15 @@ try {
   await away.getByText('这个账号还没有已保存的报告。',{exact:true}).waitFor();
   await hidden(away,'report');
   counts(3,3);
+  phase='network-and-browser-errors';
   assert.deepEqual(errors,[]);
   assert.equal(blocked,0,'all candidate requests remain on localhost');
   console.log(JSON.stringify({journey:'PASS',lifecycle:flags,counts:app.counts()},null,2));
+} catch(error) {
+  // Fixed phase and error class only; never print raw browser, request or DOM details.
+  const kind=error?.name==='TimeoutError'?'timeout':error?.name==='AssertionError'?'assertion':'error';
+  console.error('QUIZ_BROWSER_FAILURE '+phase+' '+kind);
+  process.exitCode=1;
 } finally {
   try{if(browser)await browser.close();}finally{await app.close();}
 }

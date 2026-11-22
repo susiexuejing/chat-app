@@ -76,7 +76,8 @@ jobs:
           trap 'rm -f "$raw"' EXIT
           export PLAYWRIGHT_MODULE="$RUNNER_TEMP/ef394-395-quiz-browser-deps/node_modules/playwright"
           if ! node server/qa/ef394-pnvs-offline/quiz-browser-local.mjs "$RUNNER_TEMP/ef394-395-quiz-web" >"$raw" 2>&1; then
-            echo "::error::Synthetic quiz browser acceptance failed; raw browser details omitted."
+            diagnostic="$(grep -m 1 -E '^QUIZ_BROWSER_FAILURE (chromium-start|guest-entry|guest-answers|cancel-retains-answers|verify-and-save|back-navigation|cross-tab-logout|same-account-readback|account-isolation|network-and-browser-errors) (timeout|assertion|error)$' "$raw" || true)"
+            echo "::error::Synthetic quiz browser acceptance failed. ${diagnostic:-No diagnostic phase available.}"
             exit 1
           fi
           # No raw browser output, screenshots, traces, or artifacts leave the runner.

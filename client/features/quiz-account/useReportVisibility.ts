@@ -1,4 +1,4 @@
-import {useEffect,useRef} from 'react';
+import {useEffect,useLayoutEffect,useRef} from 'react';
 
 type Options={hasProtectedReport:boolean;onHide:()=>void;onResume:()=>void};
 
@@ -7,7 +7,9 @@ type Options={hasProtectedReport:boolean;onHide:()=>void;onResume:()=>void};
 // The browser veil is applied synchronously before a page can be snapshotted.
 export function useReportVisibility(options:Options) {
   const latest=useRef(options);
-  latest.current=options;
+  useLayoutEffect(()=>{
+    latest.current=options;
+  },[options]);
   useEffect(()=>{
     if(typeof window==='undefined'||typeof document==='undefined') return;
     const style=document.createElement('style');

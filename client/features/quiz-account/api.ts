@@ -17,7 +17,7 @@ const routeStatus:Record<string,ReadonlySet<string>>={
 };
 
 function isReport(r: QuizReport | null | undefined): r is QuizReport {
-  return !!r && typeof r.id==='string' && /^(?:[1-9]\d*)$/.test(r.id) &&
+  return !!r && typeof r.id==='string' && /^[1-9]\d*$/.test(r.id) &&
     (r.type===null || (typeof r.type==='string'&&/^[EI][SN][TF][JP]$/.test(r.type))) &&
     Array.isArray(r.sides) && r.sides.length===4 && r.sides.every((s,i)=>{
       const dim=['EI','SN','TF','JP'][i], total=i===0?24:23;

@@ -143,8 +143,8 @@ export function createAccessServer(config, clock=Date.now) {
            !timingSafeEqual(createHash('sha256').update(pass).digest(),Buffer.from(c.passwordSha256,'hex')))return formReply(req,res,401);
         const ttl=Math.floor((c.expiresMs-clock())/1000);
         if(ttl<1)return answer(res,403);
-        const token=randomBytes(32).toString('hex');used=true;sessions.add(token);
-        return answer(res,303,'',{'Location':prefix,'Set-Cookie':accessCookie+'='+token+'; Max-Age='+ttl+'; Path='+prefix+'; Secure; HttpOnly; SameSite=Strict'});
+        const sessionId=randomBytes(32).toString('hex');used=true;sessions.add(sessionId);
+        return answer(res,303,'',{'Location':prefix,'Set-Cookie':accessCookie+'='+sessionId+'; Max-Age='+ttl+'; Path='+prefix+'; Secure; HttpOnly; SameSite=Strict'});
       }
       if(!authorized) {
         if(req.url===prefix&&['GET','HEAD'].includes(req.method))return formReply(req,res,200);

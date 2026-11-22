@@ -1,3 +1,4 @@
+/* global require:readonly, __dirname:readonly */
 const assert=require('node:assert/strict');
 const { test }=require('node:test');
 const { readFileSync }=require('node:fs');

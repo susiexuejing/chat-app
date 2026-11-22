@@ -33,7 +33,7 @@ const consentLabel=protectedQuizAccountDev
   : '我同意使用演示身份进行本机登录验证';
 const normalizePhone = (input: string) => {
   const value = input.trim().replace(/[\s-]/g, '');
-  return /^1[3-9][0-9]{9}$/.test(value) ? '+86'+value : /^\+861[3-9][0-9]{9}$/.test(value) ? value : null;
+  return /^1[3-9]\d{9}$/.test(value) ? '+86'+value : /^\+861[3-9]\d{9}$/.test(value) ? value : null;
 };
 
 function Button({label,action,secondary=false,disabled=false,testID,selected}:{

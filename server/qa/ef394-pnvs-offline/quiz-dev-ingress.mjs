@@ -18,7 +18,7 @@ export function validateDevConfig(config, now=Date.now()) {
 }
 export function devIngressAllowed(req,config,now=Date.now()) {
   const h=req.headers;
-  const token=h[ingressHeader];
+  const presentedProof=h[ingressHeader];
   // Reject duplicates even where Node would otherwise select the first Host value.
   const protectedHeaders=new Set(['host','origin','sec-fetch-site',ingressHeader]);
   const seen=new Set();
@@ -28,8 +28,8 @@ export function devIngressAllowed(req,config,now=Date.now()) {
     seen.add(key);
   }
   if(req.socket.remoteAddress!=='127.0.0.1' || now<config.startsMs || now>=config.expiresMs ||
-    h.host!=='dev.douhaoyu.cn' || typeof token!=='string' || !/^[a-f0-9]{64}$/.test(token) ||
-    !timingSafeEqual(Buffer.from(token,'hex'),Buffer.from(config.ingressToken,'hex')) ||
+    h.host!=='dev.douhaoyu.cn' || typeof presentedProof!=='string' || !/^[a-f0-9]{64}$/.test(presentedProof) ||
+    !timingSafeEqual(Buffer.from(presentedProof,'hex'),Buffer.from(config.ingressToken,'hex')) ||
     (h.origin!==undefined&&h.origin!==origin) ||
     (!['GET','HEAD'].includes(req.method)&&h.origin!==origin) ||
     (h['sec-fetch-site']!==undefined&&h['sec-fetch-site']!=='same-origin'&&
