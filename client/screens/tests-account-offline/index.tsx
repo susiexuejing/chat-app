@@ -39,7 +39,7 @@ const normalizePhone = (input: string) => {
 function Button({label,action,secondary=false,disabled=false,testID,selected}:{
   label:string;action:()=>void;secondary?:boolean;disabled?:boolean;testID?:string;selected?:boolean;
 }) {
-  return <Pressable accessibilityRole="button" accessibilityState={{disabled, selected}} testID={testID}
+  return <Pressable accessibilityRole="button" accessibilityState={{disabled, selected}} aria-pressed={selected} testID={testID}
     onPress={action} disabled={disabled} style={[styles.button,secondary&&styles.secondary,selected&&styles.chosen,disabled&&styles.disabled]}>
     <Text style={[styles.buttonText,secondary&&styles.secondaryText]}>{label}</Text>
   </Pressable>;
@@ -228,7 +228,7 @@ export default function QuizAccountOfflineScreen() {
           inputMode="numeric" autoComplete="sms-otp" value={code} onChangeText={setCode}
           editable={!verifyTried&&!busy} maxLength={6} style={styles.input}/>
         <Pressable accessibilityRole="checkbox" accessibilityLabel={consentLabel}
-          accessibilityState={{checked:consent,disabled:busy||verifyTried}} testID="quiz-account-consent"
+          accessibilityState={{checked:consent,disabled:busy||verifyTried}} aria-checked={consent} testID="quiz-account-consent"
           disabled={busy||verifyTried} onPress={()=>setConsent(previous=>!previous)} style={styles.consentRow}>
           <View style={[styles.consentBox,consent&&styles.consentSelected]}>{consent&&<Text style={styles.consentMark}>✓</Text>}</View>
           <Text style={styles.consentLabel}>{consentLabel}</Text>
@@ -248,7 +248,7 @@ export default function QuizAccountOfflineScreen() {
       <Button label="登录回看" testID="quiz-account-read" action={()=>void requestRead()} secondary disabled={busy||logoutUnconfirmed}/>
     </> : state.view==='answering' ? <>
       <Text accessibilityRole="header" style={styles.heading}>性格偏好自测</Text>
-      <Text style={styles.kicker}>{questionIndex+1} / {questions.length}</Text>
+      <Text testID="quiz-account-progress" style={styles.kicker}>{questionIndex+1} / {questions.length}</Text>
       <Text style={styles.question}>{q.prompt}</Text>
       {(['A','B'] as const).map(option=><Button key={option} label={q.options[option]} testID={`quiz-account-answer-${option}`}
         action={()=>apply({type:'answer',id:q.id,option})} secondary selected={state.answers?.[q.id]===option}/>)}

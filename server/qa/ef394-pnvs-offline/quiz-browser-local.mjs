@@ -52,8 +52,20 @@ try {
   await click(p,'cancel-login');
   await visible(p,'view-result');
   await click(p,'edit');
-  assert.equal(await selector(p,'answer-A').getAttribute('aria-selected'),'true');
+  assert.equal((await selector(p,'progress').innerText()).trim(),'93 / 93');
+  const assertSelection=async(option)=>{
+    for(const candidate of ['A','B']){
+      assert.equal(await selector(p,'answer-'+candidate).getAttribute('aria-pressed'),String(candidate===option));
+    }
+    assert.equal(await selector(p,'next').isEnabled(),true);
+  };
+  await assertSelection('A');
+  await click(p,'answer-B');
+  await assertSelection('B');
+  await click(p,'answer-A');
+  await assertSelection('A');
   await click(p,'next');
+  counts(0,0);
   await click(p,'view-result');
   phase='verify-and-save';
   await selector(p,'phone').fill('13000000000');
@@ -70,6 +82,8 @@ try {
   assert.equal(await selector(p,'verify').isEnabled(),false);
   counts(1,0);
   await click(p,'consent');
+  assert.equal(await selector(p,'consent').getAttribute('aria-checked'),'true');
+  assert.equal(await selector(p,'verify').isEnabled(),true);
   assert.equal(await selector(p,'code').inputValue(),'000000');
   counts(1,0);
   await click(p,'verify');
