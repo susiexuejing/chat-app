@@ -47,6 +47,10 @@ Required private env (names only; no template env values are appended):
   `EF_QUIZ_PNVS_STS_TOKEN`, `EF_QUIZ_PNVS_SCHEME`, `EF_QUIZ_PNVS_SIGN`,
   `EF_QUIZ_PNVS_TEMPLATE`: verified dedicated ephemeral STS identity, and
   matching approved send/check scheme and template; no other provider service.
+  Set `EF_QUIZ_PNVS_SCHEME` explicitly to the approved name, or to the
+  empty string (`EF_QUIZ_PNVS_SCHEME=`) only if the approved configuration
+  uses the provider's Default Scheme. In that case both operations omit
+  `SchemeName`. An unset or invalid value keeps the runtime closed.
   Environment provisioning must be owner controlled with no credential output.
   Official `@alicloud/dypnsapi20170525` 2.0.0 and transitive dependencies
   are locked independently under `pnvs-deps/`. Install the lock with

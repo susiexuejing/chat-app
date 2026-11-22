@@ -48,6 +48,33 @@ test('off, malformed, expired and failed DB peer proof do not load vendor',async
   assert.equal(closed,1);
 });
 
+test('default PNVS scheme must be intentionally configured; missing and invalid values stay off',async()=>{
+  const now=Date.now();
+  const missing=envAt(now);
+  delete missing.EF_QUIZ_PNVS_SCHEME;
+  let opened=0;
+  const seen=[];
+  const options={now:()=>now,
+    connect:async()=>{opened++;return {query:async()=>({rows:[{ready:true}]}),end:async()=>{}};},
+    providerFactory:cfg=>{seen.push(cfg.scheme);return {send:async()=>null,verify:async()=>null};},
+  };
+  for(const env of [missing,{...missing,EF_QUIZ_PNVS_SCHEME:undefined},{...missing,EF_QUIZ_PNVS_SCHEME:' '},
+    {...missing,EF_QUIZ_PNVS_SCHEME:'line\nbreak'},{...missing,EF_QUIZ_PNVS_SCHEME:'fixture\n'},{...missing,EF_QUIZ_PNVS_SCHEME:'x'.repeat(21)}]) {
+    const r=await createPublicQuizRuntime({...options,env});
+    assert.equal(r.enabled,false);
+    assert.equal((await r.dispatch(req('result'),true)).http,404);
+  }
+  assert.equal(opened,0);
+  assert.deepEqual(seen,[]);
+  for(const scheme of ['','fixture']) {
+    const r=await createPublicQuizRuntime({...options,env:{...missing,EF_QUIZ_PNVS_SCHEME:scheme}});
+    assert.equal(r.enabled,true);
+    await r.close();
+  }
+  assert.equal(opened,2);
+  assert.deepEqual(seen,['','fixture']);
+});
+
 test('new scope, durable-WIP replay, provider gate and account ownership on local PGlite',async(t)=>{
   const db=new PGlite();
   t.after(async()=>db.close());
@@ -131,7 +158,7 @@ test('PNVS provider sends fixed request controls and matches correlation without
       async checkSmsVerifyCodeWithOptions(req,opt){opts.push(opt);reqs.push(req);return r();}
     }};
   let active=true;
-  const {send,verify}=createAliyunPnvs({active:()=>active},()=>sdk);
+  const {send,verify}=createAliyunPnvs({scheme:'fixture',active:()=>active},()=>sdk);
   assert.deepEqual(await send({phone:fixturePhone,outId:id,ttlSeconds:300}),{status:'accepted',outId:id});
   assert.equal(reqs[0].returnVerifyCode,false);
   assert.equal(reqs[0].autoRetry,0);

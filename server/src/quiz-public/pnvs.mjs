@@ -6,6 +6,10 @@ const HOST='dypnsapi.aliyuncs.com';
 const phone=/^\+861[3-9]\d{9}$/;
 const out=/^[a-f0-9]{32}$/;
 
+export function isPnvsScheme(value) {
+  return typeof value==='string'&&(value===''||(Array.from(value).length<=20&&!/^\s|\p{C}/u.test(value)));
+}
+
 function actualSdk() {
   const require=createRequire(new URL('./pnvs-deps/package.json',import.meta.url));
   if (require(PACKAGE+'/package.json').version!==PIN) throw new Error('unavailable PNVS SDK');
@@ -19,6 +23,7 @@ function actualSdk() {
 // The injected loader is an offline test seam. Nothing is loaded until
 // configuration and native database identity checks have succeeded.
 export function createAliyunPnvs(config, load=actualSdk) {
+  if (!config || !Object.hasOwn(config,'scheme') || !isPnvsScheme(config.scheme)) throw new TypeError('invalid PNVS scheme');
   const sdk=load();
   const client=new sdk.default(new sdk.Config({
     type:'sts',accessKeyId:config.keyId,accessKeySecret:config.keySecret,
@@ -27,7 +32,10 @@ export function createAliyunPnvs(config, load=actualSdk) {
     retryOptions:new sdk.RetryOptions({retryable:false}),
   }));
   const runtime=()=>new sdk.RuntimeOptions({autoretry:false,maxAttempts:1,connectTimeout:2500,readTimeout:4500});
-  const common=({phone:number,outId})=>({phoneNumber:number.slice(3),countryCode:'86',outId,schemeName:config.scheme});
+  // The default is intentionally selected by an explicit empty configuration.
+  // Omit the vendor field in both operations; a literal empty value is not sent.
+  const schemeFields=config.scheme===''?{}:{schemeName:config.scheme};
+  const common=({phone:number,outId})=>({phoneNumber:number.slice(3),countryCode:'86',outId,...schemeFields});
   const okay=(response,id)=>response?.statusCode===200&&response.body?.success===true&&
     response.body.code==='OK'&&response.body.model?.outId===id;
   return {

@@ -32,6 +32,7 @@ test('installed PNVS SDK signs and serializes once; transport intercepted withou
   const calls=[];
   const token='qa-only';
   let outcome='ok';
+  let expectScheme='fixture-scheme';
   const action=(req,runtime)=>{
     assert.equal(req.protocol,'HTTPS');
     assert.equal(req.headers.host,target);
@@ -40,7 +41,8 @@ test('installed PNVS SDK signs and serializes once; transport intercepted withou
     assert.equal(req.query.PhoneNumber,phone.slice(3));
     assert.equal(req.query.OutId,id);
     assert.equal(req.query.CountryCode,'86');
-    assert.equal(req.query.SchemeName,'fixture-scheme');
+    if(expectScheme==='')assert.equal(Object.hasOwn(req.query,'SchemeName'),false);
+    else assert.equal(req.query.SchemeName,expectScheme);
     assert.equal(runtime.retryOptions.retryable,false);
     assert.equal(runtime.connectTimeout,2500);
     assert.equal(runtime.readTimeout,4500);
@@ -92,6 +94,17 @@ test('installed PNVS SDK signs and serializes once; transport intercepted withou
   before=calls.length;
   await assert.rejects(verify);
   assert.equal(calls.length-before,1);
+  outcome='ok';
+  expectScheme='';
+  const defaultProvider=createAliyunPnvs({keyId:'only-a-placeholder-id',keySecret:'only-a-placeholder-key',
+    token,scheme:'',sign:'fixture-sign',template:'fixture-template',active:()=>active});
+  before=calls.length;
+  assert.deepEqual(await defaultProvider.send({phone,outId:id,ttlSeconds:300}),{status:'accepted',outId:id});
+  assert.deepEqual(await defaultProvider.verify({phone,outId:id,code}),{status:'pass',outId:id});
+  assert.deepEqual(calls.slice(before),['SendSmsVerifyCode','CheckSmsVerifyCode']);
+  for(const config of [{},{scheme:undefined},{scheme:' '},{scheme:'\n'},{scheme:'fixture\n'},{scheme:'x'.repeat(21)}]) {
+    assert.throws(()=>createAliyunPnvs(config,()=>assert.fail('SDK should not load')),/invalid PNVS scheme/);
+  }
   active=false;
   before=calls.length;
   assert.equal(await send(),null);

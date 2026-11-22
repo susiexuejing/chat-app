@@ -4,7 +4,7 @@ import {postgresReservation} from '../../qa/ef394-pnvs-offline/pnvs-ledger.mjs';
 import {createOfflineQuizAccount} from '../../qa/ef394-pnvs-offline/quiz-account.mjs';
 import {createDevAccountTransport} from '../../qa/ef394-pnvs-offline/quiz-http-offline.mjs';
 import {approvedScore} from '../../qa/ef394-pnvs-offline/approved-quiz93.mjs';
-import {createAliyunPnvs} from './pnvs.mjs';
+import {createAliyunPnvs,isPnvsScheme} from './pnvs.mjs';
 
 const ORIGIN='https://dev.douhaoyu.cn';
 const storage='devAccount';
@@ -55,7 +55,7 @@ function config(env,now) {
   const scheme=env.EF_QUIZ_PNVS_SCHEME,sign=env.EF_QUIZ_PNVS_SIGN,template=env.EF_QUIZ_PNVS_TEMPLATE;
   if(!valid(keyId,/^[a-zA-Z0-9]{16,128}$/)||!valid(keySecret,/^[a-zA-Z0-9/+_=.-]{16,256}$/)||
      !valid(token,/^[a-zA-Z0-9/+_=.-]{32,4096}$/)||
-     !valid(scheme,/^[^\p{C}\s][^\p{C}]{0,19}$/u)||!valid(sign,/^[^\p{C}\s][^\p{C}]{0,63}$/u)||
+     !Object.hasOwn(env,'EF_QUIZ_PNVS_SCHEME')||!isPnvsScheme(scheme)||!valid(sign,/^[^\p{C}\s][^\p{C}]{0,63}$/u)||
      !valid(template,/^[A-Za-z0-9_]{4,64}$/))throw new Error('invalid provider configuration');
   return {plan,active,phoneKey,browserKey,accountKey,sessionKey,consentVersion:env.EF_QUIZ_CONSENT_VERSION,
     pnvs:{keyId,keySecret,token,scheme,sign,template,active}};
