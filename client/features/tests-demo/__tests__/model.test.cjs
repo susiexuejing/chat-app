@@ -1,5 +1,6 @@
 /* global require, __filename */
 const test = require('node:test');
+const { env } = require('node:process');
 const assert = require('node:assert/strict');
 const { readFileSync, readdirSync } = require('node:fs');
 const { pathToFileURL } = require('node:url');
@@ -67,7 +68,38 @@ test('fourth local fixture uses same reducer and data driven layout', () => { co
 test('new route tree contains no legacy entry or API imports', () => {
   const root = new URL('../../../tests-app/', fileURL); assert.deepEqual(readdirSync(root).sort(), ['[...unavailable].tsx', '_layout.tsx', 'index.tsx']);
   for (const path of ['../model.ts', '../../../screens/tests-demo/index.tsx', '../../../tests-app/_layout.tsx']) { const source = readFileSync(new URL(path, fileURL), 'utf8'); assert.doesNotMatch(source, /\b(fetch|XMLHttpRequest|WebSocket|EventSource|AsyncStorage|localStorage|sessionStorage)\b|ChatProvider|\/api\//); }
-  const config = readFileSync(new URL('../../../app.config.ts', fileURL), 'utf8'); assert.match(config, /EXPO_PUBLIC_TESTS_DEMO === '1'/); assert.match(config, /root: '\.\/tests-app'/);
+  // Evaluate the config: the guard should constrain the selected route tree, not its source syntax.
+  const expoConfig = require('../../../app.config.ts').default;
+  const keys = ['EXPO_PUBLIC_TESTS_DEMO', 'EXPO_PUBLIC_TESTS_DEMO_BASE_PATH', 'EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE', 'EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV', 'EXPO_PUBLIC_BACKEND_BASE_URL'];
+  const previous = Object.fromEntries(keys.map(key => [key, env[key]]));
+  const resolveRouter = (values = {}) => {
+    for (const key of keys) {
+      if (Object.hasOwn(values, key)) env[key] = values[key];
+      else delete env[key];
+    }
+    const config = expoConfig({ config: {} });
+    return { router: config.plugins.find(item => (Array.isArray(item) ? item[0] : item) === 'expo-router'), base: config.experiments.baseUrl };
+  };
+  const demo = { EXPO_PUBLIC_TESTS_DEMO: '1' };
+  const ceshi = { ...demo, EXPO_PUBLIC_TESTS_DEMO_BASE_PATH: '/ceshi' };
+  const offline = { ...ceshi, EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE: '1' };
+  const protectedMode = { EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV: '1' };
+  try {
+    assert.deepEqual(resolveRouter(), { router: 'expo-router', base: undefined });
+    assert.deepEqual(resolveRouter({ EXPO_PUBLIC_BACKEND_BASE_URL: 'https://backend.example' }), { router: ['expo-router', { origin: 'https://backend.example' }], base: undefined });
+    assert.deepEqual(resolveRouter(demo), { router: ['expo-router', { root: './tests-app' }], base: undefined });
+    assert.deepEqual(resolveRouter(ceshi), { router: ['expo-router', { root: './tests-app' }], base: '/ceshi' });
+    assert.deepEqual(resolveRouter(offline), { router: ['expo-router', { root: './tests-account-app' }], base: '/ceshi' });
+    assert.deepEqual(resolveRouter({ ...offline, ...protectedMode }), resolveRouter(offline));
+    assert.throws(() => resolveRouter({ ...ceshi, ...protectedMode }), /requires the opt-in account tests build/);
+    assert.throws(() => resolveRouter({ ...offline, EXPO_PUBLIC_TESTS_DEMO_BASE_PATH: '' }), /requires the opt-in \/ceshi tests build/);
+    assert.throws(() => resolveRouter({ ...demo, EXPO_PUBLIC_TESTS_DEMO_BASE_PATH: '/wrong' }), /must be empty or \/ceshi/);
+  } finally {
+    for (const key of keys) {
+      if (previous[key] === undefined) delete env[key];
+      else env[key] = previous[key];
+    }
+  }
 });
 test('mid-question login resumes the unfinished question rather than claiming completion', () => {
   let s = reduce(reduce(initialState(), { type: 'select', id: 'stress' }), { type: 'start' });

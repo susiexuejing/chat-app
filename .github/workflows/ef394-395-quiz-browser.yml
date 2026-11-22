@@ -1,0 +1,104 @@
+name: EF-394/395 Synthetic Quiz Browser Acceptance
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'client/**'
+      - 'server/qa/ef394-pnvs-offline/**'
+      - 'scripts/qa/tests-demo/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/**'
+      - '.github/workflows/ef394-395-quiz-browser.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-localhost:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      EXPO_OFFLINE: '1'
+      EXPO_PUBLIC_TESTS_DEMO: '1'
+      EXPO_PUBLIC_TESTS_DEMO_BASE_PATH: '/ceshi'
+      EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE: '1'
+      EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Verify reviewed checkout
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 9.0.0
+          run_install: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20.20.2'
+      - name: Install locked workspace dependencies
+        env:
+          npm_config_registry: https://registry.npmjs.org
+        run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Install exact isolated QA dependencies
+        env:
+          npm_config_registry: https://registry.npmjs.org
+        run: |
+          qa_deps="$RUNNER_TEMP/ef394-395-quiz-browser-deps"
+          mkdir -p "$qa_deps"
+          printf '{"private":true}\n' > "$qa_deps/package.json"
+          npm --prefix "$qa_deps" install --ignore-scripts --no-audit --no-fund --save-exact \
+            @electric-sql/pglite@0.5.17 playwright@1.56.1
+          ln -s "$qa_deps/node_modules" server/qa/ef394-pnvs-offline/node_modules
+          node "$qa_deps/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Build tests-only localhost Expo bundle
+        run: |
+          raw="$(mktemp "$RUNNER_TEMP/ef394-395-quiz-export.XXXXXX")"
+          trap 'rm -f "$raw"' EXIT
+          if ! pnpm --dir client exec expo export --platform web --output-dir "$RUNNER_TEMP/ef394-395-quiz-web" >"$raw" 2>&1; then
+            echo "::error::Quiz web export failed; raw diagnostic output omitted."
+            exit 1
+          fi
+      - name: Run synthetic localhost Chrome journey
+        run: |
+          raw="$(mktemp "$RUNNER_TEMP/ef394-395-quiz-browser.XXXXXX")"
+          trap 'rm -f "$raw"' EXIT
+          export PLAYWRIGHT_MODULE="$RUNNER_TEMP/ef394-395-quiz-browser-deps/node_modules/playwright"
+          if ! node server/qa/ef394-pnvs-offline/quiz-browser-local.mjs "$RUNNER_TEMP/ef394-395-quiz-web" >"$raw" 2>&1; then
+            diagnostic="$(grep -m 1 -E '^QUIZ_BROWSER_FAILURE (chromium-start|guest-entry|guest-answers|cancel-retains-answers|verify-and-save|back-navigation|cross-tab-logout|same-account-readback|account-isolation|network-and-browser-errors) (timeout|assertion|error)$' "$raw" || true)"
+            echo "::error::Synthetic quiz browser acceptance failed. ${diagnostic:-No diagnostic phase available.}"
+            exit 1
+          fi
+          # No raw browser output, screenshots, traces, or artifacts leave the runner.
+          node - "$raw" <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const allowed = {
+            ordinaryBack: ['PASS (no cached restore)', 'Not Run'],
+            actualBfcache: ['PASS (valid session)', 'Not Run'],
+            tabSwitch: ['PASS', 'Not Run'],
+            crossTabLogout: ['PASS', 'Not Run'],
+          };
+          try {
+            const r = JSON.parse(readFileSync(process.argv[2], 'utf8'));
+            if (r.journey !== 'PASS' || r.counts?.send !== 3 || r.counts?.verify !== 3 ||
+                Object.entries(allowed).some(([key, values]) => !values.includes(r.lifecycle?.[key]))) {
+              throw new Error('invalid summary');
+            }
+            console.log('Synthetic localhost browser journey: PASS; fake sends=3, fake verifications=3.');
+            for (const key of Object.keys(allowed)) console.log(key + ': ' + r.lifecycle[key]);
+          } catch {
+            console.error('::error::Missing or invalid synthetic quiz summary; raw output omitted.');
+            process.exitCode = 1;
+          }
+          NODE
