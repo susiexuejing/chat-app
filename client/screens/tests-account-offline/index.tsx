@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/Screen';
 import { createQuizRequestId, isQuizAuthPhoneAllowed, protectedQuizAccountDev, publicQuizAccountReal, quizAccount } from '@/features/quiz-account/api';
+import { presentQuizDimension } from '@/features/quiz-account/report-interpretation';
 import { clearQuizReportVeil, useReportVisibility } from '@/features/quiz-account/useReportVisibility';
 
 type Option = 'A' | 'B';
@@ -25,9 +26,6 @@ const { createOfflineQuizUi } = require('../../../server/qa/ef394-pnvs-offline/q
   }
 };
 const ctl = createOfflineQuizUi({ questionIds: questions.map(q=>q.id), makeSubmissionId: createQuizRequestId });
-const names: Record<string, readonly [string,string]> = {
-  EI:['外向','内向'], SN:['实感','直觉'], TF:['思考','情感'], JP:['判断','感知'],
-};
 const consentLabel=publicQuizAccountReal
   ? '我同意使用此手机号接收验证码并登录查看报告'
   : protectedQuizAccountDev
@@ -280,10 +278,13 @@ export default function QuizAccountOfflineScreen() {
       {report ? <View nativeID="ef-quiz-protected-report" testID="quiz-account-report" style={styles.card}>
         <Text style={styles.question}>{report.type??'本次包含无明显偏好的维度'}</Text>
         {report.sides.map(side=>{
-          const labels=names[side.dimension]??['第一侧','第二侧'];
-          return <Text key={side.dimension} style={styles.copy}>
-            {labels[0]} {side.scores[0]} · {labels[1]} {side.scores[1]}{side.preferred===null?' · 无明显偏好':''}
-          </Text>;
+          const dimension=presentQuizDimension(side);
+          if(!dimension)return null;
+          return <View key={side.dimension} style={styles.dimension} testID={`quiz-account-dimension-${side.dimension}`}>
+            <Text accessibilityRole="header" style={styles.dimensionHeading}>{dimension.title}</Text>
+            <Text style={styles.copy} testID={`quiz-account-score-${side.dimension}`}>{dimension.score}</Text>
+            <Text style={styles.copy} testID={`quiz-account-interpretation-${side.dimension}`}>{dimension.interpretation}</Text>
+          </View>;
         })}
         <Text style={styles.copy}>已保存 · 仅供自我探索，不构成诊断。</Text>
       </View> : <Button label="重新确认登录并回看" action={()=>void requestRead()} disabled={busy} testID="quiz-account-report-refresh"/>}
@@ -300,6 +301,8 @@ const styles=StyleSheet.create({
   kicker:{fontSize:14,color:'#51664c',fontWeight:'600'},
   heading:{fontSize:27,color:'#1e3020',fontWeight:'700'},
   copy:{fontSize:16,lineHeight:24,color:'#455342'},
+  dimension:{gap:4,paddingVertical:8},
+  dimensionHeading:{fontSize:17,fontWeight:'700',color:'#263a29'},
   question:{fontSize:19,lineHeight:28,color:'#263a29',fontWeight:'600'},
   button:{minHeight:48,padding:12,borderRadius:10,backgroundColor:'#315844',justifyContent:'center'},
   buttonText:{color:'#fff',fontSize:16,textAlign:'center',fontWeight:'600'},
