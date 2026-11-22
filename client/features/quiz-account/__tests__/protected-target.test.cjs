@@ -14,6 +14,7 @@ const configSource=compile('../../../app.config.ts');
 const flags={EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE:'1',EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV:'1'};
 const dev='https://dev.douhaoyu.cn/ceshi/';
 const local='http://localhost:17412/ceshi/';
+const publicFlags={EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL:'1',EXPO_PUBLIC_TESTS_DEMO:'1',EXPO_PUBLIC_TESTS_DEMO_BASE_PATH:'/ceshi'};
 function api(env,url){
   const calls=[],exports={};
   vm.runInNewContext(apiSource,{exports,process:{env},
@@ -86,7 +87,46 @@ test('Expo requires all protected mode opt-ins while ordinary and localhost rout
   const protectedBuild=configuration({...demo,...flags});
   assert.equal(root(protectedBuild),'./tests-account-app');
   assert.equal(protectedBuild.experiments.baseUrl,'/ceshi');
+  assert.equal(root(configuration(publicFlags)),'./tests-account-app');
+  assert.equal(configuration(publicFlags).experiments.baseUrl,'/ceshi');
+  for(const variant of [{EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL:'1'},
+    {...publicFlags,EXPO_PUBLIC_TESTS_DEMO_BASE_PATH:'/other'},
+    {...publicFlags,EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE:'1'},
+    {...publicFlags,EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV:'1'}])assert.throws(()=>configuration(variant));
   assert.throws(()=>configuration(flags));
   assert.throws(()=>configuration({...demo,EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV:'1'}));
   assert.throws(()=>configuration({...demo,...flags,EXPO_PUBLIC_TESTS_DEMO_BASE_PATH:'/other'}));
+});
+
+test('real build explicitly uses the distinct same-origin API for normalized input and consent',async()=>{
+  const a=api(publicFlags,dev);
+  assert.equal(a.calls.length,0);
+  const phone='+8613100000000';
+  assert.equal((await a.api.sendChallenge('13100000000','fake',true)).status,'not-verified');
+  assert.equal((await a.api.verify(phone,'123456','fake',false)).status,'not-verified');
+  assert.equal(a.calls.length,0);
+  assert.equal((await a.api.sendChallenge(phone,'1'.repeat(32),false)).status,'not-verified');
+  assert.equal(a.calls.length,0);
+  await a.api.sendChallenge(phone,'1'.repeat(32),true);
+  await a.api.verify(phone,'123456','2'.repeat(32),true);
+  await a.api.save({submissionId:'3'.repeat(32),choices:[]});
+  await a.api.read();
+  await a.api.logout();
+  assert.deepEqual(a.calls.map(({path})=>path),['challenge','verify','result','result','logout'].map(x=>'/ceshi/api/auth/v1/'+x));
+  assert.deepEqual(JSON.parse(a.calls[0].options.body),{phone,requestId:'1'.repeat(32),consent:true});
+  assert.deepEqual(JSON.parse(a.calls[1].options.body),{phone,code:'123456',challengeId:'2'.repeat(32),consent:true});
+  assert.deepEqual(a.calls.map(({options})=>options.method),['POST','POST','POST','GET','POST']);
+  for(const {options} of a.calls)
+    assert.deepEqual([options.mode,options.credentials,options.cache,options.redirect],['same-origin','same-origin','no-store','error']);
+});
+test('real mode fails closed for altered destinations/build flags including both fixture flags',async()=>{
+  for(const url of [local,'http://dev.douhaoyu.cn/ceshi/','https://dev.douhaoyu.cn/ceshi','https://example.test/ceshi/', dev+'?next=1',dev+'#next',undefined]){
+    const a=api(publicFlags,url);assert.equal((await a.api.read()).status,'try-again');
+    assert.equal(a.calls.length,0);
+  }
+  for(const env of [{EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL:'1'},
+    {...publicFlags,EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE:'1'},{...publicFlags,EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV:'1'}]){
+    const a=api(env,dev);await a.api.sendChallenge('+8613100000000','1'.repeat(32),true);
+    assert.equal((await a.api.read()).status,'try-again');assert.equal(a.calls.length,0);
+  }
 });

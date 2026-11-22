@@ -6,6 +6,7 @@ on:
     paths:
       - 'client/**'
       - 'server/qa/ef394-pnvs-offline/**'
+      - 'server/src/quiz-public/**'
       - 'scripts/qa/tests-demo/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -102,3 +103,24 @@ jobs:
             process.exitCode = 1;
           }
           NODE
+      - name: Check real account server composition with local doubles
+        run: node --test server/src/quiz-public/runtime.test.mjs
+      - name: Build and check public client contract without DEV or SMS
+        env:
+          EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE: '0'
+          EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV: '0'
+          EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL: '1'
+        run: |
+          raw="$(mktemp "$RUNNER_TEMP/ef394-395-quiz-public.XXXXXX")"
+          trap 'rm -f "$raw"' EXIT
+          public_dir="$RUNNER_TEMP/ef394-395-quiz-public-web"
+          if ! pnpm --dir client exec expo export --platform web --output-dir "$public_dir" >"$raw" 2>&1; then
+            echo "::error::Public quiz export failed; raw diagnostic output omitted."
+            exit 1
+          fi
+          export PLAYWRIGHT_MODULE="$RUNNER_TEMP/ef394-395-quiz-browser-deps/node_modules/playwright"
+          if ! node scripts/qa/tests-demo/quiz-public-browser.cjs "$public_dir" >"$raw" 2>&1; then
+            echo "::error::Intercepted public quiz browser contract failed; raw diagnostic output omitted."
+            exit 1
+          fi
+          echo "Intercepted public quiz browser contract: PASS. DEV and SMS: Not Run."

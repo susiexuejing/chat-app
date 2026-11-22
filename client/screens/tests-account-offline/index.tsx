@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Screen } from '@/components/Screen';
-import { createQuizRequestId, isQuizAuthPhoneAllowed, protectedQuizAccountDev, quizAccount } from '@/features/quiz-account/api';
+import { createQuizRequestId, isQuizAuthPhoneAllowed, protectedQuizAccountDev, publicQuizAccountReal, quizAccount } from '@/features/quiz-account/api';
 import { clearQuizReportVeil, useReportVisibility } from '@/features/quiz-account/useReportVisibility';
 
 type Option = 'A' | 'B';
@@ -28,7 +28,9 @@ const ctl = createOfflineQuizUi({ questionIds: questions.map(q=>q.id), makeSubmi
 const names: Record<string, readonly [string,string]> = {
   EI:['外向','内向'], SN:['实感','直觉'], TF:['思考','情感'], JP:['判断','感知'],
 };
-const consentLabel=protectedQuizAccountDev
+const consentLabel=publicQuizAccountReal
+  ? '我同意使用此手机号接收验证码并登录查看报告'
+  : protectedQuizAccountDev
   ? '我同意使用指定合成身份进行本次测试登录'
   : '我同意使用演示身份进行本机登录验证';
 const normalizePhone = (input: string) => {
@@ -146,10 +148,10 @@ export default function QuizAccountOfflineScreen() {
   };
   const submitPhone=async()=>{
     const phone=normalizePhone(phoneInput);
-    if(!phone||!isQuizAuthPhoneAllowed(phone)||sendTried||logoutUnconfirmed||!begin())return;
+    if(!phone||!isQuizAuthPhoneAllowed(phone)||(publicQuizAccountReal&&!consent)||sendTried||logoutUnconfirmed||!begin())return;
     setSendTried(true);setNotice('');
     try{
-      const r=await quizAccount.sendChallenge(phone,createQuizRequestId());
+      const r=await quizAccount.sendChallenge(phone,createQuizRequestId(),consent);
       if(r.status==='pending'&&r.challengeId)setChallenge({id:r.challengeId,phone});
       else setNotice('未能确认验证码发送。本页不会自动重发。');
     }catch{setNotice('未能确认验证码发送。本页不会自动重发。');}
@@ -205,6 +207,14 @@ export default function QuizAccountOfflineScreen() {
   const locked=!!state.attempt&&state.attempt.stage!=='rejected';
   const q=questions[questionIndex];
   const normalizedInput=normalizePhone(phoneInput);
+  const consentControl=(
+        <Pressable accessibilityRole="checkbox" accessibilityLabel={consentLabel}
+          accessibilityState={{checked:consent,disabled:busy||verifyTried}} aria-checked={consent} testID="quiz-account-consent"
+          disabled={busy||verifyTried} onPress={()=>setConsent(previous=>!previous)} style={styles.consentRow}>
+          <View style={[styles.consentBox,consent&&styles.consentSelected]}>{consent&&<Text style={styles.consentMark}>✓</Text>}</View>
+          <Text style={styles.consentLabel}>{consentLabel}</Text>
+        </Pressable>
+  );
   const displayNotice=notice||({
     'save-unconfirmed':'保存尚未确认。可以重试原提交，旧报告不会在界面上被替换。',
     'invalid-submission':'这次提交未被接受，旧报告仍保留。',
@@ -212,28 +222,24 @@ export default function QuizAccountOfflineScreen() {
     'login-required':'登录已失效。请重新登录后查询已保存的报告。',
   } as Record<string,string>)[state.notice??''];
   return <Screen backgroundColor="#faf9f3"><View style={styles.page}>
-    <Text style={styles.kicker}>{protectedQuizAccountDev?'EmotionFlow · 受保护 DEV 合成验收':'EmotionFlow · 本机离线验收'}</Text>
+    <Text style={styles.kicker}>{publicQuizAccountReal?'EmotionFlow · 性格偏好自测':protectedQuizAccountDev?'EmotionFlow · 受保护 DEV 合成验收':'EmotionFlow · 本机离线验收'}</Text>
     {viewingLogin ? <>
       <Text accessibilityRole="header" style={styles.heading}>手机号验证</Text>
       <Text style={styles.copy}>{returning?'验证后回看这个账号已保存的报告。':'验证后查看并保存本次答卷。取消不会丢失答案。'}</Text>
-      <Text style={styles.copy}>{protectedQuizAccountDev?'仅供获准测试人员使用指定合成身份，请勿输入真实手机号。本验收不发真实短信。':'仅使用本机演示身份。此候选不连真实短信服务。'}</Text>
-      <Text style={styles.copy}>{protectedQuizAccountDev?'指定测试号码仅用于模拟验证。首次验证成功会在临时测试环境创建演示账号。':'手机号只用于本机验证。首次验证成功会创建本机演示账号。'}</Text>
+      <Text style={styles.copy}>{publicQuizAccountReal?'答题不需要手机号。只有你主动获取验证码时，才会提交手机号用于登录验证。':protectedQuizAccountDev?'仅供获准测试人员使用指定合成身份，请勿输入真实手机号。本验收不发真实短信。':'仅使用本机演示身份。此候选不连真实短信服务。'}</Text>
+      <Text style={styles.copy}>{publicQuizAccountReal?'验证码请勿转发。新手机号首次验证成功后会创建账号，报告保存到该账号。':protectedQuizAccountDev?'指定测试号码仅用于模拟验证。首次验证成功会在临时测试环境创建演示账号。':'手机号只用于本机验证。首次验证成功会创建本机演示账号。'}</Text>
       <TextInput accessibilityLabel="中国大陆手机号" testID="quiz-account-phone"
         placeholder="中国大陆手机号" inputMode="tel" autoComplete="off" value={phoneInput}
         onChangeText={setPhoneInput} editable={!sendTried&&!busy} maxLength={18} style={styles.input}/>
+      {publicQuizAccountReal&&consentControl}
       {!challenge&&<Button label="获取验证码" testID="quiz-account-send" action={()=>void submitPhone()}
-        disabled={busy||sendTried||!normalizedInput||!isQuizAuthPhoneAllowed(normalizedInput)}/>}
+        disabled={busy||sendTried||(publicQuizAccountReal&&!consent)||!normalizedInput||!isQuizAuthPhoneAllowed(normalizedInput)}/>}
       {challenge&&<>
         <TextInput accessibilityLabel="六位验证码" testID="quiz-account-code" placeholder="六位验证码"
           inputMode="numeric" autoComplete="sms-otp" value={code} onChangeText={setCode}
           editable={!verifyTried&&!busy} maxLength={6} style={styles.input}/>
-        <Pressable accessibilityRole="checkbox" accessibilityLabel={consentLabel}
-          accessibilityState={{checked:consent,disabled:busy||verifyTried}} aria-checked={consent} testID="quiz-account-consent"
-          disabled={busy||verifyTried} onPress={()=>setConsent(previous=>!previous)} style={styles.consentRow}>
-          <View style={[styles.consentBox,consent&&styles.consentSelected]}>{consent&&<Text style={styles.consentMark}>✓</Text>}</View>
-          <Text style={styles.consentLabel}>{consentLabel}</Text>
-        </Pressable>
-        <Text style={styles.copy}>{protectedQuizAccountDev?'仅用于受保护测试环境合成验收，不代表正式用户协议或隐私政策。请勿使用真实手机号。':'仅用于本机流程验收，不代表正式用户协议或隐私政策。请勿使用真实手机号。'}</Text>
+        {!publicQuizAccountReal&&consentControl}
+        {!publicQuizAccountReal&&<Text style={styles.copy}>{protectedQuizAccountDev?'仅用于受保护测试环境合成验收，不代表正式用户协议或隐私政策。请勿使用真实手机号。':'仅用于本机流程验收，不代表正式用户协议或隐私政策。请勿使用真实手机号。'}</Text>}
         <Button label={returning?'验证并登录':'验证并查看结果'} testID="quiz-account-verify" action={()=>void verify()}
           disabled={busy||verifyTried||!consent||!/^\d{6}$/.test(code)}/>
       </>}

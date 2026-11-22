@@ -5,13 +5,14 @@ const ID = /^[a-f0-9]{32}$/;
 const HEX = /^[a-f0-9]{64}$/;
 const COLS = 'id,run_id,release_id,subject_digest,browser_digest';
 const WHERE = 'id=$1 AND run_id=$2 AND release_id=$3 AND subject_digest=$4 AND browser_digest=$5';
-const TABLE = 'ef_quiz_sms_qa.challenge';
+const TABLES = Object.freeze({offline:'ef_quiz_sms_qa.challenge',devAccount:'ef_quiz_account_dev.challenge'});
 const ACTIVE = 'AND expires_at > clock_timestamp()';
 
 // Fixed SQL state transitions. A crash after claiming an operation strands it
 // instead of calling a provider twice. Raw phone, binding and OTP never go to DB.
-export function createChallengeFlow({ db, preflight, provider, runId, releaseId, phoneKey, browserKey, ttlSeconds = 300, finishVerified }) {
-  if (typeof db?.query !== 'function' || typeof preflight !== 'function' ||
+export function createChallengeFlow({ db, preflight, provider, runId, releaseId, phoneKey, browserKey, ttlSeconds = 300, finishVerified, storage = 'offline' }) {
+  const TABLE = Object.hasOwn(TABLES,storage) ? TABLES[storage] : null;
+  if (!TABLE || typeof db?.query !== 'function' || typeof preflight !== 'function' ||
       typeof provider?.send !== 'function' || typeof provider?.verify !== 'function' ||
       (finishVerified !== undefined && typeof finishVerified !== 'function') ||
       !/^[a-z0-9-]{8,64}$/.test(runId ?? '') || !HEX.test(releaseId ?? '') ||

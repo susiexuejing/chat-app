@@ -70,7 +70,7 @@ test('new route tree contains no legacy entry or API imports', () => {
   for (const path of ['../model.ts', '../../../screens/tests-demo/index.tsx', '../../../tests-app/_layout.tsx']) { const source = readFileSync(new URL(path, fileURL), 'utf8'); assert.doesNotMatch(source, /\b(fetch|XMLHttpRequest|WebSocket|EventSource|AsyncStorage|localStorage|sessionStorage)\b|ChatProvider|\/api\//); }
   // Evaluate the config: the guard should constrain the selected route tree, not its source syntax.
   const expoConfig = require('../../../app.config.ts').default;
-  const keys = ['EXPO_PUBLIC_TESTS_DEMO', 'EXPO_PUBLIC_TESTS_DEMO_BASE_PATH', 'EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE', 'EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV', 'EXPO_PUBLIC_BACKEND_BASE_URL'];
+  const keys = ['EXPO_PUBLIC_TESTS_DEMO', 'EXPO_PUBLIC_TESTS_DEMO_BASE_PATH', 'EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE', 'EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV', 'EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL', 'EXPO_PUBLIC_BACKEND_BASE_URL'];
   const previous = Object.fromEntries(keys.map(key => [key, env[key]]));
   const resolveRouter = (values = {}) => {
     for (const key of keys) {

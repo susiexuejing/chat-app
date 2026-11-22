@@ -9,6 +9,13 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   const testsDemo = process.env.EXPO_PUBLIC_TESTS_DEMO === '1';
   const accountOffline = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE === '1';
   const protectedDev = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV === '1';
+  const publicReal = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL === '1';
+  if (publicReal && (accountOffline || protectedDev)) {
+    throw new Error('Public quiz account mode cannot be combined with synthetic QA');
+  }
+  if (publicReal && (!testsDemo || testsBasePath !== '/ceshi')) {
+    throw new Error('Public quiz account mode requires the opt-in /ceshi tests build');
+  }
   if (protectedDev && !accountOffline) {
     throw new Error('Protected DEV quiz QA requires the opt-in account tests build');
   }
@@ -51,7 +58,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         }
       ],
       testsDemo ? [
-        'expo-router', { root: accountOffline ? './tests-account-app' : './tests-app' }
+        'expo-router', { root: (accountOffline || publicReal) ? './tests-account-app' : './tests-app' }
       ] : process.env.EXPO_PUBLIC_BACKEND_BASE_URL ? [
         "expo-router",
         {
