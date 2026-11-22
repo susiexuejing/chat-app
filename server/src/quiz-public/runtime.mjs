@@ -47,7 +47,11 @@ function config(env,now) {
   if(values.some(v=>!valid(v,hex)||/^([a-f0-9]{2})\1{31}$/.test(v))||new Set(values).size!==4)throw new Error('invalid HMAC keys');
   const [phoneKey,browserKey,accountKey,sessionKey]=values.map(v=>Buffer.from(v,'hex'));
   // STS only, no default credential discovery, developer profile, or metadata.
-  const keyId=env.EF_QUIZ_PNVS_STS_ID,keySecret=env.EF_QUIZ_PNVS_STS_SECRET,token=env.EF_QUIZ_PNVS_STS_TOKEN;
+  const {
+    EF_QUIZ_PNVS_STS_ID: keyId,
+    EF_QUIZ_PNVS_STS_SECRET: keySecret,
+    EF_QUIZ_PNVS_STS_TOKEN: token,
+  } = env;
   const scheme=env.EF_QUIZ_PNVS_SCHEME,sign=env.EF_QUIZ_PNVS_SIGN,template=env.EF_QUIZ_PNVS_TEMPLATE;
   if(!valid(keyId,/^[a-zA-Z0-9]{16,128}$/)||!valid(keySecret,/^[a-zA-Z0-9/+_=.-]{16,256}$/)||
      !valid(token,/^[a-zA-Z0-9/+_=.-]{32,4096}$/)||
