@@ -1,4 +1,4 @@
-import { ExpoConfig, ConfigContext } from 'expo/config';
+import type { ExpoConfig, ConfigContext } from 'expo/config';
 
 const appName = process.env.COZE_PROJECT_NAME || process.env.EXPO_PUBLIC_COZE_PROJECT_NAME || '应用';
 const projectId = process.env.COZE_PROJECT_ID || process.env.EXPO_PUBLIC_COZE_PROJECT_ID;
@@ -6,7 +6,16 @@ const slugAppName = projectId ? `app${projectId}` : 'myapp';
 
 export default ({ config }: ConfigContext): ExpoConfig => {
   const testsBasePath = process.env.EXPO_PUBLIC_TESTS_DEMO_BASE_PATH || '';
-  if (process.env.EXPO_PUBLIC_TESTS_DEMO === '1' && !['', '/ceshi'].includes(testsBasePath)) {
+  const testsDemo = process.env.EXPO_PUBLIC_TESTS_DEMO === '1';
+  const accountOffline = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE === '1';
+  const protectedDev = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV === '1';
+  if (protectedDev && !accountOffline) {
+    throw new Error('Protected DEV quiz QA requires the opt-in account tests build');
+  }
+  if (accountOffline && (!testsDemo || testsBasePath !== '/ceshi')) {
+    throw new Error('Offline quiz account build requires the opt-in /ceshi tests build');
+  }
+  if (testsDemo && !['', '/ceshi'].includes(testsBasePath)) {
     throw new Error('EXPO_PUBLIC_TESTS_DEMO_BASE_PATH must be empty or /ceshi');
   }
   return {
@@ -41,8 +50,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           "configureAndroidBackup": true
         }
       ],
-      process.env.EXPO_PUBLIC_TESTS_DEMO === '1' ? [
-        'expo-router', { root: './tests-app' }
+      testsDemo ? [
+        'expo-router', { root: accountOffline ? './tests-account-app' : './tests-app' }
       ] : process.env.EXPO_PUBLIC_BACKEND_BASE_URL ? [
         "expo-router",
         {
@@ -83,7 +92,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     ],
     "experiments": {
       "typedRoutes": true,
-      ...(process.env.EXPO_PUBLIC_TESTS_DEMO === '1' && testsBasePath ? { baseUrl: testsBasePath } : {})
+      ...(testsDemo && testsBasePath ? { baseUrl: testsBasePath } : {})
     },
     "extra": {
       "backendBaseUrl": process.env.EXPO_PUBLIC_BACKEND_BASE_URL || 'http://localhost:9091',
