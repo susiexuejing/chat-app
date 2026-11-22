@@ -105,6 +105,12 @@ jobs:
           NODE
       - name: Check real account server composition with local doubles
         run: node --test server/src/quiz-public/runtime.test.mjs
+      - name: Check pinned PNVS SDK with all requests intercepted
+        env:
+          npm_config_registry: https://registry.npmjs.org
+        run: |
+          npm --prefix server/src/quiz-public/pnvs-deps ci --ignore-scripts --no-audit --no-fund
+          node --test server/src/quiz-public/pnvs-sdk.test.mjs
       - name: Build and check public client contract without DEV or SMS
         env:
           EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE: '0'

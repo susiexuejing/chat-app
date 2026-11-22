@@ -48,11 +48,14 @@ Required private env (names only; no template env values are appended):
   `EF_QUIZ_PNVS_TEMPLATE`: verified dedicated ephemeral STS identity, and
   matching approved send/check scheme and template; no other provider service.
   Environment provisioning must be owner controlled with no credential output.
-  Official `@alicloud/dypnsapi20170525` 2.0.0 is dynamically pinned and
-  not installed/locked here. Require verified Node 20 import/serialization and
-  intercepted transport test with exact installed dependency tree before
-  any live deployment. The mock tests do not prove real connectivity,
-  delivery, signing, module exports, or vendor config.
+  Official `@alicloud/dypnsapi20170525` 2.0.0 and transitive dependencies
+  are locked independently under `pnvs-deps/`. Install the lock with
+  `npm ci --prefix server/src/quiz-public/pnvs-deps --ignore-scripts --no-audit --no-fund`.
+  Run `node --test server/src/quiz-public/pnvs-sdk.test.mjs` using Node 20
+  to verify module exports, signing, request/response serialization and
+  single-attempt failures using synthetic credentials and a blocked
+  transport. This does not prove live connectivity, provider setup,
+  delivery, or actual signature acceptance.
   [Send terms](https://help.aliyun.com/en/pnvs/developer-reference/api-dypnsapi-2017-05-25-sendsmsverifycode)
   and [Check terms](https://help.aliyun.com/en/pnvs/developer-reference/api-dypnsapi-2017-05-25-checksmsverifycode).
 

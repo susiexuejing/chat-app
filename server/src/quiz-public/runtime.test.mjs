@@ -124,9 +124,9 @@ test('PNVS provider sends fixed request controls and matches correlation without
   const id='a'.repeat(32);
   let status='PASS',outId=id,exposure;
   const r=()=>({statusCode:200,body:{success:true,code:'OK',model:{outId,verifyResult:status,verifyCode:exposure}}});
-  const sdk={Config:Model,RuntimeOptions:Model,SendSmsVerifyCodeRequest:Model,CheckSmsVerifyCodeRequest:Model,
+  const sdk={Config:Model,RuntimeOptions:Model,RetryOptions:Model,SendSmsVerifyCodeRequest:Model,CheckSmsVerifyCodeRequest:Model,
     default:class {
-      constructor(o){assert.equal(o.type,'sts');assert.equal(o.endpoint,'dypnsapi.aliyuncs.com');}
+      constructor(o){assert.equal(o.type,'sts');assert.equal(o.endpoint,'dypnsapi.aliyuncs.com');assert.equal(o.retryOptions.retryable,false);}
       async sendSmsVerifyCodeWithOptions(req,opt){opts.push(opt);reqs.push(req);return r();}
       async checkSmsVerifyCodeWithOptions(req,opt){opts.push(opt);reqs.push(req);return r();}
     }};

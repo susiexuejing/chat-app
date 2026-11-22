@@ -1,0 +1,9 @@
+{
+  "name": "emotionflow-quiz-pnvs-runtime-deps",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Isolated Alibaba Cloud SDK lock for the unmounted DEV quiz account runtime",
+  "dependencies": {
+    "@alicloud/dypnsapi20170525": "2.0.0"
+  }
+}

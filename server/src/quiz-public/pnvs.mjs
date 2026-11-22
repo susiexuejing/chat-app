@@ -7,12 +7,13 @@ const phone=/^\+861[3-9]\d{9}$/;
 const out=/^[a-f0-9]{32}$/;
 
 function actualSdk() {
-  const require=createRequire(import.meta.url);
+  const require=createRequire(new URL('./pnvs-deps/package.json',import.meta.url));
   if (require(PACKAGE+'/package.json').version!==PIN) throw new Error('unavailable PNVS SDK');
   const sdk=require(PACKAGE);
   const dependencies=createRequire(require.resolve(PACKAGE));
-  return {...sdk,Config:dependencies('@alicloud/openapi-client').Config,
-    RuntimeOptions:dependencies('@alicloud/tea-util').RuntimeOptions};
+  const { $OpenApiUtil }=dependencies('@alicloud/openapi-core');
+  const { RuntimeOptions, RetryOptions }=dependencies('@darabonba/typescript');
+  return {...sdk,Config:$OpenApiUtil.Config,RuntimeOptions,RetryOptions};
 }
 
 // The injected loader is an offline test seam. Nothing is loaded until
@@ -22,6 +23,8 @@ export function createAliyunPnvs(config, load=actualSdk) {
   const client=new sdk.default(new sdk.Config({
     type:'sts',accessKeyId:config.keyId,accessKeySecret:config.keySecret,
     securityToken:config.token,endpoint:HOST,protocol:'HTTPS',
+    // OpenAPI core v1 reads retries from client config, not RuntimeOptions.
+    retryOptions:new sdk.RetryOptions({retryable:false}),
   }));
   const runtime=()=>new sdk.RuntimeOptions({autoretry:false,maxAttempts:1,connectTimeout:2500,readTimeout:4500});
   const common=({phone:number,outId})=>({phoneNumber:number.slice(3),countryCode:'86',outId,schemeName:config.scheme});
