@@ -75,6 +75,13 @@ exact schema/trigger hashes before any runtime start; never run outside
 that DB. Grant no direct ledger access to runtime, and run seeding/removal
 as separately authorized owner. App requires durable pseudonymous report
 and idempotency semantics, does not persist raw answers/codes/phone.
+The isolated account report records a server-owned digest of the approved
+question text, sequence and scoring map plus a database-owned first-save
+timestamp. Identical replay keeps both values; a conflicting revision
+cannot overwrite an earlier submission. They are not exposed in the result
+API or displayed. Verify the staged client question set matches this
+runtime's approved bank before enabling it. This candidate is for a fresh
+quiz-only schema; do not stamp invented metadata on any earlier rows.
 Configure approved retention/deletion, cleanup, abuse protection and
 operations before any actual public registration. Do not open broad SMS
 using a QA-only time/number budget design.

@@ -3,7 +3,7 @@ import {phoneDigest,createPreflight} from '../../qa/ef394-pnvs-offline/pnvs-pref
 import {postgresReservation} from '../../qa/ef394-pnvs-offline/pnvs-ledger.mjs';
 import {createOfflineQuizAccount} from '../../qa/ef394-pnvs-offline/quiz-account.mjs';
 import {createDevAccountTransport} from '../../qa/ef394-pnvs-offline/quiz-http-offline.mjs';
-import {approvedScore} from '../../qa/ef394-pnvs-offline/approved-quiz93.mjs';
+import {approvedBankRevision,approvedScore} from '../../qa/ef394-pnvs-offline/approved-quiz93.mjs';
 import {createAliyunPnvs,isPnvsScheme} from './pnvs.mjs';
 
 const ORIGIN='https://dev.douhaoyu.cn';
@@ -21,6 +21,9 @@ const identitySql=`SELECT current_database() = $1 AND current_user = $2 AND sess
   AND NOT pg_catalog.has_table_privilege(current_user,'ef_quiz_account_dev.run_budget','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
   AND pg_catalog.has_function_privilege(current_user,'ef_quiz_account_dev.reserve_run_budget(text,text,text,text,bigint,bigint,smallint)','EXECUTE')
   AND pg_catalog.has_function_privilege(current_user,'ef_quiz_account_dev.verified_run_active(text,text,text)','EXECUTE')
+  AND pg_catalog.has_column_privilege(current_user,'ef_quiz_account_dev.report','bank_revision','INSERT')
+  AND NOT pg_catalog.has_column_privilege(current_user,'ef_quiz_account_dev.report','bank_revision','UPDATE')
+  AND NOT pg_catalog.has_column_privilege(current_user,'ef_quiz_account_dev.report','first_saved_at','INSERT,UPDATE')
   AS ready FROM pg_catalog.pg_roles r WHERE r.rolname=current_user`;
 
 // No PG* env overrides: pg can source missing fields from its environment.
@@ -89,7 +92,7 @@ export async function createPublicQuizRuntime({
     };
     const provider=c.active()?providerFactory(c.pnvs):null;
     if(!provider)throw new Error('inactive provider');
-    const service=createOfflineQuizAccount({storage,db,preflight,provider,score:approvedScore,
+    const service=createOfflineQuizAccount({storage,db,preflight,provider,score:approvedScore,bankRevision:approvedBankRevision,
       runId:c.plan.runId,releaseId:c.plan.release,consentVersion:c.consentVersion,
       phoneKey:c.phoneKey,browserKey:c.browserKey,accountKey:c.accountKey,sessionKey:c.sessionKey,
       sessionTtlSeconds:900});

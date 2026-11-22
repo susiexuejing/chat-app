@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 const bank = JSON.parse(readFileSync(new URL('approved-quiz93.json', import.meta.url), 'utf8'));
@@ -12,6 +13,11 @@ if (bank.length !== 93 || bank.some((q,i) =>
   dimensions.some((dim,i) => bank.filter(q => q.awards.A + q.awards.B === dim).length !== totals[i])) {
   throw new Error('invalid approved quiz source');
 }
+// Pin the question text, order, and scoring map, independent of JSON formatting.
+export const approvedBankRevision = createHash('sha256').update(JSON.stringify(
+  bank.map(({id,prompt,options,awards}) => [id,prompt,options.A,options.B,awards.A,awards.B])
+)).digest('hex');
+
 export const questions = Object.freeze(bank.map(({id,prompt,options}) =>
   Object.freeze({id,prompt,options:Object.freeze({...options})})));
 

@@ -70,6 +70,8 @@ CREATE TABLE ef_quiz_account_dev.report (
   submission_id text NOT NULL CHECK (submission_id ~ '^[a-f0-9]{32}$'),
   answer_digest text NOT NULL CHECK (answer_digest ~ '^[a-f0-9]{64}$'),
   scores jsonb NOT NULL,
+  bank_revision text NOT NULL CHECK (bank_revision ~ '^[a-f0-9]{64}$'),
+  first_saved_at timestamptz NOT NULL DEFAULT clock_timestamp(),
   UNIQUE (account_id, submission_id)
 );
 REVOKE ALL ON ef_quiz_account_dev.account, ef_quiz_account_dev.session, ef_quiz_account_dev.report FROM PUBLIC;
@@ -118,8 +120,12 @@ FOR EACH ROW EXECUTE FUNCTION ef_quiz_account_dev.admit_challenge();
 
 -- Runtime role must already exist, use exclusive local peer and not own objects.
 GRANT USAGE ON SCHEMA ef_quiz_account_dev TO ef_quiz_account_qa_runtime;
-GRANT SELECT, INSERT, UPDATE ON ef_quiz_account_dev.challenge, ef_quiz_account_dev.account, ef_quiz_account_dev.report TO ef_quiz_account_qa_runtime;
+GRANT SELECT, INSERT, UPDATE ON ef_quiz_account_dev.challenge, ef_quiz_account_dev.account TO ef_quiz_account_qa_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ef_quiz_account_dev.session TO ef_quiz_account_qa_runtime;
+-- Same-submission replay only rewrites its unchanged ID. Creation time comes
+-- from Postgres, and runtime cannot update either metadata column.
+GRANT SELECT, INSERT (account_id, submission_id, answer_digest, scores, bank_revision),
+  UPDATE (submission_id) ON ef_quiz_account_dev.report TO ef_quiz_account_qa_runtime;
 GRANT USAGE ON SEQUENCE ef_quiz_account_dev.report_id_seq TO ef_quiz_account_qa_runtime;
 GRANT EXECUTE ON FUNCTION ef_quiz_account_dev.reserve_run_budget(text,text,text,text,bigint,bigint,smallint),
   ef_quiz_account_dev.verified_run_active(text,text,text) TO ef_quiz_account_qa_runtime;

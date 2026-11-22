@@ -12,7 +12,7 @@ const report = (row) => ({ id: String(row.id), scores: row.scores });
 
 // One SQL statement: failing to insert the session rolls back challenge and
 // account changes. The token is generated server-side and never stored raw.
-function queries(NS) {
+function queries(NS, versioned) {
   const OPEN = `WITH checked AS (
   UPDATE ${NS}.challenge SET state='verified'
   WHERE id=$1 AND run_id=$2 AND release_id=$3 AND subject_digest=$4 AND browser_digest=$5
@@ -34,10 +34,10 @@ RETURNING account_id`;
   const SAVE = `WITH owner AS (
   SELECT account_id FROM ${NS}.session WHERE ${ACTIVE} FOR UPDATE
 ), saved AS (
-  INSERT INTO ${NS}.report AS saved(account_id,submission_id,answer_digest,scores)
-  SELECT account_id,$3,$4,$5::jsonb FROM owner
+  INSERT INTO ${NS}.report AS saved(account_id,submission_id,answer_digest,scores${versioned ? ",bank_revision" : ""})
+  SELECT account_id,$3,$4,$5::jsonb${versioned ? ",$6" : ""} FROM owner
   ON CONFLICT (account_id,submission_id) DO UPDATE SET submission_id=EXCLUDED.submission_id
-  WHERE saved.answer_digest=EXCLUDED.answer_digest
+  WHERE saved.answer_digest=EXCLUDED.answer_digest${versioned ? " AND saved.bank_revision=EXCLUDED.bank_revision" : ""}
   RETURNING id,scores
 )
 SELECT EXISTS (SELECT 1 FROM owner) AS authorized, (SELECT id FROM saved) AS id, (SELECT scores FROM saved) AS scores`;
@@ -52,11 +52,15 @@ WHERE ${ACTIVE}`;
 }
 
 export function createOfflineQuizAccount({ sessionKey, accountKey, score, sessionTtlSeconds = 3600,
-  storage = 'offline', consentVersion = 'local-offline-v1', ...challenge }) {
+  storage = 'offline', bankRevision, consentVersion = 'local-offline-v1', ...challenge }) {
   const NS = Object.hasOwn(schemas,storage) ? schemas[storage] : null;
   if (!NS || (storage === 'offline' ? consentVersion !== 'local-offline-v1'
     : !/^dev-qa-[a-z0-9-]{3,50}$/.test(consentVersion))) throw new TypeError('invalid account storage');
-  const {OPEN,SAVE,READ} = queries(NS);
+  const versioned = storage === 'devAccount';
+  if (versioned && (typeof bankRevision !== 'string' || !HEX.test(bankRevision))) {
+    throw new TypeError('invalid question bank revision');
+  }
+  const {OPEN,SAVE,READ} = queries(NS, versioned);
   if (!Buffer.isBuffer(sessionKey) || sessionKey.length < 32 ||
       !Buffer.isBuffer(accountKey) || accountKey.length < 32 || accountKey.equals(sessionKey) ||
       [challenge.phoneKey, challenge.browserKey].some(key => Buffer.isBuffer(key) && (key.equals(sessionKey) || key.equals(accountKey))) ||
@@ -97,7 +101,9 @@ export function createOfflineQuizAccount({ sessionKey, accountKey, score, sessio
           return [dimension, [pair[0], pair[1]]];
         }));
         const fingerprint = digest(key, 'ef-quiz-result-v1', submissionId + ':' + canonical.join(''));
-        const { rows: [row] } = await db.query(SAVE, [...args, submissionId, fingerprint, JSON.stringify(scores)]);
+        const saveArgs = [...args, submissionId, fingerprint, JSON.stringify(scores)];
+        if (versioned) saveArgs.push(bankRevision);
+        const { rows: [row] } = await db.query(SAVE, saveArgs);
         if (!row.authorized) return anonymous;
         return row.id == null ? {status: 'submission-conflict'} : {status:'saved', report:report(row)};
       } catch { return unavailable; }

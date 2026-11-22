@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createHash,randomBytes} from 'node:crypto';
 import {PGlite} from '../../qa/ef394-pnvs-offline/node_modules/@electric-sql/pglite/dist/index.js';
+import {questions} from '../../qa/ef394-pnvs-offline/approved-quiz93.mjs';
 import {phoneDigest} from '../../qa/ef394-pnvs-offline/pnvs-preflight.mjs';
 import {createPublicQuizRuntime} from './runtime.mjs';
 import {createAliyunPnvs} from './pnvs.mjs';
@@ -75,7 +76,14 @@ test('default PNVS scheme must be intentionally configured; missing and invalid 
   assert.deepEqual(seen,['','fixture']);
 });
 
-test('new scope, durable-WIP replay, provider gate and account ownership on local PGlite',async(t)=>{
+test('the staged client displays the exact approved server prompts and choice order', async()=>{
+  const clientBank=JSON.parse(await readFile(new URL(
+    '../../../client/screens/tests-account-offline/approved-quiz93-prompts.json',import.meta.url
+  ),'utf8'));
+  assert.deepEqual(clientBank,questions);
+});
+
+test('new scope, durable replay, report metadata and account ownership on local PGlite',async(t)=>{
   const db=new PGlite();
   t.after(async()=>db.close());
   const sql=await readFile(new URL('./migration.candidate.sql',import.meta.url),'utf8');
@@ -129,17 +137,40 @@ test('new scope, durable-WIP replay, provider gate and account ownership on loca
   const save=await r.dispatch(req('result',payload,a),true);
   assert.equal(save.http,200,JSON.stringify(save.body));
   assert.equal(save.body.report.type,'ESTJ');
+  const storedMeta=async()=>(await db.query(`SELECT bank_revision, first_saved_at::text,
+    first_saved_at <= clock_timestamp() AS not_future
+    FROM ef_quiz_account_dev.report`)).rows;
+  const before=await storedMeta();
+  assert.equal(before.length,1);
+  const source=JSON.parse(await readFile(new URL('../../qa/ef394-pnvs-offline/approved-quiz93.json',import.meta.url),'utf8'));
+  const expectedRevision=createHash('sha256').update(JSON.stringify(source.map(q=>[
+    q.id,q.prompt,q.options.A,q.options.B,q.awards.A,q.awards.B,
+  ]))).digest('hex');
+  assert.equal(before[0].bank_revision,expectedRevision);
+  assert.equal(before[0].not_future,true);
+  assert.ok(Number.isFinite(Date.parse(before[0].first_saved_at)));
+  assert.equal(Object.hasOwn(save.body.report,'bankRevision'),false);
+  assert.equal(Object.hasOwn(save.body.report,'firstSavedAt'),false);
+  assert.deepEqual(Object.keys((await db.query('SELECT * FROM ef_quiz_account_dev.report')).rows[0]).sort(),
+    ['account_id','answer_digest','bank_revision','first_saved_at','id','scores','submission_id']);
+  await assert.rejects(db.query("UPDATE ef_quiz_account_dev.report SET bank_revision=repeat('f',64)"),/permission denied/);
+  await assert.rejects(db.query("UPDATE ef_quiz_account_dev.report SET first_saved_at=clock_timestamp()"),/permission denied/);
+  await db.query('SELECT pg_sleep(0.02)');
   const read=await r.dispatch(req('result',undefined,a),true);
   assert.deepEqual(read.body.report,save.body.report);
   assert.deepEqual((await r.dispatch(req('result',payload,a),true)).body,save.body);
+  assert.deepEqual(await storedMeta(),before);
   const b=await login(otherFixture);
   assert.equal((await r.dispatch(req('result',undefined,b),true)).body.report,null);
   assert.deepEqual((await r.dispatch(req('logout',{},a),true)).body,{status:'signed-out'});
   assert.equal((await r.dispatch(req('result',undefined,a),true)).http,401);
+  const again=await login(fixturePhone);
+  assert.deepEqual((await r.dispatch(req('result',undefined,again),true)).body.report,save.body.report);
+  assert.deepEqual(await storedMeta(),before);
   for(let tries=0;tries<5;tries++)assert.equal((await r.dispatch(req('challenge',
     {phone:otherFixture,requestId:hex(),consent:true}),true)).http,422);
-  assert.equal((await db.query('SELECT count(*)::integer AS n FROM ef_quiz_account_dev.challenge')).rows[0].n,2);
-  assert.deepEqual([sent,checked],[2,2]);
+  assert.equal((await db.query('SELECT count(*)::integer AS n FROM ef_quiz_account_dev.challenge')).rows[0].n,3);
+  assert.deepEqual([sent,checked],[3,3]);
   now=plan.until;
   assert.equal((await r.dispatch(req('result',undefined,b),true)).http,404);
   await r.close();
