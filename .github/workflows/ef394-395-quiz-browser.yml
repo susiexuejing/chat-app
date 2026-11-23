@@ -105,6 +105,8 @@ jobs:
           NODE
       - name: Check real account server composition with local doubles
         run: node --test server/src/quiz-public/runtime.test.mjs
+      - name: Check private Unix quiz ingress without DEV or SMS
+        run: EF_QUIZ_REQUIRE_UNIX_SMOKE=1 node --test server/src/quiz-public/unix-http.test.mjs
       - name: Check pinned PNVS SDK with all requests intercepted
         env:
           npm_config_registry: https://registry.npmjs.org
