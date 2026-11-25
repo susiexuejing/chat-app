@@ -8,6 +8,7 @@ import dns from 'node:dns';
 import http2 from 'node:http2';
 import dgram from 'node:dgram';
 import {createAliyunPnvs} from './pnvs.mjs';
+import './pnvs-sts-format.test.mjs';
 
 test('installed PNVS SDK signs and serializes once; transport intercepted without network',async t=>{
   const rejectNetwork=()=>{assert.fail('network forbidden in SDK verification');};

@@ -12,6 +12,9 @@ const target=Object.freeze({host:'/run/ef-quiz-postgres-dev',port:55439,database
 const hidden=createDevAccountTransport({enabled:false});
 const valid=(value,rx)=>typeof value==='string'&&rx.test(value);
 const hex=/^[a-f0-9]{64}$/;
+// AssumeRole returns a temporary AccessKey ID such as STS.<alphanumeric>.
+// Preserve the existing total length limit and permit no other separator.
+const providerKeyId=/^(?:STS\.[a-zA-Z0-9]{16,124}|[a-zA-Z0-9]{16,128})(?![\s\S])/;
 const planFields=['runId','release','from','until','subjects'];
 const identitySql=`SELECT current_database() = $1 AND current_user = $2 AND session_user = $2 AND inet_server_addr() IS NULL
   AND NOT r.rolsuper AND NOT r.rolcreatedb AND NOT r.rolcreaterole AND NOT r.rolreplication AND NOT r.rolbypassrls
@@ -56,7 +59,7 @@ function config(env,now) {
     EF_QUIZ_PNVS_STS_TOKEN: token,
   } = env;
   const scheme=env.EF_QUIZ_PNVS_SCHEME,sign=env.EF_QUIZ_PNVS_SIGN,template=env.EF_QUIZ_PNVS_TEMPLATE;
-  if(!valid(keyId,/^[a-zA-Z0-9]{16,128}$/)||!valid(keySecret,/^[a-zA-Z0-9/+_=.-]{16,256}$/)||
+  if(!valid(keyId,providerKeyId)||!valid(keySecret,/^[a-zA-Z0-9/+_=.-]{16,256}$/)||
      !valid(token,/^[a-zA-Z0-9/+_=.-]{32,4096}$/)||
      !Object.hasOwn(env,'EF_QUIZ_PNVS_SCHEME')||!isPnvsScheme(scheme)||!valid(sign,/^[^\p{C}\s][^\p{C}]{0,63}$/u)||
      !valid(template,/^[A-Za-z0-9_]{4,64}$/))throw new Error('invalid provider configuration');
