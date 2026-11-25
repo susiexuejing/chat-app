@@ -5,6 +5,15 @@ const { withUniwindConfig } = require('uniwind/metro');
 
 const config = getDefaultConfig(__dirname);
 
+// Expo inlines public build flags; keep account transforms from one target
+// out of the other target's bundle even when exporting back-to-back.
+if (process.env.EXPO_PUBLIC_TESTS_ACCOUNT_PUBLIC_REAL === '1') {
+  config.cacheVersion = `${config.cacheVersion}|ef394-account-public-real`;
+} else if (process.env.EXPO_PUBLIC_TESTS_ACCOUNT_OFFLINE === '1') {
+  const target = process.env.EXPO_PUBLIC_TESTS_ACCOUNT_PROTECTED_DEV === '1' ? 'protected-dev' : 'localhost';
+  config.cacheVersion = `${config.cacheVersion}|ef394-account-${target}`;
+}
+
 // 安全地获取 Expo 的默认排除列表
 const existingBlockList = [].concat(config.resolver.blockList || []);
 
